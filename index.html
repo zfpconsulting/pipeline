@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<title>Vojtova pipeline</title>
+<title>Pipeline</title>
 <style>
 :root{
   --bg:#F2F2F7; --bg2:#FFFFFF; --bg3:#F2F2F7; --fill:rgba(120,120,128,.12); --fill2:rgba(120,120,128,.08);
@@ -307,6 +307,10 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 .dbody p{margin:0;color:var(--label2);font-size:14px;line-height:1.4}
 .dbtn{display:block;width:100%;text-align:left;padding:13px 16px;background:var(--bg2);border-radius:var(--r);font-size:16px;color:var(--tint)}
 .dbtn.red{color:var(--red)}
+.dcfg{background:var(--bg2);border-radius:var(--r);padding:12px 16px;display:grid;gap:10px}
+.dcfg label{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:15px}
+.dcfg select,.dcfg input{font:inherit;font-size:15px;color:var(--label);background:var(--fill);border:none;border-radius:8px;padding:7px 10px;max-width:60%;min-width:0}
+.dcfg .hint{font-size:13px}
 .dbtn:active{opacity:.6}
 </style>
 </head>
@@ -513,6 +517,11 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
       <button type="button" class="dbtn" id="dExport">Stáhnout zálohu (.json)</button>
       <button type="button" class="dbtn" id="dImport">Importovat zálohu…</button>
       <input type="file" id="dFile" accept="application/json,.json" hidden>
+      <div class="dcfg">
+        <label>Kalendář se schůzkami<select id="dCal"><option>Načítám…</option></select></label>
+        <label>Začátek názvu schůzky <input id="dPrefix" placeholder="např. VK:" autocomplete="off"></label>
+        <p class="hint">Do CRM se berou jen události, jejichž název začíná tímto textem (např. „VK: Novák“). Prázdné = všechny události s časem.</p>
+      </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
     </div>
@@ -526,7 +535,7 @@ input[type=range]::-moz-range-thumb{width:28px;height:28px;border-radius:50%;bac
 const GCFG={
   clientId:"1020263773048-8cq5kp6cbmhgssmusfe7m7vno0f0s61l.apps.googleusercontent.com",
   fileName:"Vojtova pipeline – data.json",
-  scope:"https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.file"
+  scope:"https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email"
 };
 const lsGet=(k,d=null)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}};
@@ -577,17 +586,27 @@ const GAuth={
   login(silent){
     if(!GAuth.configured()){toast("Aplikace ještě nemá nastavené Google přihlášení.");return}
     const st=newId();lsSet("g_state",st);lsSet("g_last",Date.now());
-    const p=new URLSearchParams({client_id:GCFG.clientId,redirect_uri:location.origin+location.pathname,response_type:"token",scope:GCFG.scope,include_granted_scopes:"true",state:st});
-    const hint=lsGet("g_hint")||"kudlicka.vojtech2002@gmail.com";if(hint)p.set("login_hint",hint);
+    const p=new URLSearchParams({client_id:GCFG.clientId,redirect_uri:location.origin+location.pathname.replace(/index\.html$/,""),response_type:"token",scope:GCFG.scope,include_granted_scopes:"true",state:st});
+    const hint=lsGet("g_hint");if(hint)p.set("login_hint",hint);else if(!silent)p.set("prompt","select_account");
     if(silent)p.set("prompt","none");
     location.assign("https://accounts.google.com/o/oauth2/v2/auth?"+p);
   },
-  logout(){localStorage.removeItem("g_tok");localStorage.removeItem("g_ok");GSync.status("out")},
+  logout(){
+    if(!confirm("Odhlásit? Data z tohoto zařízení se smažou – na tvém Google Disku zůstanou a po dalším přihlášení se stáhnou zpět."))return false;
+    wipeLocal();["g_tok","g_ok","g_hint","g_owner"].forEach(k=>localStorage.removeItem(k));location.reload();return true;
+  },
+  async whoami(){
+    const r=await(await gfetch("https://www.googleapis.com/oauth2/v3/userinfo")).json();
+    const email=(r.email||"").toLowerCase();if(!email)return;
+    const owner=lsGet("g_owner");
+    if(owner&&owner!==email){wipeLocal();toast("Přihlášen jiný účet – načítám jeho data")}
+    lsSet("g_owner",email);lsSet("g_hint",email);localStorage.removeItem("g_check");
+  },
   handleRedirect(){
     const h=location.hash;if(!/access_token=|error=/.test(h))return;
     const p=new URLSearchParams(h.slice(1));history.replaceState(null,"",location.pathname+location.search);
     if(p.get("state")!==lsGet("g_state"))return;
-    if(p.get("access_token")){lsSet("g_tok",{at:p.get("access_token"),exp:Date.now()+(+p.get("expires_in")||3600)*1000});lsSet("g_ok",1)}
+    if(p.get("access_token")){lsSet("g_check",1);lsSet("g_tok",{at:p.get("access_token"),exp:Date.now()+(+p.get("expires_in")||3600)*1000});lsSet("g_ok",1)}
     else if(p.get("error"))lsSet("g_err",p.get("error"));
   },
   /* tiché obnovení tokenu: jen když je online, uživatel už byl přihlášený a zrovna nic nerozepisuje */
@@ -608,6 +627,11 @@ async function gfetch(url,opt={}){
   return r;
 }
 
+function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache"].forEach(k=>localStorage.removeItem(k))}
+/* --- nastavení kalendáře (per uživatel, ukládá se do settings/main) --- */
+function calCfg(){const s=(typeof settings!=="undefined"&&settings)||{};return{id:s.calId||"primary",name:s.calName||"Hlavní kalendář",prefix:(s.calPrefix??"").trim()}}
+function prefixRe(){const p=calCfg().prefix;if(!p)return null;return new RegExp("^"+p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s*:$/,"\\s*:")+"\\s*","i")}
+async function listCalendars(){const r=await(await gfetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,primary)")).json();return(r.items||[]).sort((a,b)=>(b.primary?1:0)-(a.primary?1:0)||(a.summary||"").localeCompare(b.summary||""))}
 /* --- synchronizace přes soubor na Google Disku --- */
 const GSync=(()=>{
   let timer=null,busy=false,again=false,state="idle",last=lsGet("g_synced");
@@ -638,6 +662,7 @@ const GSync=(()=>{
     if(!navigator.onLine){status("offline");return}
     busy=true;status("busy");
     try{
+      if(lsGet("g_check")||!lsGet("g_owner"))await GAuth.whoami();
       let id=await findFile(), remote=id?await download(id):null;
       if(!remote&&id){id=await findFile()}
       const rdocs=remote?.docs||{};
@@ -673,8 +698,8 @@ const GSync=(()=>{
 /* --- Google Kalendář --- */
 async function fetchCalendarItems(calId){
   const from=new Date(Date.now()-120*864e5),to=new Date(Date.now()+120*864e5);
-  const p=new URLSearchParams({q:"VK:",timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:"true",orderBy:"startTime",maxResults:"250",timeZone:"Europe/Prague"});
-  let items=[],page=null,guard=0;
+  const pf=calCfg().prefix;const p=new URLSearchParams({timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:"true",orderBy:"startTime",maxResults:"250",timeZone:"Europe/Prague"});
+  if(pf)p.set("q",pf);let items=[],page=null,guard=0;
   do{if(page)p.set("pageToken",page);const r=await(await gfetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${p}`)).json();items=items.concat(r.items||[]);page=r.nextPageToken;}while(page&&++guard<5);
   return items;
 }
@@ -1251,8 +1276,8 @@ function norm(x){return (x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").
 function surnameOf(name){const w=(name||"").replace(/\(.*?\)/g," ").trim().split(/\s+/).filter(Boolean);return norm(w[w.length-1]||"")}
 function parseEvent(e){
   if(!e||!e.start||!e.start.dateTime||e.status==="cancelled")return null;
-  const raw=(e.summary||"").trim();if(!/^VK\s*:/i.test(raw))return null;
-  const words=raw.replace(/^VK\s*:\s*/i,"").replace(/\(.*?\)/g," ").split(/[\s,;+/]+/).map(w=>w.replace(/[.]+$/,"")).filter(Boolean);
+  const raw=(e.summary||"").trim();const pre=prefixRe();if(pre&&!pre.test(raw))return null;
+  const words=raw.replace(pre||/^$/,"").replace(/\(.*?\)/g," ").split(/[\s,;+/]+/).map(w=>w.replace(/[.]+$/,"")).filter(Boolean);
   const kept=words.filter(w=>!NOISE.has(norm(w)));
   let cap=kept.filter(w=>/^\p{Lu}/u.test(w));
   if(!cap.length&&kept.length)cap=[kept[0][0].toUpperCase()+kept[0].slice(1)];
@@ -1336,13 +1361,15 @@ function calErrorText(e){
     default:return "Kalendář se nenačetl ("+(e?.code||"chyba")+").";
   }
 }
-function applyCalItems(items){calEvents=items.map(parseEvent).filter(Boolean);calState="ok";calMsg="";render();scheduleSync()}
+function calFootText(){const c=calCfg();return (c.prefix?"Schůzky „"+c.prefix+" …“":"Události")+" z kalendáře "+c.name+" za posledních 60 dní a nadcházející. Jméno se páruje podle příjmení. Změníš v nastavení synchronizace."}
+function applyCalItems(items){try{$("calFoot").textContent=calFootText()}catch(e){}calEvents=items.map(parseEvent).filter(Boolean);calState="ok";calMsg="";render();scheduleSync()}
 async function refreshCalendar(){
   if(!GAuth.token()||!navigator.onLine)return;
-  try{const items=await fetchCalendarItems(CAL.id);lsSet("cal_cache",{at:Date.now(),items});applyCalItems(items)}
+  try{const items=await fetchCalendarItems(calCfg().id);lsSet("cal_cache",{at:Date.now(),items});applyCalItems(items)}
   catch(e){console.warn(e);if(!calEvents){calState="error";calMsg=e.code===401?"Přihlášení ke Googlu vypršelo – klepni nahoře na Obnovit.":"Kalendář se nenačetl ("+e.message+").";render()}}
 }
-function startCalendar(){
+function startCalendar(){setTimeout(startCalendar0,0)}
+function startCalendar0(){
   const c=lsGet("cal_cache");
   if(c&&Array.isArray(c.items))applyCalItems(c.items);
   else{calState="off";calMsg=GAuth.token()?"Načítám kalendář…":"Přihlas se Googlem (tlačítko nahoře) a načtu schůzky z kalendáře.";render()}
@@ -1450,7 +1477,7 @@ function updCalc(){
 $("f_points").addEventListener("input",updCalc);
 
 function renderLog(l){
-  const log=[...(l?.log||[]),...(l?.meetings||[]).map(m=>({d:m.start,t:m.title.replace(/^VK\s*:\s*/i,""),cal:true}))].sort((a,b)=>(b.d||"").localeCompare(a.d||""));
+  const log=[...(l?.log||[]),...(l?.meetings||[]).map(m=>({d:m.start,t:m.title.replace(prefixRe()||/^$/,""),cal:true}))].sort((a,b)=>(b.d||"").localeCompare(a.d||""));
   $("logList").replaceChildren(...log.map(x=>el("div",{class:"row"},el("span",{class:"main"},x.cal?el("span",{class:"src-cal"},x.d>new Date().toISOString()?"Naplánováno":"Kalendář"):null,x.t),el("span",{class:"d"},fmtDT(x.d)))));
 }
 function openEdit(l){
@@ -1545,7 +1572,16 @@ setView(["pipe","money","pp"].includes(sv)?sv:"pipe");
   $("dExport").onclick=exportBackup;
   $("dImport").onclick=()=>$("dFile").click();
   $("dFile").onchange=e=>{const f=e.target.files[0];if(f)importBackup(f);e.target.value=""};
-  $("dLogout").onclick=()=>{GAuth.logout();dd.close()};
+  $("dLogout").onclick=()=>{GAuth.logout()};
+  const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);calEvents=null;calState="loading";render();refreshCalendar()}catch(e){toast("Nepodařilo se uložit")}};
+  sb.addEventListener("click",async()=>{
+    if(!dd.open)return;const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;
+    const me=lsGet("g_owner");$("dataInfo").textContent=(me?"Účet "+me+" · ":"")+($("syncBtn").title||"");
+    if(!GAuth.token()){sel.replaceChildren(new Option(c.name,c.id));return}
+    try{const cals=await listCalendars();sel.replaceChildren(...cals.map(k=>new Option((k.primary?"★ ":"")+(k.summary||k.id),k.id)));sel.value=cals.some(k=>k.id===c.id)?c.id:(cals.find(k=>k.primary)?.id||"primary")}catch(e){sel.replaceChildren(new Option(c.name,c.id))}
+  });
+  $("dCal").onchange=e=>{const o=e.target.selectedOptions[0];saveCal({calId:o.value,calName:o.textContent.replace(/^★ /,"")})};
+  $("dPrefix").onchange=e=>saveCal({calPrefix:e.target.value.trim()});
   const err=lsGet("g_err");if(err){localStorage.removeItem("g_err");if(err!=="interaction_required"&&err!=="login_required"&&err!=="consent_required")toast("Přihlášení se nepovedlo ("+err+")")}
   if(!GAuth.maybeRefresh()){GSync.run().then(refreshCalendar)}
   addEventListener("online",()=>{GSync.run().then(refreshCalendar)});
