@@ -1108,8 +1108,8 @@ function rateFor(prevPts){return rateInfo(prevPts).rate}
 function hasV(v){return v!=null&&v!==""}
 function sjSum(ym){const s=settings.sjetiny||{},a=s[ym+"/1"],b=s[ym+"/2"];return hasV(a)||hasV(b)?(hasV(a)?+a:0)+(hasV(b)?+b:0):null}
 function quarterMonths(qk){const[y,k]=qk.split("-Q").map(Number);return [1,2,3].map(i=>y+"-"+String((k-1)*3+i).padStart(2,"0"))}
-/* období sjetiny podle data: do 10. → M/1, do 21. → M/2, později → (M+1)/1 */
-function periodOf(d){const[y,m,day]=d.slice(0,10).split("-").map(Number);return day<=10?perKey(y,m,1):day<=21?perKey(y,m,2):perKey(y,m+1,1)}
+/* uzávěrka podle data: produkce patří do kalendářního měsíce (1.–15. → M/1, 16.–konec → M/2), vyplácí se v M+1 */
+function periodOf(d){const[y,m,day]=d.slice(0,10).split("-").map(Number);return day<=15?perKey(y,m,1):perKey(y,m,2)}
 function pipePeriodPts(p){
   const s=leads.filter(l=>SIGNED(l.stage)&&l.signedAt&&periodOf(l.signedAt)===p).reduce((a,l)=>a+(+l.points||0),0);
   const x=(settings.extras||[]).filter(x=>(x.per||(x.d?periodOf(x.d):""))===p).reduce((a,x)=>a+(+x.pts||0),0);
@@ -1118,6 +1118,9 @@ function pipePeriodPts(p){
 let _pc=null;function passiveNow(){return _pc||(_pc=passiveModel(0).series[0])}
 /* body sjetiny: zadaná skutečnost, jinak pipeline (+ pasivní odhad u běžícího a budoucích měsíců) */
 function periodVal(p){const v=settings.sjetiny?.[p];if(hasV(v))return {v:+v,act:true};const live=perMonth(p)>=ymOf(todayStr());return {v:pipePeriodPts(p)+(live?passiveNow().tot/2:0),act:false}}
+/* jen vyplacené obchody (pro gratulace k postupu) */
+function paidPeriodPts(p){return leads.filter(l=>l.stage==="vyplaceno"&&l.signedAt&&periodOf(l.signedAt)===p).reduce((a,l)=>a+(+l.points||0),0)-allStornos().filter(z=>z.l.stage==="vyplaceno"&&z.d&&periodOf(z.d)===p).reduce((a,z)=>a+z.pts,0)}
+function paidQuarterTotal(qk){return quarterMonths(qk).reduce((s,ym)=>s+[1,2].reduce((a,h)=>{const p=ym+"/"+h,v=settings.sjetiny?.[p];return a+(hasV(v)?+v:paidPeriodPts(p)+(ym>=ymOf(todayStr())?passiveNow().tot/2:0))},0),0)+(+(settings.manual?.[qk])||0)}
 function quarterTotal(qk){return quarterMonths(qk).reduce((s,ym)=>s+periodVal(ym+"/1").v+periodVal(ym+"/2").v,0)+(+(settings.manual?.[qk])||0)}
 function qualPts(qk){return {pts:quarterTotal(qk),known:quarterMonths(qk).some(ym=>sjSum(ym)!=null)||quarterPoints(qk).total!==0}}
 function quarterRateInfo(qk){
@@ -1320,10 +1323,10 @@ function renderMoney(cq,cur){
   const days=Math.max(0,Math.round((qEnd(cq)-new Date(todayStr()))/864e5)), wk=Math.max(1,Math.ceil(days/7));
   $("m_days").textContent=days+" "+plural(days,"den","dny","dní");
 
-  // žebříček: body kvartálu, do jehož sjetin teď podepisuješ (po 21. v posledním měsíci už další), určí tarif kvartálu po něm
-  const tp=periodOf(todayStr()), lq=qOf(perMonth(tp)+"-01"), lt=quarterTotal(lq), lr=quarterRate(lq), lEnd=qEnd(lq), lCut=new Date(lEnd.getFullYear(),lEnd.getMonth(),21);
-  const ld=Math.max(0,Math.round((lCut-new Date(todayStr()))/864e5)), lw=Math.max(1,Math.ceil(ld/7)), nq=qShift(lq,1);
-  $("m_lcap").textContent="Co podepíšeš teď, jde do sjetiny "+perLabel(tp)+" ("+qLabel(lq)+"). Body za "+qLabel(lq)+" (uzávěrka "+lCut.getDate()+". "+(lCut.getMonth()+1)+".) určí tarif na "+qLabel(nq)+".";
+  // žebříček: body vyprodukované v tomto kvartálu (do konce jeho posledního měsíce) určí tarif příštího kvartálu
+  const lq=cq, lt=cur.total, lr=cur.rate, lCut=qEnd(lq), nq=qShift(lq,1);
+  const ld=Math.max(0,Math.round((lCut-new Date(todayStr()))/864e5)), lw=Math.max(1,Math.ceil(ld/7));
+  $("m_lcap").textContent="Co podepíšeš do "+lCut.getDate()+". "+(lCut.getMonth()+1)+"., se počítá do "+qLabel(lq)+" a určí tarif na "+qLabel(nq)+". Vyplaceno ti to bude o měsíc později.";
   const tiers=rateTiers(), idx=Math.max(0,tiers.map(t=>t.from<=lt).lastIndexOf(true)), vis=tiers.slice(idx,idx+3);
   const start=vis[0].from, MAX=Math.max(vis[vis.length-1].from*1.2, lt*1.08, start+1000);
   const pct=v=>Math.min(100,Math.max(0,(v-start)/(MAX-start)*100)), nextRate=rateFor(lt);
@@ -1644,12 +1647,11 @@ function prodChip(p){const T=ptype(p);return el("span",{class:"pchip"+(p.status=
 const BAND={red:["var(--red)","var(--red-soft)"],orange:["var(--orange)","var(--orange-soft)"],green:["var(--green)","var(--green-soft)"],none:["var(--gray)","var(--fill)"]};
 function daysTxt(e){return e.next?"schůzka "+fmtMeet(e.next):e.days==null?"bez schůzky":e.days+" "+plural(e.days,"den","dny","dní")+" od poslední schůzky"}
 function renderClients(){
-  const E=clientEntries(), withP=E.filter(e=>e.products.length), act=E.reduce((s,e)=>s+e.active.length,0);
-  const monthly=E.reduce((s,e)=>s+e.active.filter(p=>/měs/.test(p.unit||ptype(p).unit)).reduce((a,p)=>a+(+p.amt||0),0),0);
-  const invest=E.reduce((s,e)=>s+e.active.filter(p=>p.type==="Investice").reduce((a,p)=>a+(+p.amt||0),0),0);
+  const E=clientEntries();
   const red=E.filter(e=>e.band==="red"&&!e.snooze).length, orange=E.filter(e=>e.band==="orange"&&!e.snooze).length;
   if(view==="cli")$("sub").textContent=E.length+" "+plural(E.length,"klient","klienti","klientů")+" · servis podle poslední schůzky v kalendáři";
-  $("cTiles").replaceChildren(...[["Klienti",E.length,withP.length+" s produkty","var(--tint)"],["Aktivní smlouvy",act,"u "+withP.length+" "+plural(withP.length,"klienta","klientů","klientů"),"var(--green)"],["Měsíčně spravuješ",kc(monthly),"pojistné, spoření a vklady · investice "+shortKc(invest)+" Kč","var(--indigo)"],["Servis k řešení",red+orange,red+" přes rok · "+orange+" přes půl roku","var(--red)",red>0]]
+  const nCal=E.filter(e=>e.calOnly).length;
+  $("cTiles").replaceChildren(...[["Klienti",E.length,(E.length-nCal)+" z pipeline a zapsaných · "+nCal+" jen z kalendáře","var(--tint)"],["Servis k řešení",red+orange,red+" přes rok · "+orange+" přes půl roku","var(--red)",red>0]]
     .map(([k,v,h,c,a])=>el("div",{class:"tile"+(a?" alert":"")},el("div",{class:"k"},el("i",{style:"background:"+c}),k),el("div",{class:"v",style:typeof v==="string"&&v.length>8?"font-size:22px":""},String(v)),el("div",{class:"h"},h))));
   $("cFilter").replaceChildren(...[["all","Všichni"],["prod","Se smlouvou"],["cal","Jen z kalendáře"]].map(([k,t])=>el("button",{type:"button","aria-selected":String(cliFilter===k),onclick:()=>{cliFilter=k;renderClients()}},t)));
   const qq=norm(cliQ);
@@ -1798,20 +1800,21 @@ function celebrate(o){
   if(!REDUCED){const W=innerWidth,H=innerHeight;[[.5,.45,0],[.2,.6,250],[.8,.6,450],[.35,.3,700],[.65,.3,900]].slice(0,o.kind==="paid"?2:5).forEach(([a,b,t])=>setTimeout(()=>confetti(W*a,H*b),t))}
   clearTimeout(celebrate._t);celebrate._t=setTimeout(close,o.kind==="paid"?3200:7000);
 }
-function progressSnap(d){const qk=qOf(perMonth(periodOf(d||todayStr()))+"-01");return {qk,q:quarterTotal(qk),cum:cumPts()}}
+function progressSnap(d){const qk=qOf((d||todayStr()).slice(0,7)+"-01");_pc=null;return {qk,q:paidQuarterTotal(qk),cum:cumPts()}}
 async function afterStage(before,id,from,to){
   const l=leads.find(x=>x.id===id);if(!l)return;
-  _pc=null;const after={q:quarterTotal(before.qk),cum:cumPts()}, c=career(), lines=[], signedNow=SIGNED(to)&&!SIGNED(from), paidNow=to==="vyplaceno"&&from!=="vyplaceno";
+  _pc=null;const after={q:paidQuarterTotal(before.qk),cum:cumPts()}, c=career(), lines=[], paidNow=to==="vyplaceno"&&from!=="vyplaceno";
+  if(!paidNow)return;
   let title=null,kicker=null,big=null;
   // statická kariéra – body celkem se zvednou až vyplacením
   if(paidNow&&before.cum!=null&&after.cum!=null){const i0=STAT_POS.map(p=>before.cum>=p[2]).lastIndexOf(true), i1=STAT_POS.map(p=>after.cum>=p[2]).lastIndexOf(true);
     if(i1>i0){const P=STAT_POS[i1];title="Postup na "+P[0];kicker="Statická kariéra";big=P[1]+" Kč za bod";lines.push("Máš "+fmt0(after.cum)+" bodů celkem (hranice "+fmt0(P[2])+").")}}
-  // obratová kariéra – body vyprodukované v kvartálu
-  if(signedNow){const nq=qLabel(qShift(before.qk,1));
+  // obratová kariéra – vyplacené body kvartálu, ve kterém byl obchod podepsán
+  {const nq=qLabel(qShift(before.qk,1));
     if(c.obrat==="auto"){const a=obratLevelFor(before.q),b=obratLevelFor(after.q);if(b&&(!a||b.q>a.q)&&b.r>statRate(c.stat)){if(!title){title=b.t+" splněno";kicker="Obratová kariéra";big=cz(b.r)+" Kč za bod"}lines.push(fmt0(after.q)+" b v "+qLabel(before.qk)+" → v "+nq+" budeš mít "+cz(b.r)+" Kč za bod.")}}
     else if(c.obrat){const p=PROFI.find(x=>x.k===c.obrat);if(p&&p.r>statRate(c.stat)&&before.q<1000&&after.q>=1000){if(!title){title="1 000 bodů splněno";kicker="Obratová kariéra";big=p.t+" · "+cz(p.r)+" Kč"}lines.push("V "+nq+" budeš mít "+p.t+" – "+cz(p.r)+" Kč za bod.")}}}
-  if(title){celebrate({title,kicker,big,sub:(paidNow?"Vyplacená provize – ":"Podpis – ")+(l.name||"")+" (+"+fmt1(+l.points||0)+" b)",lines,kind:"level"});return}
-  if(paidNow)paidCelebrate(l);
+  if(title){celebrate({title,kicker,big,sub:"Vyplacená provize – "+(l.name||"")+" (+"+fmt1(+l.points||0)+" b)",lines,kind:"level"});return}
+  paidCelebrate(l);
 }
 function paidCelebrate(l){const rate=l.signedAt?quarterRow(qOf(l.signedAt)).rate:quarterRow(CURQ()).rate;
   celebrate({icon:"check",kind:"paid",kicker:"Provize vyplacena",title:l.name||"Hotovo",big:l.points?"+"+kc(l.points*rate):null,sub:l.points?fmt1(l.points)+" b × "+cz(rate)+" Kč – potvrzeno, že peníze dorazily.":"Potvrzeno, že provize dorazila.",btn:"Hotovo"})}
