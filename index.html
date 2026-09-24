@@ -452,6 +452,26 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 @keyframes cpop{0%{opacity:0;transform:scale(.7) translateY(30px)}100%{opacity:1;transform:none}}
 @keyframes cicon{0%{transform:scale(0) rotate(-30deg)}60%{transform:scale(1.2) rotate(8deg)}100%{transform:none}}
 @media (prefers-reduced-motion:reduce){.celebr,.celebr.out,.c-box,.c-icon{animation:none}}
+/* ===== v4 ===== */
+.pstack{display:grid;gap:10px}
+.pstack .tile{background:var(--fill2);box-shadow:none;padding:12px 14px}
+.pstack .tile .v{font-size:22px!important}
+.mpanel{padding-bottom:12px}
+.mtop .seg.mini button{white-space:nowrap}
+.mslides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -18px;overscroll-behavior-x:contain}
+.mslides::-webkit-scrollbar{display:none}
+.mslide{flex:0 0 100%;min-width:0;scroll-snap-align:start;scroll-snap-stop:always;padding:0 18px}
+.mhead{min-height:78px}
+.mchart svg{cursor:crosshair;-webkit-user-select:none;user-select:none}
+.mdots{display:flex;justify-content:center;gap:7px;margin-top:4px}
+.mdots button{width:7px;height:7px;border-radius:50%;background:var(--label3);padding:0}
+.mdots button[aria-selected="true"]{background:var(--label);width:18px;border-radius:4px}
+.mt-s{font-size:12px;color:var(--label2);font-weight:400}
+.mtbl td input{width:96px}
+.mtbl td input.rt{width:74px}
+.mtbl td .tag{margin-left:6px}
+.mtbl td.pay{white-space:nowrap}
+.careerbar .statchip{font-size:15px;font-weight:600;color:var(--label);background:var(--fill);border-radius:8px;padding:6px 10px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -513,31 +533,34 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
       </div>
       <div class="panel">
         <h2>Cena bodu příští kvartál</h2>
-        <div class="cap">Body, které podepíšeš teď, určí sazbu na další kvartál.</div>
+        <div class="cap" id="m_lcap">Body, které podepíšeš teď, určí sazbu na další kvartál.</div>
         <div class="ladder"><div class="lbar" id="lbar"></div><div class="lticks" id="lticks"></div></div>
         <div class="callout" id="m_callout"></div>
       </div>
       <div class="panel">
-        <h2>Dodatečné body</h2>
-        <div class="cap">Co prošlo ve sjetině navíc mimo pipeline (navýšení, servis, dorovnání). Sjetiny jsou 2× měsíčně – x/1 k 10. a x/2 k 21.; nová položka jde do poslední proběhlé. Storna ŽP se tu ukážou samy.</div>
-        <div class="group xlist" id="xList" style="box-shadow:none;background:var(--fill2)"></div>
-        <div class="xadd"><input id="x_pts" type="number" step="0.1" inputmode="decimal" placeholder="Body" aria-label="Body"><input id="x_note" placeholder="Za co" aria-label="Za co"><select id="x_per" aria-label="Sjetina"></select><button type="button" id="x_add">Přidat</button></div>
+        <h2>Pasivní příjem</h2>
+        <div class="cap">Měsíčně podle AUM ze sjetin, pravidelných vkladů a týmu. Klikni a uprav.</div>
+        <div class="pstack" id="pTiles"></div>
       </div>
     </div>
 
     <div class="section">
       <h3 class="sechead">Výdělek po měsících</h3>
-      <div class="panel">
-        <div class="mtop"><div id="mHead"></div><div class="seg mini" id="mRange" role="tablist" aria-label="Období"></div></div>
-        <div class="chartwrap" id="mChart"></div>
+      <div class="panel mpanel">
+        <div class="mtop"><div class="seg mini" id="mTabs" role="tablist" aria-label="Graf"></div><div class="seg mini" id="mRange" role="tablist" aria-label="Období"></div></div>
+        <div class="mslides" id="mSlides">
+          <div class="mslide"><div class="mhead" id="mHead_tot"></div><div class="chartwrap mchart" id="mChart_tot"></div></div>
+          <div class="mslide"><div class="mhead" id="mHead_team"></div><div class="chartwrap mchart" id="mChart_team"></div></div>
+          <div class="mslide"><div class="mhead" id="mHead_udr"></div><div class="chartwrap mchart" id="mChart_udr"></div></div>
+        </div>
+        <div class="mdots" id="mDots"></div>
       </div>
       <div class="group tblwrap mtbl" style="margin-top:12px"><table id="mTable"></table></div>
-      <p class="secfoot">Najeď na graf (na iPhonu přejeď prstem) a uvidíš výdělek v kterémkoli měsíci. Výdělek = body × tarif kvartálu + meziprovize z týmu. Do sloupce „Skutečné body“ zapiš body z výpisu, i zpětně. Bez nich se ukazuje odhad z pipeline, dodatečných bodů a pasivního příjmu (prázdný kroužek v grafu).</p>
+      <p class="secfoot">Body z uzávěrek x/1 a x/2 se vyplácejí následující měsíc (srpnové v září), meziprovize z týmu taky. Graf je podle měsíce výplaty – přejeď doleva na „Tým“ a „Udržovačky“. Do tabulky zapisuj body z uzávěrek, i zpětně; tarif a tým u minulých měsíců můžeš přepsat. Prázdný kroužek = odhad z pipeline a pasivního příjmu.</p>
     </div>
 
     <div class="section" id="passiveSec">
       <h3 class="sechead">Pasivní příjem</h3>
-      <div class="tiles" id="pTiles" style="margin-bottom:12px"></div>
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
           <h2>Udržovací provize a pravidelné vklady v čase</h2>
@@ -1068,7 +1091,7 @@ function passiveModel(months){
 const STAT_POS=[["P1",80,0],["P2",90,101],["P3",130,500],["P4",150,2500],["P5",160,10000],["P6",170,20000],["P7",180,50000],["P8",190,150000]];
 const PROFI=[[333,180],[500,200],[1000,220],[1500,230],[2500,236],[4000,242],[6000,248],[8000,252],[11000,256],[14000,260],[17000,264],[21000,267],[25000,270],[30000,272.5],[40000,275],[60000,277.5],[90000,280]]
   .map(([m,r],i)=>({k:"PROFI"+(i+1),t:"PROFI "+(i+1),m,q:i===0?1000:m*3,r}));
-function career(){const c=settings.career||{};return {stat:c.stat||"P5",obrat:c.obrat??"auto",cpts:c.cpts==null||c.cpts===""?null:+c.cpts,cAsOf:c.cAsOf||null,cBase:+c.cBase||0}}
+function career(){const c=settings.career||{}, cum=cumPts();return {stat:cum!=null?statFor(cum)[0]:(c.stat||"P1"),auto:cum!=null,obrat:c.obrat??"auto",cpts:c.cpts==null||c.cpts===""?null:+c.cpts,cAsOf:c.cAsOf||null,cBase:+c.cBase||0}}
 function statRate(pos){return (STAT_POS.find(p=>p[0]===pos)||STAT_POS[0])[1]}
 function statFor(pts){return STAT_POS.filter(p=>pts>=p[2]).pop()||STAT_POS[0]}
 function obratLevelFor(pts){return PROFI.filter(p=>pts>=p.q).pop()||null}
@@ -1081,30 +1104,40 @@ function rateTiers(){
 function rateInfo(prevPts){const t=rateTiers().filter(x=>prevPts>=x.from).pop();return {rate:t.rate,src:t.t}}
 function rateFor(prevPts){return rateInfo(prevPts).rate}
 /* body rozhodné pro tarif kvartálu: pipeline + dodatečné − storna, nebo skutečné body z výpisů, pokud jsou vyšší */
-function qualPts(qk){
-  const qp=quarterPoints(qk).total, ms=Object.entries(settings.monthlyPts||{}).filter(([ym,v])=>v!==""&&v!=null&&qOf(ym+"-01")===qk);
-  return {pts:Math.max(qp,ms.reduce((s,[,v])=>s+(+v||0),0)),known:qp!==0||ms.length>0};
-}
+/* body z uzávěrek za měsíc (x/1 + x/2), null když nejsou zadané */
+function hasV(v){return v!=null&&v!==""}
+function sjSum(ym){const s=settings.sjetiny||{},a=s[ym+"/1"],b=s[ym+"/2"];return hasV(a)||hasV(b)?(hasV(a)?+a:0)+(hasV(b)?+b:0):null}
+function quarterMonths(qk){const[y,k]=qk.split("-Q").map(Number);return [1,2,3].map(i=>y+"-"+String((k-1)*3+i).padStart(2,"0"))}
+/* období sjetiny podle data: do 10. → M/1, do 21. → M/2, později → (M+1)/1 */
+function periodOf(d){const[y,m,day]=d.slice(0,10).split("-").map(Number);return day<=10?perKey(y,m,1):day<=21?perKey(y,m,2):perKey(y,m+1,1)}
+function pipePeriodPts(p){
+  const s=leads.filter(l=>SIGNED(l.stage)&&l.signedAt&&periodOf(l.signedAt)===p).reduce((a,l)=>a+(+l.points||0),0);
+  const x=(settings.extras||[]).filter(x=>(x.per||(x.d?periodOf(x.d):""))===p).reduce((a,x)=>a+(+x.pts||0),0);
+  const st=allStornos().filter(z=>z.d&&periodOf(z.d)===p).reduce((a,z)=>a+z.pts,0);
+  return s+x-st}
+let _pc=null;function passiveNow(){return _pc||(_pc=passiveModel(0).series[0])}
+/* body sjetiny: zadaná skutečnost, jinak pipeline (+ pasivní odhad u běžícího a budoucích měsíců) */
+function periodVal(p){const v=settings.sjetiny?.[p];if(hasV(v))return {v:+v,act:true};const live=perMonth(p)>=ymOf(todayStr());return {v:pipePeriodPts(p)+(live?passiveNow().tot/2:0),act:false}}
+function quarterTotal(qk){return quarterMonths(qk).reduce((s,ym)=>s+periodVal(ym+"/1").v+periodVal(ym+"/2").v,0)+(+(settings.manual?.[qk])||0)}
+function qualPts(qk){return {pts:quarterTotal(qk),known:quarterMonths(qk).some(ym=>sjSum(ym)!=null)||quarterPoints(qk).total!==0}}
 function quarterRateInfo(qk){
   const c=career(), pq=qShift(qk,-1), prev=qualPts(pq), sr=statRate(c.stat);
   if(c.obrat&&c.obrat!=="auto"){
     const p=PROFI.find(x=>x.k===c.obrat);
     if(!p||p.r<=sr)return {rate:sr,src:c.stat+" (statická)",prev:prev.pts};
-    if(qk>=CURQ())return {rate:p.r,src:p.t+" (nastaveno)",prev:prev.pts};
-    if(!prev.known||prev.pts>=1000)return {rate:p.r,src:p.t,prev:prev.pts};
-    return {rate:sr,src:c.stat+" (statická – v "+qLabel(pq)+" pod 1 000 b)",prev:prev.pts};
+    if(!prev.known||prev.pts>=1000)return {rate:p.r,src:p.t+(prev.known?"":" (nastaveno)"),prev:prev.pts};
+    return {rate:sr,src:c.stat+" statická – v "+qLabel(pq)+" pod 1 000 b",prev:prev.pts};
   }
   const ri=rateInfo(prev.pts);
   return {rate:ri.rate,src:c.obrat==="auto"?(prev.pts>=1000?ri.src+" podle bodů":"statická "+c.stat+" (pod 1 000 b)"):ri.src,prev:prev.pts};
 }
 function quarterRate(qk){return quarterRateInfo(qk).rate}
-/* kariérní body: zadaný stav + co přibylo od data zadání */
+/* body celkem: zadaný stav + vyplacené provize od data zadání (body se přičítají až po vyplacení) */
 function sinceTotal(d){if(!d)return 0;
-  const s=leads.filter(l=>SIGNED(l.stage)&&l.signedAt&&l.signedAt>=d).reduce((a,l)=>a+(+l.points||0),0);
-  const x=(settings.extras||[]).filter(x=>(x.d||"")>=d).reduce((a,x)=>a+(+x.pts||0),0);
-  const st=allStornos().filter(x=>(x.d||"")>=d).reduce((a,x)=>a+x.pts,0);
-  return s+x-st}
-function cumPts(){const c=career();return c.cpts==null||!c.cAsOf?null:c.cpts+sinceTotal(c.cAsOf)-c.cBase}
+  const s=leads.filter(l=>l.stage==="vyplaceno"&&(l.paidAt||l.signedAt||"")>=d).reduce((a,l)=>a+(+l.points||0),0);
+  const st=allStornos().filter(x=>x.l.stage==="vyplaceno"&&(x.d||"")>=d).reduce((a,x)=>a+x.pts,0);
+  return s-st}
+function cumPts(){const c=settings.career||{};if(!hasV(c.cpts)||!c.cAsOf)return null;return +c.cpts+sinceTotal(c.cAsOf)-(+c.cBase||0)}
 
 /* ================= state ================= */
 let db=null, leads=[], settings={manual:{}}, editing=null, q="", view="pipe";
@@ -1165,7 +1198,7 @@ function monthPoints(ym){
   const storno=allStornos().filter(x=>ymOf(x.d)===ym).reduce((s,x)=>s+x.pts,0);
   return {signed,extra,storno,total:signed+extra-storno};
 }
-function quarterRow(qk){const p=quarterPoints(qk),ri=quarterRateInfo(qk);return {qk,...p,prev:ri.prev,rate:ri.rate,src:ri.src,earned:p.total*ri.rate}}
+function quarterRow(qk){const p=quarterPoints(qk),tot=quarterTotal(qk),ri=quarterRateInfo(qk);return {qk,...p,total:tot,prev:ri.prev,rate:ri.rate,src:ri.src,earned:tot*ri.rate}}
 
 function el(tag,attrs={},...kids){const e=document.createElement(tag);for(const[k,v]of Object.entries(attrs)){if(k==="class")e.className=v;else if(k.startsWith("on"))e.addEventListener(k.slice(2),v);else if(v!==undefined&&v!==null&&v!==false)e.setAttribute(k,v)}for(const k of kids.flat(3)){if(k==null||k===false)continue;e.append(k.nodeType?k:document.createTextNode(String(k)))}return e}
 const SVG_CHEV='<svg class="chev" width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -1175,7 +1208,7 @@ function sliderFill(r){const p=(r.value-r.min)/(r.max-r.min)*100;r.style.setProp
 
 /* ================= render ================= */
 function render(){
-  const cq=CURQ(), cur=quarterRow(cq);
+  _pc=null;const cq=CURQ(), cur=quarterRow(cq);
   $("qchip").replaceChildren(qLabel(cq)+"  ",el("b",{class:"num"},fmt1(cur.total)+" b"),"  ·  ",el("b",{class:"num"},kc(cur.earned)));
   $("banner").hidden=!leads.some(l=>l.example);
   const act=leads.filter(l=>ACTIVE(l.stage)).length;
@@ -1194,13 +1227,12 @@ function renderCareer(cur){
   s1.onchange=()=>{s1.blur();save({stat:s1.value})};
   s2.onchange=()=>{s2.blur();save({obrat:s2.value})};
   cp.onchange=()=>{cp.blur();if(cp.value===""){save({cpts:null,cAsOf:null,cBase:0});return}
-    const v=Math.max(0,Math.round(+cp.value)), d=todayStr(), P=statFor(v), ci=STAT_POS.findIndex(p=>p[0]===career().stat);
-    save({cpts:v,cAsOf:d,cBase:sinceTotal(d),stat:STAT_POS.indexOf(P)>ci?P[0]:career().stat})};
+    const v=Math.max(0,Math.round(+cp.value)), d=todayStr();save({cpts:v,cAsOf:d,cBase:sinceTotal(d),stat:statFor(v)[0]})};
   cp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();cp.blur()}});
   const nxt=cum!=null?STAT_POS.find(p=>p[2]>cum):null, pq=qShift(cur.qk,-1);
   $("careerBar").replaceChildren(
-    el("label",{},"Statická kariéra",s1),
-    el("label",{title:"Kariérní body celkem podle výpisu. Dál se přičítá, co podepíšeš."},"Kariérní body",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
+    el("label",{},"Statická kariéra",c.auto?el("span",{class:"statchip",title:"Podle bodů celkem"},c.stat+" · "+statRate(c.stat)+" Kč"):s1),
+    el("label",{title:"Body celkem podle výpisu. Přičítají se až vyplacené provize (fáze Provize vyplacena)."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
     el("label",{},"Obratová kariéra",s2),
     el("span",{class:"rate"},"Tarif "+qLabel(cur.qk)+" ",el("b",{},cz(cur.rate)+" Kč/b"),el("small",{},cur.src+" · v "+qLabel(pq)+" "+fmt1(cur.prev)+" b")));
 }
@@ -1288,114 +1320,117 @@ function renderMoney(cq,cur){
   const days=Math.max(0,Math.round((qEnd(cq)-new Date(todayStr()))/864e5)), wk=Math.max(1,Math.ceil(days/7));
   $("m_days").textContent=days+" "+plural(days,"den","dny","dní");
 
-  // žebříček: jaký tarif budu mít v příštím kvartálu podle bodů tohoto kvartálu
-  const tiers=rateTiers(), idx=Math.max(0,tiers.map(t=>t.from<=cur.total).lastIndexOf(true)), vis=tiers.slice(idx,idx+3);
-  const start=vis[0].from, MAX=Math.max(vis[vis.length-1].from*1.2, cur.total*1.08, start+1000);
-  const pct=v=>Math.min(100,Math.max(0,(v-start)/(MAX-start)*100)), nextRate=rateFor(cur.total);
-  $("lbar").replaceChildren(el("div",{class:"lfill",style:"width:"+pct(cur.total)+"%"}),
+  // žebříček: body kvartálu, do jehož sjetin teď podepisuješ (po 21. v posledním měsíci už další), určí tarif kvartálu po něm
+  const tp=periodOf(todayStr()), lq=qOf(perMonth(tp)+"-01"), lt=quarterTotal(lq), lr=quarterRate(lq), lEnd=qEnd(lq), lCut=new Date(lEnd.getFullYear(),lEnd.getMonth(),21);
+  const ld=Math.max(0,Math.round((lCut-new Date(todayStr()))/864e5)), lw=Math.max(1,Math.ceil(ld/7)), nq=qShift(lq,1);
+  $("m_lcap").textContent="Co podepíšeš teď, jde do sjetiny "+perLabel(tp)+" ("+qLabel(lq)+"). Body za "+qLabel(lq)+" (uzávěrka "+lCut.getDate()+". "+(lCut.getMonth()+1)+".) určí tarif na "+qLabel(nq)+".";
+  const tiers=rateTiers(), idx=Math.max(0,tiers.map(t=>t.from<=lt).lastIndexOf(true)), vis=tiers.slice(idx,idx+3);
+  const start=vis[0].from, MAX=Math.max(vis[vis.length-1].from*1.2, lt*1.08, start+1000);
+  const pct=v=>Math.min(100,Math.max(0,(v-start)/(MAX-start)*100)), nextRate=rateFor(lt);
+  $("lbar").replaceChildren(el("div",{class:"lfill",style:"width:"+pct(lt)+"%"}),
     ...vis.map((t,i)=>{const b=vis[i+1]?.from??MAX;return el("div",{class:"lseg"+(i===0?" on":""),style:"width:"+(pct(b)-pct(t.from))+"%",title:t.t},cz(t.rate)+" Kč")}));
   $("lticks").replaceChildren(...vis.map(t=>el("span",{style:"left:"+pct(t.from)+"%;"+(pct(t.from)===0?"transform:none":"")},fmt0(t.from))));
-  const nx=tiers[idx+1], c=career();
+  const nx=tiers[idx+1], c=career(), keep=c.obrat&&c.obrat!=="auto"&&lr>nextRate;
   let msg;
-  if(!nx)msg=[el("b",{},"V "+qLabel(qShift(cq,1))+" budeš mít "+cz(nextRate)+" Kč za bod"),"."];
-  else{const need=nx.from-cur.total;
-    msg=[(c.obrat&&c.obrat!=="auto"&&cur.rate>nextRate?"Aby ti "+nx.t+" zůstala i v "+qLabel(qShift(cq,1))+", chybí ":"Do tarifu "),
-      ...(c.obrat&&c.obrat!=="auto"&&cur.rate>nextRate?[]:[el("b",{},cz(nx.rate)+" Kč")," ("+nx.t+") na "+qLabel(qShift(cq,1))+" ti chybí "]),
-      el("b",{},fmt1(need)+" b"),", tedy ",el("b",{},fmt1(need/wk)+" b týdně"),"."+(idx===0?" Pod 1 000 b za kvartál spadneš na statickou kariéru ("+c.stat+", "+statRate(c.stat)+" Kč).":"")]}
-  $("m_callout").className="callout"+(nx&&idx===0&&days<21?" warn":"");
+  if(!nx)msg=[el("b",{},"V "+qLabel(nq)+" budeš mít "+cz(nextRate)+" Kč za bod"),"."];
+  else{const need=nx.from-lt;
+    msg=[keep?"Aby ti "+nx.t+" zůstala i v "+qLabel(nq)+", chybí ":"Do tarifu ",
+      ...(keep?[]:[el("b",{},cz(nx.rate)+" Kč")," ("+nx.t+") na "+qLabel(nq)+" ti chybí "]),
+      el("b",{},fmt1(need)+" b"),", tedy ",el("b",{},fmt1(need/lw)+" b týdně"),"."+(idx===0?" Pod 1 000 b za kvartál zůstaneš na statické kariéře ("+c.stat+", "+statRate(c.stat)+" Kč).":"")]}
+  $("m_callout").className="callout"+(nx&&idx===0&&ld<21?" warn":"");
   $("m_callout").replaceChildren(...msg);
 
-  renderExtras(cq);
   renderMonthly(cur);
   renderPassive(cur);renderTeam(cur);
 }
 
-/* ---------- dodatečné body po sjetinách (x/1 proběhne k 10., x/2 k 21.) ---------- */
+/* ---------- sjetiny: x/1 proběhne k 10., x/2 k 21. (starší dodatečné body se dál počítají) ---------- */
 function perKey(y,m,h){if(m>12){m-=12;y++}if(m<1){m+=12;y--}return y+"-"+String(m).padStart(2,"0")+"/"+h}
-/* poslední proběhlá sjetina: 11.–21. → M/1, 22.–konec → M/2, 1.–10. → (M−1)/2 */
 function currentPeriod(d=new Date()){const y=d.getFullYear(),m=d.getMonth()+1,day=d.getDate();return day>21?perKey(y,m,2):day>10?perKey(y,m,1):perKey(y,m-1,2)}
-function shiftPeriod(p,n){let[y,m]=p.slice(0,7).split("-").map(Number),h=+p.slice(-1);let i=(y*12+(m-1))*2+(h-1)+n;y=Math.floor(i/24);const r=i-y*24;return perKey(y,Math.floor(r/2)+1,r%2+1)}
-function perLabel(p){const[y,m]=p.slice(0,7).split("-");return +m+"/"+p.slice(-1)+(y!==String(new Date().getFullYear())?" "+y:"")}
 function perMonth(p){return p.slice(0,7)}
+function perLabel(p){const[y,m]=p.slice(0,7).split("-");return +m+"/"+p.slice(-1)+(y!==String(new Date().getFullYear())?" "+y:"")}
 function extraMonth(x){return x.per?perMonth(x.per):(x.d||"").slice(0,7)}
-function renderExtras(cq){
-  const xs=(settings.extras||[]).filter(x=>qOf(extraMonth(x)+"-01")===cq||x.per===currentPeriod()).sort((a,b)=>(b.per||b.d||"").localeCompare(a.per||a.d||""));
-  const st=allStornos().filter(x=>qOf(x.d)===cq);
-  const rows=[
-    ...xs.map(x=>el("div",{class:"row"},el("span",{class:"perchip"},x.per?perLabel(x.per):fmtDate(x.d)),el("span",{class:"main"},el("div",{class:"t"},x.note||"Dodatečné body"),el("div",{class:"s"},x.per?"sjetina "+perLabel(x.per)+" · "+qLabel(qOf(perMonth(x.per)+"-01")):fmtDate(x.d))),
-      el("span",{class:"end"},el("b",{},(x.pts>0?"+":"")+fmt1(x.pts)+" b")),el("button",{type:"button",class:"del",onclick:()=>delExtra(x.id)},"Smazat"))),
-    ...st.map(x=>el("button",{type:"button",class:"row row-btn",onclick:()=>openEdit(x.l)},el("span",{class:"perchip bad"},fmtDate(x.d)),el("span",{class:"main"},el("div",{class:"t"},"Storno ŽP · "+x.name),el("div",{class:"s bad"},"zánik smlouvy")),
-      el("span",{class:"end",style:"color:var(--red)"},"−"+fmt1(x.pts)+" b")))];
-  $("xList").replaceChildren(...(rows.length?rows:[el("div",{class:"row"},el("span",{class:"empty"},"Zatím nic navíc."))]));
-  const sel=$("x_per"), cp=currentPeriod();
-  if(sel.dataset.cp!==cp){sel.replaceChildren(...[-3,-2,-1,0,1].map(n=>{const p=shiftPeriod(cp,n);return el("option",{value:p},"Sjetina "+perLabel(p)+(n===0?" (poslední)":n>0?" (příští)":""))}));sel.value=cp;sel.dataset.cp=cp}
-}
-$("x_add").onclick=async()=>{
-  const pts=+$("x_pts").value;if(!pts){$("x_pts").focus();return}
-  const x={id:newId(),per:$("x_per").value||currentPeriod(),d:todayStr(),pts:r1(pts),note:$("x_note").value.trim()};
-  try{await db.doc("settings/main").set({...settings,extras:[...(settings.extras||[]),x]});$("x_pts").value="";$("x_note").value="";toast((pts>0?"Přidáno +":"Odečteno ")+fmt1(pts)+" b do sjetiny "+perLabel(x.per))}catch(e){toast("Nepodařilo se uložit")}
-};
-$("x_pts").addEventListener("keydown",e=>{if(e.key==="Enter")$("x_add").click()});
-$("x_note").addEventListener("keydown",e=>{if(e.key==="Enter")$("x_add").click()});
-async function delExtra(id){try{await db.doc("settings/main").set({...settings,extras:(settings.extras||[]).filter(x=>x.id!==id)});toast("Smazáno")}catch(e){toast("Nepodařilo se uložit")}}
 
-/* ---------- výdělek po měsících – čárový graf jako u akcií ---------- */
+/* ---------- výdělek po měsících: body z uzávěrek M/1 + M/2 se vyplácejí v měsíci M+1 ---------- */
 const MON=["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
 const MONL=["leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
-let mRange=12;
+const MSER=[["tot","Celkem"],["team","Tým"],["udr","Udržovačky"]];
+let mRange=6, mSlide=0;
 function monthsBack(n){const d=new Date();const out=[];for(let i=n-1;i>=0;i--){const x=new Date(d.getFullYear(),d.getMonth()-i,1);out.push(x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0"))}return out}
 function ymLabel(ym,long){const[y,m]=ym.split("-");return (long?MONL:MON)[+m-1]+(long?" "+y:"")}
-function monthEstimate(ym,passivePts){
-  const qk=qOf(ym+"-01"), rate=quarterRow(qk).rate, mp=monthPoints(ym), tm=teamOverride({ym},rate).total;
-  const a=settings.monthlyPts?.[ym], actual=a==null||a===""?null:+a;
-  const pts=actual!=null?actual:mp.total+passivePts;
-  return {ym,rate,own:mp.total,passivePts,team:tm,actual,pts,kc:pts*rate+tm,est:actual==null};
+function ymNext(ym){const[y,m]=ym.split("-").map(Number);const d=new Date(y,m,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
+function monthRate(ym){const o=settings.monthlyRate?.[ym];return hasV(o)&&ym<ymOf(todayStr())?+o:quarterRate(qOf(ym+"-01"))}
+function monthRow(ym,P){
+  const curYm=ymOf(todayStr()), live=ym>=curYm, rate=monthRate(ym), pa=periodVal(ym+"/1"), pb=periodVal(ym+"/2");
+  const a=pa.act?pa.v:null, b=pb.act?pb.v:null, has=pa.act||pb.act, mp=monthPoints(ym), legacy=settings.monthlyPts?.[ym];
+  const pts=!has&&hasV(legacy)?+legacy:pa.v+pb.v;
+  const tO=settings.monthlyTeam?.[ym], teamCalc=teamOverride({ym},rate).total, team=hasV(tO)?+tO:teamCalc;
+  const uO=settings.monthlyUdr?.[ym], udr=hasV(uO)?+uO:(live||has?P.udr:0);
+  return {ym,pay:ymNext(ym),rate,rateCalc:quarterRate(qOf(ym+"-01")),a,b,ea:pa.v,eb:pb.v,has,full:pa.act&&pb.act,est:!has&&!hasV(legacy),
+    pts,own:mp.total,team,teamCalc,udr,tot:pts*rate+team,udrKc:udr*rate};
 }
+function mVal(r,k){return k==="tot"?r.tot:k==="team"?r.team:r.udrKc}
+async function saveMap(key,k,v){const m={...(settings[key]||{})};if(v===""||v==null||Number.isNaN(v))delete m[k];else m[k]=v;try{await db.doc("settings/main").set({...settings,[key]:m});toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}}
+function goSlide(i){const s=$("mSlides");s.scrollTo({left:i*s.clientWidth,behavior:REDUCED?"auto":"smooth"})}
+function syncSlideUI(){[$("mTabs"),$("mDots")].forEach(g=>[...g.children].forEach((b,j)=>b.setAttribute("aria-selected",String(j===mSlide))))}
+$("mSlides").addEventListener("scroll",()=>{const s=$("mSlides"),i=Math.round(s.scrollLeft/Math.max(1,s.clientWidth));if(i!==mSlide){mSlide=i;syncSlideUI()}},{passive:true});
+$("mTable").addEventListener("focusout",e=>{if(!$("mTable").contains(e.relatedTarget))setTimeout(()=>{if(view==="money"&&!$("mTable").contains(document.activeElement))render()},0)});
 function renderMonthly(cur){
-  const pp=passiveModel(0).series[0].tot;
-  const rows=monthsBack(mRange).map(ym=>monthEstimate(ym,pp)), curYm=ymOf(todayStr());
+  const s0=passiveNow(), P={tot:s0.tot,udr:s0.udr}, curYm=ymOf(todayStr());
+  const rows=monthsBack(mRange).map(ym=>monthRow(ym,P));
   $("mRange").replaceChildren(...[[6,"6M"],[12,"1R"],[24,"2R"]].map(([n,t])=>el("button",{type:"button","aria-selected":String(mRange===n),onclick:()=>{mRange=n;renderMonthly(cur)}},t)));
-  drawMonthly(rows);
+  $("mTabs").replaceChildren(...MSER.map(([k,t],i)=>el("button",{type:"button","aria-selected":String(mSlide===i),onclick:()=>goSlide(i)},t)));
+  $("mDots").replaceChildren(...MSER.map(([k,t],i)=>el("button",{type:"button","aria-label":t,"aria-selected":String(mSlide===i),onclick:()=>goSlide(i)})));
+  MSER.forEach(([k,t])=>drawMonthly(rows,k,t));
+  {const sl=$("mSlides");if(Math.abs(sl.scrollLeft-mSlide*sl.clientWidth)>2)sl.scrollLeft=mSlide*sl.clientWidth}
   if($("mTable").contains(document.activeElement))return;
+  const num=(val,ph,cls,aria,on)=>{const i=el("input",{type:"number",step:"0.01",inputmode:"decimal",placeholder:ph,class:cls||"","aria-label":aria});i.value=val??"";i.addEventListener("change",()=>on(i.value===""?null:+i.value));return i};
   $("mTable").replaceChildren(
-    el("tr",{},["Měsíc","Skutečné body","Tarif","Výdělek",""].map(h=>el("th",{},h))),
+    el("tr",{},["Měsíc","1. uzávěrka","2. uzávěrka","Tarif","Tým","Výplata"].map(h=>el("th",{},h))),
     ...rows.slice().reverse().map(r=>{
-      const i=el("input",{type:"number",step:"0.1",inputmode:"decimal",placeholder:fmt1(r.own+r.passivePts),"aria-label":"Skutečné body "+ymLabel(r.ym,1)});i.value=r.actual??"";
-      i.addEventListener("change",async()=>{const m={...(settings.monthlyPts||{})};if(i.value==="")delete m[r.ym];else m[r.ym]=r1(+i.value);
-        try{await db.doc("settings/main").set({...settings,monthlyPts:m});toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}});
-      return el("tr",{class:r.ym===curYm?"cur":""},el("td",{},ymLabel(r.ym,1)),el("td",{},i," b"),el("td",{},cz(r.rate)+" Kč"),
-        el("td",{},kc(r.kc)),el("td",{},el("span",{class:"tag "+(r.est?"":"blue")},r.est?"odhad":"skutečnost")))}));
+      const past=r.ym<curYm, tag=r.est?el("span",{class:"tag"},"odhad"):r.full?el("span",{class:"tag blue"},"skutečnost"):el("span",{class:"tag"},"částečně");
+      return el("tr",{class:r.ym===curYm?"cur":""},
+        el("td",{},el("div",{},ymLabel(r.ym,1)),el("div",{class:"mt-s"},"výplata "+ymLabel(r.pay,1))),
+        el("td",{},num(r.a,r.ea?fmt1(r.ea):"–","","1. uzávěrka "+ymLabel(r.ym,1),v=>saveMap("sjetiny",r.ym+"/1",v==null?null:r1(v)))," b"),
+        el("td",{},num(r.b,r.eb?fmt1(r.eb):"–","","2. uzávěrka "+ymLabel(r.ym,1),v=>saveMap("sjetiny",r.ym+"/2",v==null?null:r1(v)))," b"),
+        el("td",{},past?[num(hasV(settings.monthlyRate?.[r.ym])?+settings.monthlyRate[r.ym]:null,cz(r.rateCalc),"rt","Tarif "+ymLabel(r.ym,1),v=>saveMap("monthlyRate",r.ym,v))," Kč"]:cz(r.rate)+" Kč"),
+        el("td",{},num(hasV(settings.monthlyTeam?.[r.ym])?+settings.monthlyTeam[r.ym]:null,fmt0(r.teamCalc),"","Tým "+ymLabel(r.ym,1),v=>saveMap("monthlyTeam",r.ym,v==null?null:Math.round(v)))," Kč"),
+        el("td",{class:"pay"},kc(r.tot),tag))}));
 }
-function smoothPath(P){if(P.length<2)return P.length?`M${P[0][0]},${P[0][1]}`:"";let d=`M${P[0][0]},${P[0][1]}`;
-  for(let i=0;i<P.length-1;i++){const p0=P[i-1]||P[i],p1=P[i],p2=P[i+1],p3=P[i+2]||p2,t=.18;
-    const c1=[p1[0]+(p2[0]-p0[0])*t,p1[1]+(p2[1]-p0[1])*t],c2=[p2[0]-(p3[0]-p1[0])*t,p2[1]-(p3[1]-p1[1])*t];d+=`C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${p2[0]},${p2[1]}`}return d}
-function drawMonthly(rows){
-  const wrap=$("mChart"), W=Math.max(320,Math.round(wrap.clientWidth||720)),H=230,L=48,R=10,T=16,B=26;
-  const vals=rows.map(r=>r.kc), maxV=Math.max(1000,...vals)*1.12, minV=0;
+function smoothPath(P){const n=P.length;if(n<2)return n?`M${P[0][0]},${P[0][1]}`:"";
+  const dx=[],m=[];for(let i=0;i<n-1;i++){dx[i]=P[i+1][0]-P[i][0];m[i]=(P[i+1][1]-P[i][1])/dx[i]}
+  const t=[m[0]];for(let i=1;i<n-1;i++)t[i]=m[i-1]*m[i]<=0?0:3*(dx[i-1]+dx[i])/((2*dx[i]+dx[i-1])/m[i-1]+(dx[i]+2*dx[i-1])/m[i]);t[n-1]=m[n-2];
+  let d=`M${P[0][0]},${P[0][1]}`;for(let i=0;i<n-1;i++){const h=dx[i]/3;d+=`C${P[i][0]+h},${P[i][1]+t[i]*h} ${P[i+1][0]-h},${P[i+1][1]-t[i+1]*h} ${P[i+1][0]},${P[i+1][1]}`}return d}
+function drawMonthly(rows,k,label){
+  const wrap=$("mChart_"+k), W=Math.max(300,Math.round(wrap.clientWidth||$("mSlides").clientWidth||720)),H=220,L=48,R=10,T=14,B=26;
+  const vals=rows.map(r=>mVal(r,k)), hi=Math.max(0,...vals), lo=Math.min(0,...vals);
+  const maxV=Math.max(hi,k==="tot"?1000:200)*1.12, minV=lo<0?lo*1.12:0;
   const x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)), y=v=>T+(H-T-B)*(1-(v-minV)/(maxV-minV));
-  const P=rows.map((r,i)=>[x(i),y(r.kc)]), line=smoothPath(P), up=vals[vals.length-1]>=vals[0];
-  const col=up?"var(--green)":"var(--red)";
-  let g="";for(let k=1;k<=3;k++){const v=maxV/1.12*k/3;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--sep)" stroke-width=".5" stroke-dasharray="2 4"/><text x="${L-8}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(v)}</text>`}
+  const P=rows.map((r,i)=>[x(i),y(vals[i])]), line=smoothPath(P), up=vals[vals.length-1]>=vals[0], gid="mg_"+k;
+  const col=up?"var(--green)":"var(--red)", hex=up?"#34C759":"#FF3B30";
+  let g="";for(let j=1;j<=3;j++){const v=maxV/1.12*j/3;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--sep)" stroke-width=".5" stroke-dasharray="2 4"/><text x="${L-8}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(v)}</text>`}
+  if(minV<0)g+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--label3)" stroke-width="1"/><text x="${L-8}" y="${y(0)+3}" text-anchor="end" font-size="10" fill="var(--label2)">0</text><text x="${L-8}" y="${y(minV/1.12)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(minV/1.12)}</text>`;
   const step=rows.length>12?3:rows.length>6?2:1;
-  let xl="";rows.forEach((r,i)=>{if(i%step===(rows.length-1)%step)xl+=`<text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="11" fill="var(--label2)">${ymLabel(r.ym)}</text>`});
-  const est=rows.map((r,i)=>r.est?`<circle cx="${P[i][0]}" cy="${P[i][1]}" r="2.6" fill="var(--bg2)" stroke="${col}" stroke-width="1.4"/>`:"").join("");
-  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Výdělek po měsících"><defs><linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${up?"#34C759":"#FF3B30"}" stop-opacity=".32"/><stop offset="1" stop-color="${up?"#34C759":"#FF3B30"}" stop-opacity="0"/></linearGradient></defs>${g}${xl}
-    <path d="${line} L${P[P.length-1][0]},${y(0)} L${P[0][0]},${y(0)} Z" fill="url(#mg)"/>
+  let xl="";rows.forEach((r,i)=>{if(i%step===(rows.length-1)%step)xl+=`<text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="11" fill="var(--label2)">${ymLabel(r.pay)}</text>`});
+  const est=rows.map((r,i)=>r.est?`<circle cx="${P[i][0]}" cy="${P[i][1]}" r="2.8" fill="var(--bg2)" stroke="${col}" stroke-width="1.4"/>`:"").join("");
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label} po měsících výplaty"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${hex}" stop-opacity=".32"/><stop offset="1" stop-color="${hex}" stop-opacity="0"/></linearGradient></defs>${g}${xl}
+    <path d="${line} L${P[P.length-1][0]},${y(0)} L${P[0][0]},${y(0)} Z" fill="url(#${gid})"/>
     <path d="${line}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>${est}
     <g class="xh" style="display:none"><line class="xl" y1="${T-6}" y2="${H-B}" stroke="var(--label3)" stroke-width="1"/><circle class="xd" r="5.5" fill="${col}" stroke="var(--bg2)" stroke-width="2.5"/></g>
-    <rect class="hitall" x="0" y="0" width="${W}" height="${H}" fill="transparent"/></svg>`;
+    <rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/></svg>`;
   const tip=el("div",{class:"tip mtip",hidden:""});wrap.append(tip);
   const svg=wrap.querySelector("svg"), xh=svg.querySelector(".xh"), xl2=svg.querySelector(".xl"), xd=svg.querySelector(".xd");
-  const head=(r,prev)=>{const ch=prev?r.kc-prev.kc:0, pc=prev&&prev.kc?ch/prev.kc*100:0;
-    $("mHead").replaceChildren(el("div",{class:"mh-l"},ymLabel(r.ym,1),r.est?el("span",{class:"tag"},"odhad"):el("span",{class:"tag blue"},"skutečnost")),el("div",{class:"mh-v"},kc(r.kc)),
-      el("div",{class:"mh-s"},fmt1(r.pts)+" b × "+cz(r.rate)+" Kč"+(r.team>0.5?" + tým "+kc(r.team):r.team<-0.5?" − tým "+kc(-r.team):""),prev?el("b",{style:"color:"+(ch>=0?"var(--green)":"var(--red)")},"  "+(ch>=0?"▲ +":"▼ ")+kc(ch)+(prev.kc?" ("+(pc>=0?"+":"")+fmt1(pc)+" %)":"")):null))};
-  const last=rows.length-1;head(rows[last],rows[last-1]);
-  const move=ev=>{const b=svg.getBoundingClientRect(), sc=b.width/W, px=(ev.clientX-b.left)/sc;
+  const head=(i)=>{const r=rows[i], prev=rows[i-1], v=vals[i], ch=prev?v-vals[i-1]:0, pc=prev&&vals[i-1]?ch/Math.abs(vals[i-1])*100:0;
+    const sub=k==="tot"?fmt1(r.pts)+" b × "+cz(r.rate)+" Kč"+(r.team>0.5?" + tým "+kc(r.team):r.team<-0.5?" − tým "+kc(-r.team):""):k==="team"?"meziprovize za "+ymLabel(r.ym,1):fmt1(r.udr)+" b × "+cz(r.rate)+" Kč";
+    $("mHead_"+k).replaceChildren(el("div",{class:"mh-l"},label+" · výplata "+ymLabel(r.pay,1),r.est?el("span",{class:"tag"},"odhad"):r.full?el("span",{class:"tag blue"},"skutečnost"):el("span",{class:"tag"},"částečně")),el("div",{class:"mh-v"},kc(v)),
+      el("div",{class:"mh-s"},sub,prev?el("b",{style:"color:"+(ch>=0?"var(--green)":"var(--red)")},"  "+(ch>=0?"▲ +":"▼ ")+kc(ch)+(vals[i-1]?" ("+(pc>=0?"+":"")+fmt1(pc)+" %)":"")):null))};
+  const last=rows.length-1;head(last);
+  const move=ev=>{const bb=svg.getBoundingClientRect(), sc=bb.width/W, px=(ev.clientX-bb.left)/sc;
     let i=Math.round((px-L)/((W-L-R)/Math.max(1,rows.length-1)));i=Math.max(0,Math.min(last,i));
     xh.style.display="";xl2.setAttribute("x1",P[i][0]);xl2.setAttribute("x2",P[i][0]);xd.setAttribute("cx",P[i][0]);xd.setAttribute("cy",P[i][1]);
-    const r=rows[i];tip.textContent=ymLabel(r.ym,1)+" · "+kc(r.kc)+" · "+fmt1(r.pts)+" b"+(r.est?" (odhad)":"");tip.style.left=Math.min(Math.max(P[i][0]*sc,70),b.width-70)+"px";tip.style.top=(P[i][1]*sc-14)+"px";tip.hidden=false;head(r,rows[i-1])};
+    tip.textContent=ymLabel(rows[i].pay,1)+" · "+kc(vals[i])+(rows[i].est?" (odhad)":"");tip.style.left=Math.min(Math.max(P[i][0]*sc,70),bb.width-70)+"px";tip.style.top=(P[i][1]*sc-14)+"px";tip.hidden=false;head(i)};
   svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);
-  svg.addEventListener("pointerleave",()=>{xh.style.display="none";tip.hidden=true;head(rows[last],rows[last-1])});
+  svg.addEventListener("pointerleave",()=>{xh.style.display="none";tip.hidden=true;head(last)});
 }
 
 /* ---------- pasivní příjem ---------- */
@@ -1408,17 +1443,18 @@ function renderPassive(cur){
     tile("Udržovací z investic",kc(s0.udr*rate)+"/měs",fmt1(s0.udr)+" b měsíčně · AUM "+shortKc(M.aumTotal)+" Kč","var(--green)",openAumSheet),
     tile("Z pravidelných vkladů",kc(s0.reg*rate)+"/měs",fmt1(s0.reg)+" b měsíčně","var(--tint)",openRegSheet),
     tile("Meziprovize z týmu",kc(teamQ),"tento kvartál · "+team.length+" "+plural(team.length,"člen","členové","členů"),"var(--orange)",()=>{$("teamSec").scrollIntoView({behavior:"smooth",block:"start"})}));
+  $("passiveSec").querySelector(".sechead").textContent="Pasivní příjem v čase";
   $("pHorizon").replaceChildren(...[[12,"1 rok"],[36,"3 roky"],[60,"5 let"],[120,"10 let"]].map(([m,t])=>el("button",{type:"button","aria-selected":String(pHorizon===m),onclick:()=>{pHorizon=m;renderPassive(cur)}},t)));
   const end=M.series[pHorizon];
   $("pCap").replaceChildren("Za ",el("b",{},[[12,"rok"],[36,"3 roky"],[60,"5 let"],[120,"10 let"]].find(x=>x[0]===pHorizon)[1])," měsíčně ",el("b",{class:"num"},kc(end.tot*rate))," (dnes "+kc(s0.tot*rate)+"). Růst majetku ZFPI 5 % a akciových investic 9 % ročně, pravidelné vklady a podepsané investice z pipeline, při "+cz(rate)+" Kč za bod.");
   drawPassive(M.series.slice(0,pHorizon+1),rate);
   const f5=c=>c.pts*Math.pow(1+c.g,5);
-  $("pTable").replaceChildren(
+  $("pTable").replaceChildren(...[
     el("tr",{},["Zdroj","AUM","Body/měs","Kč/měs","Růst","Za 5 let"].map(h=>el("th",{},h))),
     ...M.base.map(c=>el("tr",{class:"click",onclick:openAumSheet},el("td",{},c.s),el("td",{},c.aum!=null?shortKc(c.aum):c.fromBook?"z výpisů":"–"),el("td",{},fmt1(c.pts)),el("td",{},kc(c.pts*rate)),el("td",{},Math.round(c.g*100)+" %"),el("td",{},kc(f5(c)*rate)))),
     M.ost?el("tr",{class:"click",onclick:openAumSheet},el("td",{},"Ostatní (ručně)"),el("td",{},"–"),el("td",{},fmt1(M.ost)),el("td",{},kc(M.ost*rate)),el("td",{},"–"),el("td",{},kc(M.ost*rate))):null,
     M.dealUdr>0?el("tr",{},el("td",{},"Nové investice z pipeline"),el("td",{},shortKc(M.dealAum)),el("td",{},fmt1(M.dealUdr)),el("td",{},kc(M.dealUdr*rate)),el("td",{},"5–9 %"),el("td",{},"–")):null,
-    el("tr",{class:"click",onclick:openRegSheet},el("td",{},"Pravidelné vklady (poplatky)"),el("td",{},"–"),el("td",{},fmt1(s0.reg)),el("td",{},kc(s0.reg*rate)),el("td",{},"–"),el("td",{},kc(M.series[60].reg*rate))));
+    el("tr",{class:"click",onclick:openRegSheet},el("td",{},"Pravidelné vklady (poplatky)"),el("td",{},"–"),el("td",{},fmt1(s0.reg)),el("td",{},kc(s0.reg*rate)),el("td",{},"–"),el("td",{},kc(M.series[60].reg*rate)))].filter(Boolean));
   const dl=M.deals.length, anyBook=M.base.some(c=>c.fromBook);
   $("pFoot").textContent="Klikni na dlaždici nebo řádek a zadej AUM (objem majetku klientů) u každé společnosti. Conseq: manažerský poplatek 1 % p. a. + success fee 10 % ze zhodnocení (počítám s výnosem 9 %)."+(anyBook?" Kde AUM chybí, beru průměr z tvých provizních výpisů.":"")+(dl?" Z pipeline se započítává "+dl+" "+plural(dl,"podepsaná investice","podepsané investice","podepsaných investic")+".":"");
 }
@@ -1759,25 +1795,20 @@ function celebrate(o){
   if(!REDUCED){const W=innerWidth,H=innerHeight;[[.5,.45,0],[.2,.6,250],[.8,.6,450],[.35,.3,700],[.65,.3,900]].slice(0,o.kind==="paid"?2:5).forEach(([a,b,t])=>setTimeout(()=>confetti(W*a,H*b),t))}
   clearTimeout(celebrate._t);celebrate._t=setTimeout(close,o.kind==="paid"?3200:7000);
 }
-function progressSnap(){return {q:quarterPoints(CURQ()).total,cum:cumPts()}}
-async function afterSign(before,l){
-  const after=progressSnap(), c=career(), lines=[];let title=null,kicker=null,big=null;
-  // statická kariéra podle kariérních bodů
-  if(c.cAsOf&&before.cum!=null&&after.cum!=null){const i0=Math.max(STAT_POS.findIndex(p=>p[0]===c.stat),STAT_POS.map(p=>before.cum>=p[2]).lastIndexOf(true)), i1=STAT_POS.map(p=>after.cum>=p[2]).lastIndexOf(true);
-    if(i1>i0){const P=STAT_POS[i1];title="Postup na "+P[0];kicker="Statická kariéra";big=P[1]+" Kč za bod";lines.push("Máš "+fmt0(after.cum)+" kariérních bodů (hranice "+fmt0(P[2])+").");
-      try{await db.doc("settings/main").set({...settings,career:{...(settings.career||{}),stat:P[0]}})}catch(e){}}}
-  // obratová kariéra podle bodů v kvartálu
-  const nq=qLabel(qShift(CURQ(),1));
-  if(c.obrat==="auto"){const a=obratLevelFor(before.q),b=obratLevelFor(after.q);if(b&&(!a||b.q>a.q)&&b.r>statRate(c.stat)){if(!title){title=b.t+" splněno";kicker="Obratová kariéra";big=cz(b.r)+" Kč za bod"}lines.push(fmt0(after.q)+" b v "+qLabel(CURQ())+" → v "+nq+" budeš mít "+cz(b.r)+" Kč za bod.")}}
-  else if(c.obrat){const p=PROFI.find(x=>x.k===c.obrat);if(p&&before.q<1000&&after.q>=1000){if(!title){title="1 000 bodů splněno";kicker="Obratová kariéra";big=p.t+" · "+cz(p.r)+" Kč"}lines.push(p.t+" ti zůstává i v "+nq+".")}}
-  if(!title)return false;
-  celebrate({title,kicker,big,sub:l?.name?"Podpisem "+l.name+" (+"+fmt1(+l.points||0)+" b)":"",lines,kind:"level"});return true;
-}
+function progressSnap(d){const qk=qOf(perMonth(periodOf(d||todayStr()))+"-01");return {qk,q:quarterTotal(qk),cum:cumPts()}}
 async function afterStage(before,id,from,to){
   const l=leads.find(x=>x.id===id);if(!l)return;
-  let shown=false;
-  if(SIGNED(to)&&!SIGNED(from))shown=await afterSign(before,l);
-  if(to==="vyplaceno"&&from!=="vyplaceno"&&!shown)paidCelebrate(l);
+  _pc=null;const after={q:quarterTotal(before.qk),cum:cumPts()}, c=career(), lines=[], signedNow=SIGNED(to)&&!SIGNED(from), paidNow=to==="vyplaceno"&&from!=="vyplaceno";
+  let title=null,kicker=null,big=null;
+  // statická kariéra – body celkem se zvednou až vyplacením
+  if(paidNow&&before.cum!=null&&after.cum!=null){const i0=STAT_POS.map(p=>before.cum>=p[2]).lastIndexOf(true), i1=STAT_POS.map(p=>after.cum>=p[2]).lastIndexOf(true);
+    if(i1>i0){const P=STAT_POS[i1];title="Postup na "+P[0];kicker="Statická kariéra";big=P[1]+" Kč za bod";lines.push("Máš "+fmt0(after.cum)+" bodů celkem (hranice "+fmt0(P[2])+").")}}
+  // obratová kariéra – body vyprodukované v kvartálu
+  if(signedNow){const nq=qLabel(qShift(before.qk,1));
+    if(c.obrat==="auto"){const a=obratLevelFor(before.q),b=obratLevelFor(after.q);if(b&&(!a||b.q>a.q)&&b.r>statRate(c.stat)){if(!title){title=b.t+" splněno";kicker="Obratová kariéra";big=cz(b.r)+" Kč za bod"}lines.push(fmt0(after.q)+" b v "+qLabel(before.qk)+" → v "+nq+" budeš mít "+cz(b.r)+" Kč za bod.")}}
+    else if(c.obrat){const p=PROFI.find(x=>x.k===c.obrat);if(p&&p.r>statRate(c.stat)&&before.q<1000&&after.q>=1000){if(!title){title="1 000 bodů splněno";kicker="Obratová kariéra";big=p.t+" · "+cz(p.r)+" Kč"}lines.push("V "+nq+" budeš mít "+p.t+" – "+cz(p.r)+" Kč za bod.")}}}
+  if(title){celebrate({title,kicker,big,sub:(paidNow?"Vyplacená provize – ":"Podpis – ")+(l.name||"")+" (+"+fmt1(+l.points||0)+" b)",lines,kind:"level"});return}
+  if(paidNow)paidCelebrate(l);
 }
 function paidCelebrate(l){const rate=l.signedAt?quarterRow(qOf(l.signedAt)).rate:quarterRow(CURQ()).rate;
   celebrate({icon:"check",kind:"paid",kicker:"Provize vyplacena",title:l.name||"Hotovo",big:l.points?"+"+kc(l.points*rate):null,sub:l.points?fmt1(l.points)+" b × "+cz(rate)+" Kč – potvrzeno, že peníze dorazily.":"Potvrzeno, že provize dorazila.",btn:"Hotovo"})}
@@ -1896,7 +1927,7 @@ function sparkle(x,y,cssColor){
 async function moveTo(l,stage){
   if(!db){toast("Úložiště není dostupné");return}
   armFlip(l,stage);
-  const before=progressSnap(), from=l.stage;
+  const before=progressSnap(l.signedAt||todayStr()), from=l.stage;
   const patch={stage,stageAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
   if(SIGNED(stage)&&!l.signedAt)patch.signedAt=todayStr();
   if(!SIGNED(stage)&&l.signedAt)patch.signedAt=null;
@@ -2204,7 +2235,7 @@ function showErr(e){$("fErr").textContent="Uložení se nepovedlo ("+(e.code||"c
 $("form").addEventListener("submit",async e=>{
   e.preventDefault();
   if(!db){showErr({code:"úložiště nedostupné"});return}
-  const man=$("f_points").value, stage=$("f_stage").value, now=new Date().toISOString(), before=progressSnap(), from=editing?.stage||null;
+  const man=$("f_points").value, stage=$("f_stage").value, now=new Date().toISOString(), before=progressSnap($("f_signed").value||todayStr()), from=editing?.stage||null;
   const items=formItems.filter(it=>+it.amt>0).map(it=>{const o={p:it.p,amt:+it.amt};["fee","yrs","var","age","vziz","g","price","pct","plusDph","mode","storno","zal","zan"].forEach(k=>{if(it[k]!=null&&it[k]!=="")o[k]=it[k]});if(!o.storno||!SIGNED(stage)){delete o.storno;delete o.zal;delete o.zan}o.pts=r1(itemCalc(it).pts);o.share=it.share??100;if(SIGNED(stage))o.signed=it.signed!==false;return o});
   const c=calcTotal();
   const data={
