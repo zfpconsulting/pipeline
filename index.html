@@ -472,6 +472,13 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .mtbl td .tag{margin-left:6px}
 .mtbl td.pay{white-space:nowrap}
 .careerbar .statchip{font-size:15px;font-weight:600;color:var(--label);background:var(--fill);border-radius:8px;padding:6px 10px;white-space:nowrap}
+/* ===== v7 ===== */
+.dcfg textarea{font:inherit;font-size:15px;color:var(--label);background:var(--fill);border:none;border-radius:8px;padding:8px 10px;width:100%;resize:vertical}
+.dcfg input.chk{width:22px;height:22px;flex:none;accent-color:var(--green);max-width:none}
+.smsrow .main .s{white-space:normal}
+.smsbtn{font-size:13px;font-weight:600;border-radius:999px;padding:5px 12px;background:var(--green-soft);color:var(--green);text-decoration:none;white-space:nowrap}
+.smsst{font-size:12px;color:var(--label2);white-space:nowrap}
+.smsst.bad{color:var(--red)}
 </style>
 </head>
 <body>
@@ -509,6 +516,11 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
     <div class="section">
       <h3 class="sechead">Dnes volat</h3>
       <div class="group" id="todayList"></div>
+    </div>
+    <div class="section" id="smsSec" hidden>
+      <h3 class="sechead" id="smsHead">Potvrzení schůzek</h3>
+      <div class="group" id="smsList"></div>
+      <p class="secfoot" id="smsFoot"></p>
     </div>
     <div class="section" id="calSec">
       <h3 class="sechead" id="calHead">Z kalendáře · zatím ne v pipeline</h3>
@@ -705,6 +717,11 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
         <label>Začátek názvu schůzky <input id="dPrefix" placeholder="např. VK:" autocomplete="off"></label>
         <p class="hint">Do CRM se berou jen události, jejichž název začíná tímto textem (např. „VK: Novák“). Porady, tréninky a ostatní události se ignorují. Bez vyplnění se z kalendáře nic nenačte.</p>
         <button type="button" class="dbtn" id="dTasks" hidden>Povolit zápis úkolů do kalendáře</button>
+      </div>
+      <div class="dcfg">
+        <label>Potvrzovací SMS den před schůzkou v 9:00 <input type="checkbox" id="dSms" class="chk"></label>
+        <textarea id="dSmsTpl" rows="4" aria-label="Text potvrzovací SMS"></textarea>
+        <p class="hint">Místo <b>{kdy}</b> se doplní třeba „ve čtvrtek 25. 9. v 14:00“, místo <b>{online}</b> „ (online)“ u online schůzek. Aplikace den před schůzkou zapíše do kalendáře celodenní událost „VK: SMS · Příjmení“ s telefonem a textem; v 9:00 ji odešle zkratka na iPhonu (Zkratky → Automatizace). Klienti bez telefonu se přeskočí.</p>
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
@@ -1265,7 +1282,7 @@ function renderPipe(cur){
       el("span",{class:"end"},l.phone||ST(l.stage).t),chev());
   }),hot.length>6?el("button",{class:"row row-btn",type:"button",style:"color:var(--tint);font-weight:500;justify-content:center",onclick:()=>{window.__todayAll=!showAll;render()}},showAll?"Zobrazit méně":"Zobrazit všech "+hot.length):null].filter(Boolean):[el("div",{class:"row"},el("span",{class:"empty"},"Nic nehoří. Každý rozjednaný lead má naplánovaný další krok."))]));
 
-  renderCal();
+  renderCal();renderSms();
   $("cols").replaceChildren(...STAGES.map((st,i)=>{
     const items=list.filter(l=>l.stage===st.k).sort((a,b)=>SIGNED(st.k)?(b.signedAt||"").localeCompare(a.signedAt||""):(a.nextDate||"9").localeCompare(b.nextDate||"9"));
     const colPts=items.reduce((s,l)=>s+(+l.points||0),0);
@@ -1784,7 +1801,7 @@ async function fetchCalHistory(force){
     const p=new URLSearchParams({q:cfg.prefix,timeMin:"2005-01-01T00:00:00Z",timeMax:new Date(Date.now()+400*864e5).toISOString(),singleEvents:"true",orderBy:"startTime",maxResults:"2500"});
     let items=[],page=null,g=0;
     do{if(page)p.set("pageToken",page);const r=await(await gfetch("https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events?"+p)).json();
-      items=items.concat((r.items||[]).filter(e=>e.start?.dateTime&&e.status!=="cancelled"&&e.extendedProperties?.private?.pipeline!=="tasks").map(e=>({id:e.id,summary:e.summary,start:{dateTime:e.start.dateTime}})));page=r.nextPageToken}while(page&&++g<25);
+      items=items.concat((r.items||[]).filter(e=>e.start?.dateTime&&e.status!=="cancelled"&&!e.extendedProperties?.private?.pipeline).map(e=>({id:e.id,summary:e.summary,start:{dateTime:e.start.dateTime}})));page=r.nextPageToken}while(page&&++g<25);
     lsSet("cal_hist",{at:Date.now(),id:cfg.id,pf:cfg.prefix,items});calHist=items;if(view==="cli")render();
   }catch(err){console.warn("hist",err)}finally{histBusy=false}
 }
@@ -1951,7 +1968,7 @@ function norm(x){return (x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").
 function surnameOf(name){const w=(name||"").replace(/\(.*?\)/g," ").trim().split(/\s+/).filter(Boolean);return norm(w[w.length-1]||"")}
 function parseEvent(e){
   if(!e||!e.start||!e.start.dateTime||e.status==="cancelled")return null;
-  if(e.extendedProperties?.private?.pipeline==="tasks")return null;
+  if(e.extendedProperties?.private?.pipeline)return null;
   const raw=(e.summary||"").trim();const pre=prefixRe();if(!pre||!pre.test(raw))return null;
   const words=raw.replace(pre||/^$/,"").replace(/\(.*?\)/g," ").split(/[\s,;+/]+/).map(w=>w.replace(/[.]+$/,"")).filter(Boolean);
   const kept=words.filter(w=>!NOISE.has(norm(w)));
@@ -2038,7 +2055,7 @@ function calErrorText(e){
   }
 }
 function calFootText(){const c=calCfg();return c.prefix?"Schůzky „"+c.prefix+" Příjmení“ z kalendáře "+c.name+" za posledních 60 dní a nadcházející. Porady a jiné události se ignorují. Změníš v nastavení synchronizace (tlačítko ✓).":"Z kalendáře se nic nenačítá – v nastavení synchronizace (tlačítko ✓) vyplň začátek názvu schůzek, např. „VK:“."}
-function applyCalItems(items){try{$("calFoot").textContent=calFootText()}catch(e){}if(!calCfg().prefix){calEvents=null;calState="error";calMsg="Nastav začátek názvu schůzek (např. VK:) v nastavení synchronizace – tlačítko ✓ vpravo nahoře.";render();return}calEvents=items.map(parseEvent).filter(Boolean);calState="ok";calMsg="";render();scheduleSync()}
+function applyCalItems(items){try{$("calFoot").textContent=calFootText()}catch(e){}if(!calCfg().prefix){calEvents=null;calState="error";calMsg="Nastav začátek názvu schůzek (např. VK:) v nastavení synchronizace – tlačítko ✓ vpravo nahoře.";render();return}calEvents=items.map(parseEvent).filter(Boolean);calState="ok";calMsg="";render();scheduleSync();scheduleTasks()}
 async function refreshCalendar(){
   if(!calCfg().prefix){calEvents=null;calState="error";calMsg="Nastav začátek názvu schůzek (např. VK:) v nastavení synchronizace – tlačítko ✓ vpravo nahoře.";try{$("calFoot").textContent=calFootText()}catch(e){}render();return}
   if(!GAuth.token()||!navigator.onLine)return;
@@ -2056,7 +2073,7 @@ function startCalendar0(){
 
 /* ================= úkoly → Google Kalendář (celodenní „VK: Úkoly“) ================= */
 let taskTimer=null, taskBusy=false;
-function scheduleTasks(){clearTimeout(taskTimer);taskTimer=setTimeout(()=>syncTasks().catch(e=>console.warn("tasks",e)),4000)}
+function scheduleTasks(){clearTimeout(taskTimer);taskTimer=setTimeout(()=>{syncTasks().catch(e=>console.warn("tasks",e)).then(()=>syncSms().catch(e=>console.warn("sms",e)))},4000)}
 function taskTitle(){const p=calCfg().prefix;return (p?p+" ":"")+"Úkoly"}
 async function syncTasks(force){
   if(taskBusy||!db||!GAuth.token()||!navigator.onLine||!GAuth.hasScope("calendar.events")||!calCfg().prefix)return;
@@ -2082,6 +2099,62 @@ async function syncTasks(force){
     }
     lsSet("tasks_sig",sig);lsSet("tasks_at",Date.now());
   }finally{taskBusy=false}
+}
+/* ================= potvrzovací SMS (zapíše „VK: SMS · Jméno“ den předem, odešle zkratka na iPhonu v 9:00) ================= */
+const SMS_TPL="Dobrý den, potvrzuji naši schůzku zítra {kdy}{online}. Kdyby se Vám cokoli změnilo, dejte mi prosím vědět. Děkuji.";
+const DNY_V=["v neděli","v pondělí","v úterý","ve středu","ve čtvrtek","v pátek","v sobotu"];
+function smsCfg(){const s=settings.sms||{};return {on:!!s.on,tpl:(s.tpl||"").trim()||SMS_TPL}}
+function smsPhone(p){let d=(p||"").replace(/[^\d+]/g,"");if(d.startsWith("00"))d="+"+d.slice(2);if(/^\d{9}$/.test(d))d="+420"+d;return d.length>=9?d:""}
+function smsKdy(iso){const d=new Date(iso),z=n=>String(n).padStart(2,"0");return DNY_V[d.getDay()]+" "+d.getDate()+". "+(d.getMonth()+1)+". v "+d.getHours()+":"+z(d.getMinutes())}
+function smsText(ev){return smsCfg().tpl.replaceAll("{kdy}",smsKdy(ev.start)).replaceAll("{online}",ev.online?" (online)":"").replaceAll("{jmeno}",ev.name||"")}
+/* schůzky v příštích dnech s telefonem z leadu nebo z klienta */
+function smsPlan(days){
+  const now=new Date(), until=new Date(Date.now()+days*864e5).toISOString(), out=[];
+  (calEvents||[]).filter(ev=>ev.start>now.toISOString()&&ev.start<=until).forEach(ev=>{
+    const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));
+    const c=!l?.phone?clients.find(c=>!c.hidden&&c.phone&&sameSurname(c.calKey||surnameOf(c.name),ev.key)):null;
+    const phone=smsPhone(l?.phone||c?.phone), sendDay=addDaysFrom(ev.start.slice(0,10),-1);
+    out.push({ev,name:l?.name||c?.name||ev.name,phone,sendDay,lead:l||null,client:c||null});
+  });
+  return out.sort((a,b)=>a.ev.start.localeCompare(b.ev.start));
+}
+let smsBusy=false;
+async function syncSms(){
+  if(smsBusy||!db||!GAuth.token()||!navigator.onLine||!GAuth.hasScope("calendar.events")||!calCfg().prefix||!calEvents)return;
+  smsBusy=true;
+  try{
+    const cfg=calCfg(), on=smsCfg().on, t=todayStr(), horizon=addDays(62), want={};
+    if(on)smsPlan(61).forEach(x=>{if(x.phone&&x.sendDay>=t)want[x.ev.id]={date:x.sendDay,summary:cfg.prefix+" SMS · "+(x.name||""),location:x.phone,description:smsText(x.ev)}});
+    const sig=JSON.stringify([cfg.id,want]);
+    if(sig===lsGet("sms_sig")&&Date.now()-(+lsGet("sms_at")||0)<30*60000)return;
+    const base="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events";
+    const p=new URLSearchParams({privateExtendedProperty:"pipeline=sms",timeMin:new Date(t+"T00:00:00").toISOString(),timeMax:new Date(horizon+"T23:59:59").toISOString(),singleEvents:"true",maxResults:"500"});
+    const r=await(await gfetch(base+"?"+p)).json(), have={}, J={"Content-Type":"application/json"};
+    for(const e of (r.items||[])){if(e.status==="cancelled")continue;const k=e.extendedProperties?.private?.ev;if(!k||have[k]){await gfetch(base+"/"+e.id,{method:"DELETE"});continue}have[k]=e}
+    for(const k of new Set([...Object.keys(want),...Object.keys(have)])){
+      const w=want[k], e=have[k];
+      if(!w){if(e&&(e.start?.date||"")>=t)await gfetch(base+"/"+e.id,{method:"DELETE"});continue}
+      const body={summary:w.summary,location:w.location,description:w.description,start:{date:w.date},end:{date:addDaysFrom(w.date,1)},transparency:"transparent",reminders:{useDefault:false,overrides:[]},extendedProperties:{private:{pipeline:"sms",ev:k}}};
+      if(!e)await gfetch(base,{method:"POST",headers:J,body:JSON.stringify(body)});
+      else if(e.summary!==w.summary||e.location!==w.location||e.description!==w.description||e.start?.date!==w.date)await gfetch(base+"/"+e.id,{method:"PATCH",headers:J,body:JSON.stringify(body)});
+    }
+    lsSet("sms_sig",sig);lsSet("sms_at",Date.now());
+  }finally{smsBusy=false}
+}
+function renderSms(){
+  const sec=$("smsSec");if(!sec)return;
+  const t=todayStr(), plan=calState==="ok"?smsPlan(3).filter(x=>x.sendDay>=t&&x.ev.start.slice(0,10)<=addDays(2)):[], cfg=smsCfg(), h=new Date().getHours();
+  sec.hidden=!plan.length;if(!plan.length)return;
+  $("smsHead").textContent="Potvrzení schůzek · "+plan.length;
+  $("smsList").replaceChildren(...plan.map(x=>{
+    const when=x.sendDay===t?(h<9?"SMS dnes v 9:00":"dnešní 9:00 minula – pošli ručně"):"SMS zítra v 9:00";
+    const st=!x.phone?el("span",{class:"smsst bad"},"chybí telefon"):cfg.on?el("span",{class:"smsst"},when):el("span",{class:"smsst"},"automatika vypnutá");
+    return el("div",{class:"row smsrow"},el("span",{class:"avatar",style:"background:var(--indigo)"},initials(x.name)),
+      el("span",{class:"main"},el("div",{class:"t"},x.name),el("div",{class:"s"},fmtMeet(x.ev.start)+(x.ev.online?" · online":"")+(x.phone?" · "+x.phone:""))),
+      st,x.phone?el("a",{class:"smsbtn",href:"sms:"+x.phone+"?&body="+encodeURIComponent(smsText(x.ev)),title:"Otevře Zprávy s připraveným textem"},"Poslat"):
+        (x.lead?el("button",{type:"button",class:"smsbtn",style:"background:var(--fill);color:var(--tint)",onclick:()=>openEdit(x.lead)},"Doplnit"):null));
+  }));
+  $("smsFoot").textContent=cfg.on?"Den před schůzkou v 9:00 odejde klientovi potvrzovací SMS ze tvého iPhonu (zkratka v aplikaci Zkratky). Tlačítkem Poslat ji můžeš poslat hned ručně.":"Automatické potvrzovací SMS jsou vypnuté – zapni je v nastavení synchronizace (tlačítko ✓). Ručně jde poslat tlačítkem Poslat.";
 }
 function taskHintText(){if(!calCfg().prefix)return "Do kalendáře se zapíše, až v nastavení synchronizace vyplníš začátek názvu schůzek.";if(!GAuth.hasScope("calendar.events"))return "Zápis do kalendáře čeká na povolení – klikni vpravo nahoře na ✓ a „Povolit zápis úkolů“.";return "Zapíše se do kalendáře "+calCfg().name+" jako celodenní „"+taskTitle()+"“ na daný den."}
 
@@ -2300,7 +2373,7 @@ setView(["pipe","money","cli","pp"].includes(sv)?sv:"pipe");
   $("dLogout").onclick=()=>{GAuth.logout()};
   const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);lsSet("cal_hist",null);calHist=null;calEvents=null;calState="loading";render();refreshCalendar().then(()=>fetchCalHistory(true))}catch(e){toast("Nepodařilo se uložit")}};
   sb.addEventListener("click",async()=>{
-    if(!dd.open)return;const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
+    if(!dd.open)return;const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dSms").checked=smsCfg().on;$("dSmsTpl").value=smsCfg().tpl;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
     const me=lsGet("g_owner");$("dataInfo").textContent=(me?"Účet "+me+" · ":"")+($("syncBtn").title||"");
     if(!GAuth.token()){sel.replaceChildren(new Option(c.name,c.id));return}
     try{const cals=await listCalendars();sel.replaceChildren(...cals.map(k=>new Option((k.primary?"★ ":"")+(k.summary||k.id),k.id)));sel.value=cals.some(k=>k.id===c.id)?c.id:(cals.find(k=>k.primary)?.id||"primary")}catch(e){sel.replaceChildren(new Option(c.name,c.id))}
@@ -2308,6 +2381,9 @@ setView(["pipe","money","cli","pp"].includes(sv)?sv:"pipe");
   $("dCal").onchange=e=>{const o=e.target.selectedOptions[0];saveCal({calId:o.value,calName:o.textContent.replace(/^★ /,"")})};
   $("dPrefix").onchange=e=>saveCal({calPrefix:e.target.value.trim()});
   $("dTasks").onclick=()=>GAuth.login(false);
+  const saveSms=async patch=>{try{await db.doc("settings/main").set({...settings,sms:{...(settings.sms||{}),...patch}});lsSet("sms_sig",null);scheduleTasks();toast("Uloženo");if(patch.on&&!GAuth.hasScope("calendar.events"))toast("Ještě povol zápis do kalendáře (tlačítko výš)")}catch(e){toast("Nepodařilo se uložit")}};
+  $("dSms").onchange=e=>saveSms({on:e.target.checked});
+  $("dSmsTpl").onchange=e=>saveSms({tpl:e.target.value.trim()});
   const err=lsGet("g_err");if(err){localStorage.removeItem("g_err");if(err!=="interaction_required"&&err!=="login_required"&&err!=="consent_required")toast("Přihlášení se nepovedlo ("+err+")")}
   if(!GAuth.maybeRefresh()){GSync.run().then(refreshCalendar).then(()=>{scheduleTasks();fetchCalHistory()})}
   addEventListener("online",()=>{GSync.run().then(refreshCalendar).then(()=>fetchCalHistory())});
