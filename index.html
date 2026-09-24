@@ -721,7 +721,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
       <div class="dcfg">
         <label>Potvrzovací SMS den před schůzkou v 9:00 <input type="checkbox" id="dSms" class="chk"></label>
         <textarea id="dSmsTpl" rows="4" aria-label="Text potvrzovací SMS"></textarea>
-        <p class="hint">Místo <b>{kdy}</b> se doplní třeba „ve čtvrtek 25. 9. v 14:00“, místo <b>{online}</b> „ (online)“ u online schůzek. Aplikace den před schůzkou zapíše do kalendáře celodenní událost „VK: SMS · Příjmení“ s telefonem a textem; v 9:00 ji odešle zkratka na iPhonu (Zkratky → Automatizace). Klienti bez telefonu se přeskočí.</p>
+        <p class="hint">Místo <b>{kdy}</b> se doplní třeba „ve čtvrtek 25. 9. v 14:00“, místo <b>{online}</b> „ (online)“ u online schůzek. Aplikace den před schůzkou zapíše do tvého hlavního kalendáře (ne do sdíleného) celodenní událost „VK: SMS · Příjmení“ s telefonem v poli Místo a textem v poznámce; v 9:00 ji odešle zkratka na iPhonu (Zkratky → Automatizace). Klienti bez telefonu se přeskočí.</p>
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
@@ -2125,9 +2125,9 @@ async function syncSms(){
   try{
     const cfg=calCfg(), on=smsCfg().on, t=todayStr(), horizon=addDays(62), want={};
     if(on)smsPlan(61).forEach(x=>{if(x.phone&&x.sendDay>=t)want[x.ev.id]={date:x.sendDay,summary:cfg.prefix+" SMS · "+(x.name||""),location:x.phone,description:smsText(x.ev)}});
-    const sig=JSON.stringify([cfg.id,want]);
+    const sig=JSON.stringify(["primary",want]);
     if(sig===lsGet("sms_sig")&&Date.now()-(+lsGet("sms_at")||0)<30*60000)return;
-    const base="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events";
+    const base="https://www.googleapis.com/calendar/v3/calendars/primary/events"; // do tvého hlavního kalendáře, ať telefony klientů nevidí kolegové
     const p=new URLSearchParams({privateExtendedProperty:"pipeline=sms",timeMin:new Date(t+"T00:00:00").toISOString(),timeMax:new Date(horizon+"T23:59:59").toISOString(),singleEvents:"true",maxResults:"500"});
     const r=await(await gfetch(base+"?"+p)).json(), have={}, J={"Content-Type":"application/json"};
     for(const e of (r.items||[])){if(e.status==="cancelled")continue;const k=e.extendedProperties?.private?.ev;if(!k||have[k]){await gfetch(base+"/"+e.id,{method:"DELETE"});continue}have[k]=e}
