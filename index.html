@@ -1437,7 +1437,7 @@ function drawMonthly(rows,k,label){
 let pHorizon=60;
 function renderPassive(cur){
   const rate=cur.rate, M=passiveModel(120), s0=M.series[0];
-  const teamQ=teamOverride({qk:CURQ()},rate).total;
+  const teamQ=teamQuarter(CURQ());
   const tile=(k,v,h,c,on)=>el("button",{type:"button",class:"tile click",onclick:on},el("div",{class:"k"},el("i",{style:"background:"+c}),k),el("div",{class:"v",style:"font-size:24px"},v),el("div",{class:"h"},h));
   $("pTiles").replaceChildren(
     tile("Udržovací z investic",kc(s0.udr*rate)+"/měs",fmt1(s0.udr)+" b měsíčně · AUM "+shortKc(M.aumTotal)+" Kč","var(--green)",openAumSheet),
@@ -1523,9 +1523,11 @@ function pathTo(m){const chain=[];let c=m,g=0;while(c&&g++<60){chain.unshift(c);
 function descendants(m){return team.filter(x=>x.id!==m.id&&pathTo(x).some(y=>y.id===m.id))}
 function memberQPts(m,qk){const ms=Object.entries(m.m||{}).filter(([ym])=>qOf(ym+"-01")===qk);return ms.length?ms.reduce((s,[,v])=>s+(+v||0),0):(+m.q?.[qk]||0)}
 function memberMPts(m,ym){if(m.m&&m.m[ym]!=null&&m.m[ym]!=="")return +m.m[ym]||0;const qk=qOf(ym+"-01");if(Object.keys(m.m||{}).some(k=>qOf(k+"-01")===qk))return 0;const lq=+m.q?.[qk]||0;if(!lq)return 0;const cm=ymOf(todayStr()),fm=(+qk.slice(-1)-1)*3+1;const months=[0,1,2].map(i=>qk.slice(0,4)+"-"+String(fm+i).padStart(2,"0")).filter(x=>x<=cm);return months.includes(ym)?lq/months.length:0}
+/* meziprovize za kvartál: u měsíců se zapsanou meziprovizí ze sjetiny ta, jinak z bodů členů */
+function teamQuarter(qk){return quarterMonths(qk).reduce((s,ym)=>{const o=settings.monthlyTeam?.[ym];return s+(hasV(o)?+o:teamOverride({ym},monthRate(ym)).total)},0)}
 function teamOverride({qk,ym},myRate){let total=0;const per={};team.forEach(m=>{const pts=ym?memberMPts(m,ym):memberQPts(m,qk);const maxR=Math.max(...pathTo(m).map(teamRate));const o=pts*Math.max(0,myRate-maxR);per[m.id]={pts,o,maxR};total+=o});return {total,per}}
 function renderTeam(cur){
-  const qk=CURQ(), rate=cur.rate, ov=teamOverride({qk},rate);
+  const qk=CURQ(), rate=cur.rate, ov=teamOverride({qk},rate);ov.calc=ov.total;ov.total=teamQuarter(qk);
   const node=(o)=>el("div",{class:"onode"+(o.me?" me":""),style:"--oc:"+o.col},
       el("button",{type:"button",class:"ohit",title:o.me?"Tvoje meziprovize":"Upravit "+o.name,"aria-label":o.me?"Tvoje meziprovize":"Upravit "+o.name,onclick:o.open}),
       el("span",{class:"oav",style:"background:"+o.col},o.ini),
@@ -1545,6 +1547,7 @@ function openMe(ov,rate,qk){
   const rows=team.map(m=>({m,...ov.per[m.id]})).sort((a,b)=>b.o-a.o||b.pts-a.pts);
   openSheet("Tvoje meziprovize",[
     el("div",{class:"mhero"},el("span",{class:"oav big",style:"background:var(--tint)"},"Já"),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(ov.total)),el("div",{class:"mh-s"},"z týmu za "+qLabel(qk)+" · tvůj tarif "+cz(rate)+" Kč/b"))),
+    Math.abs(ov.total-(ov.calc??ov.total))>1?el("p",{class:"hint"},"U měsíců, kde máš ve Výdělku zapsanou meziprovizi ze sjetiny, beru ji. Podle bodů zapsaných u členů by za "+qLabel(qk)+" vyšlo "+kc(ov.calc)+"."):null,
     rows.length?el("div",{class:"group"},rows.map(r=>el("button",{type:"button",class:"row row-btn",onclick:()=>openMember(r.m)},
       el("span",{class:"avatar",style:"background:"+(POSCOL[r.m.pos]||POSCOL.P1)},initials(r.m.name)),
       el("span",{class:"main"},el("div",{class:"t"},r.m.name||"Bez jména"),el("div",{class:"s"},fmt1(r.pts)+" b × ("+cz(rate)+" − "+cz(r.maxR)+") Kč")),
