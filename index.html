@@ -759,6 +759,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
           <div class="calls">
             <button type="button" id="callNo">Volal · nezvedl</button>
             <button type="button" id="callYes">Volal · hovor proběhl</button>
+            <button type="button" id="msgBtn">✉︎ Potvrzení / zpráva</button>
           </div>
           <div id="logList"></div>
           <div class="frow logadd"><input id="f_log" placeholder="Co proběhlo? (nebral, schůzka…)" aria-label="Zápis kontaktu"><button type="button" id="logBtn">Zapsat</button></div>
@@ -1405,7 +1406,8 @@ function card(l,i,cur){
     ACTIVE(l.stage)?el("div",{class:"next "+s},s==="none"?"Chybí další krok":[el("span",{class:"d"},s==="late"?"Po termínu "+fmtDate(l.nextDate):s==="today"?"Dnes":fmtDate(l.nextDate)),l.nextStep?el("span",{},l.nextStep):null]):null,
     el("div",{class:"foot"},
       el("span",{},el("button",{class:"open",type:"button",onclick:e=>{e.stopPropagation();openEdit(l)}},"Otevřít"),
-        ACTIVE(l.stage)&&l.phone?el("button",{class:"open",type:"button",style:"color:var(--red);margin-left:6px",title:"Zapsat: volal, nezvedl",onclick:e=>{e.stopPropagation();quickNo(l)}},"Nezvedl"):null),
+        ACTIVE(l.stage)&&l.phone?el("button",{class:"open",type:"button",style:"color:var(--red);margin-left:6px",title:"Zapsat: volal, nezvedl",onclick:e=>{e.stopPropagation();quickNo(l)}},"Nezvedl"):null,
+        l.phone?el("button",{class:"open",type:"button",style:"color:var(--green);margin-left:6px",title:"Potvrzení schůzky / zpráva",onclick:e=>{e.stopPropagation();openMsg(leadMsgCtx(l),null,r=>logLeadMsg(l,r))}},"Zpráva"):null),
       el("div",{class:"stepper"},
         l.stage==="zamrzly"?el("button",{type:"button",class:"txt",onclick:e=>{e.stopPropagation();moveTo(l,"kontaktovan")}},"Oživit"):null,
         i>0&&l.stage!=="zamrzly"?el("button",{type:"button","aria-label":"O fázi zpět",title:"O fázi zpět",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i-1].k)}},"‹"):null,
@@ -1988,8 +1990,11 @@ function openToday(){
   if(btns.length)nodes.push(el("div",{class:"tdbtns"},btns));
   nodes.push(...tdSection("Dnešní schůzky",D.meets.map(ev=>tdRow(ev.name||ev.title||"Schůzka",fmtMeet(ev.start)+(ev.online?" · online":""),new Date(ev.start)<new Date()?"proběhla":"dnes","green",()=>{const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));if(l){$("edDlg").close();openEdit(l)}})),calState==="ok"?"Dnes nemáš žádnou schůzku.":"Kalendář se ještě načítá nebo není připojený."));
   const pk=p=>(p.id||p.no||p.type)+"";
-  const tmr=addDaysFrom(t,1),conf=(calEvents||[]).filter(ev=>ev.start.slice(0,10)===tmr||(ev.start.slice(0,10)===t&&new Date(ev.start)>new Date())).sort((a,b)=>a.start.localeCompare(b.start));
-  if(conf.length)nodes.push(...tdTasks("Potvrdit schůzky",conf.map(ev=>{const c=contactFor(ev),k="conf:"+ev.id;return tdTask(k,false,c.name||ev.name,fmtMeet(ev.start)+(ev.online?" · online":ev.place?" · "+ev.place:"")+(c.phone?" · "+c.phone:" · bez telefonu"),"✉︎ zpráva","green",()=>openMsg({...c,start:ev.start,online:ev.online,place:ev.place},ev.start.slice(0,10)===tmr?"zitra":"potvrzeni",()=>setTodo(k,{s:"done",d:todayStr()})))}),""));
+  const tmr=addDaysFrom(t,1),soon=st=>st.slice(0,10)===tmr||(st.slice(0,10)===t&&new Date(st)>new Date());
+  const conf=(calEvents||[]).filter(ev=>soon(ev.start));
+  leads.forEach(l=>(l.meetings||[]).forEach(m=>{if(m.start&&soon(m.start)&&!conf.some(e=>e.id===m.id))conf.push({id:m.id,start:m.start,name:l.name,keys:[surnameOf(l.name)],key:surnameOf(l.name),online:/online/i.test(m.title||""),place:""})}));
+  conf.sort((a,b)=>a.start.localeCompare(b.start));
+  if(conf.length)nodes.push(...tdTasks("Potvrdit schůzky",conf.map(ev=>{const c=contactFor(ev),k="conf:"+ev.id;return tdTask(k,false,c.name||ev.name,fmtMeet(ev.start)+(ev.online?" · online":ev.place?" · "+ev.place:"")+(c.phone?" · "+c.phone:" · bez telefonu"),"✉︎ zpráva","green",()=>openMsg({...c,start:ev.start,online:ev.online,place:ev.place},ev.start.slice(0,10)===tmr?"zitra":"potvrzeni",r=>{if(c.lead)logLeadMsg(c.lead,r);setTodo(k,{s:"done",d:todayStr()})}))}),""));
   nodes.push(...tdTasks("Komu zavolat",D.calls.slice(0,15).map(l=>{const s=dueState(l);return tdTask("call:"+l.id,true,l.name||"Bez jména",(l.nextStep||ST(l.stage).t)+(l.phone?" · "+l.phone:""),s==="late"?"po termínu "+fmtDate(l.nextDate):s==="today"?"dnes":"bez kroku",s==="late"?"red":s==="today"?"orange":"",()=>{$("edDlg").close();openEdit(l)},
     async()=>{const now=new Date().toISOString();try{await db.doc("leads/"+l.id).update({nextDate:addDaysFrom(todayStr(),1),nextStep:l.nextStep||"Zavolat",updatedAt:now})}catch(e){}})}),"Všechno máš naplánované."));
   if(D.rec.length)nodes.push(...tdTasks("Nábor – ozvat se",D.rec.map(r=>tdTask("rec:"+r.id,true,r.name||"Kandidát",RS(r.stage).t+(r.next?" · "+r.next:"")+(r.phone?" · "+r.phone:""),r.nextDate<t?"po termínu "+fmtDate(r.nextDate):"dnes",r.nextDate<t?"red":"orange",()=>{openRecruit(r)},async()=>recUpd(r,{nextDate:addDaysFrom(todayStr(),1)}))),""));
@@ -2014,7 +2019,7 @@ function openCallBlock(ids,i=0){
     last.length?el("div",{class:"prog"},"Naposledy: "+last.map(x=>fmtDate(x.d.slice(0,10))+" "+x.t).join(" · ")):null,
     el("div",{class:"grid"},
       el("button",{type:"button",onclick:async()=>{await quickNo(l);next()}},"Nezvedl"),
-      el("button",{type:"button",onclick:()=>{const nm=nextMeeting(l);openMsg({name:l.name,phone:l.phone,email:l.email,start:nm?.start||null,online:/online/i.test(nm?.title||""),place:""})}},"✉︎ Poslat zprávu"),
+      el("button",{type:"button",onclick:()=>{const nm=nextMeeting(l);openMsg(leadMsgCtx(l),null,r=>logLeadMsg(l,r))}},"✉︎ Poslat zprávu"),
       el("button",{type:"button",class:"g",onclick:async()=>{if(l.stage!=="schuzka")await moveTo(l,"schuzka");next()}},"Schůzka domluvena"),
       el("button",{type:"button",onclick:()=>later(5,"Zavolat za týden")},"Zavolat za týden"),
       el("button",{type:"button",class:"r",onclick:async()=>{await moveTo(l,"zamrzly");next()}},"Nemá zájem"),
@@ -2148,21 +2153,26 @@ const DNY_V=["v neděli","v pondělí","v úterý","ve středu","ve čtvrtek","v
 function fillTpl(text,c){const p=parseName(c.name),d=c.start?new Date(c.start):null,z=n=>String(n).padStart(2,"0");
   const days=d?dDiff(ymd(d),todayStr()):null, zk=days==null?"":days===0?"dnes":days===1?"zítra":days===2?"pozítří":days>0?"za "+days+" dní":"";
   const kde=c.online?" (online)":c.place?" ("+c.place+")":"";
-  const V={osloveni:salutation(c.name),jmeno:p.first,prijmeni:p.sur,den:d?DNY_V[d.getDay()]:"",datum:d?d.getDate()+". "+(d.getMonth()+1)+".":"",cas:d?d.getHours()+":"+z(d.getMinutes()):"",zaKolik:zk,kde,misto:c.online?"online":c.place||"",podpis:settings.sign||""};
+  const V={osloveni:salutation(c.name),jmeno:p.first,prijmeni:p.sur,den:d?DNY_V[d.getDay()]:"[den]",datum:d?d.getDate()+". "+(d.getMonth()+1)+".":"[datum]",cas:d?d.getHours()+":"+z(d.getMinutes()):"[čas]",zaKolik:zk,kde,misto:c.online?"online":c.place||"",podpis:settings.sign||""};
   return text.replace(/\{(\w+)\}/g,(m,k)=>k in V?V[k]:m).replace(/\n\s*$/,"").replace(/ ,/g,",").replace(/ {2,}/g," ")}
 function contactFor(ev){const l=ev?leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l)):null;const c=!l?.phone&&ev?clients.find(c=>!c.hidden&&c.phone&&sameSurname(c.calKey||surnameOf(c.name),ev.key)):null;return {lead:l||null,client:c||null,phone:l?.phone||c?.phone||"",email:l?.email||c?.email||"",name:l?.name||c?.name||ev?.name||""}}
+function leadMsgCtx(l){const now=new Date().toISOString(),m=(l.meetings||[]).filter(x=>x.start>=now).sort((a,b)=>a.start.localeCompare(b.start))[0];
+  const ev=m&&(calEvents||[]).find(e=>e.id===m.id);return {name:l.name,phone:l.phone,email:l.email,start:m?.start||null,online:ev?ev.online:/online/i.test(m?.title||""),place:ev?.place||""}}
+async function logLeadMsg(l,r){const now=new Date().toISOString(),cur=leads.find(x=>x.id===l.id)||l;const log=[...(cur.log||[]),{d:now,t:"Poslána zpráva ("+r.ch+"): "+r.tpl,msg:r.ch}].slice(-100);
+  try{await db.doc("leads/"+cur.id).update({log,lastContact:now,updatedAt:now})}catch(e){}}
 function openMsg(ctx,tplId,onSent){
+  if(!tplId&&ctx.start){const dd=dDiff(ctx.start.slice(0,10),todayStr());tplId=dd===1?"zitra":"potvrzeni"}
   const T=tpls(),cur=T.find(t=>t.id===tplId)||T[0];const ta=el("textarea",{"aria-label":"Text zprávy"});ta.value=fillTpl(cur.text,ctx);
   let tel=(ctx.phone||"").replace(/[^\d+]/g,"");if(/^\d{9}$/.test(tel))tel="+420"+tel;const wa=tel.replace(/^\+/,"");
-  const sent=()=>{if(onSent)onSent()};
+  const sent=ch=>{if(onSent)onSent({ch,tpl:cur.name})};
   openSheet("Zpráva",[el("div",{class:"msgbox",style:"display:grid;gap:10px"},
-    el("div",{class:"msgto"},(ctx.name||"")+(tel?" · "+tel:" · telefon chybí")+(ctx.start?" · schůzka "+fmtMeet(ctx.start):"")),
+    el("div",{class:"msgto"},(ctx.name||"")+(tel?" · "+tel:" · telefon chybí")+(ctx.start?" · schůzka "+fmtMeet(ctx.start):" · schůzka není v kalendáři – doplň [den] [datum] [čas] v textu")),
     el("div",{class:"chips"},T.map(t=>el("button",{type:"button",class:"chipbtn",style:t.id===cur.id?"background:var(--tint);color:#fff":"",onclick:()=>openMsg(ctx,t.id,onSent)},t.name))),ta,
     el("div",{class:"tdbtns"},
-      tel?el("button",{type:"button",onclick:()=>{location.href="sms:"+tel+"?&body="+encodeURIComponent(ta.value);sent()}},"💬 SMS"):null,
-      tel?el("button",{type:"button",class:"sec",onclick:()=>{window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(ta.value),"_blank");sent()}},"WhatsApp"):null,
-      ctx.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+ctx.email+"?subject="+encodeURIComponent(cur.name)+"&body="+encodeURIComponent(ta.value);sent()}},"E-mail"):null,
-      el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno");sent()}catch(e){ta.select();toast("Označeno – zkopíruj")}}},"Kopírovat")),
+      tel?el("button",{type:"button",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value)}catch(e){}sent("SMS");location.href="sms:"+tel+"?&body="+encodeURIComponent(ta.value);toast("Otevírám Zprávy · text je i ve schránce")}},"💬 Otevřít ve Zprávách"):null,
+      tel?el("button",{type:"button",class:"sec",onclick:()=>{window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(ta.value),"_blank");sent("WhatsApp")}},"WhatsApp"):null,
+      ctx.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+ctx.email+"?subject="+encodeURIComponent(cur.name)+"&body="+encodeURIComponent(ta.value);sent("e-mail")}},"E-mail"):null,
+      el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno");sent("zkopírováno")}catch(e){ta.select();toast("Označeno – zkopíruj")}}},"Kopírovat")),
     el("p",{class:"hint"},"Šablony a podpis upravíš v nastavení (tlačítko ✓ vpravo nahoře)."))]);
 }
 function renderTpls(){const box=$("tplList");if(!box)return;const list=tpls().map(t=>({...t}));
@@ -2610,6 +2620,7 @@ $("callNo").onclick=async()=>{
   if(await addLog("Volal, nezvedl"+(n>1?" ("+n+". pokus)":""),{call:"no"})&&!$("f_date").value){$("f_date").value=addWorkDays(1);toast("Zapsáno · další pokus zítra")}
 };
 $("callYes").onclick=()=>addLog("Volal · hovor proběhl",{call:"yes"});
+$("msgBtn").onclick=()=>{if(!editing){toast("Nejdřív lead ulož");return}const l={...editing,name:$("f_name").value.trim()||editing.name,phone:$("f_phone").value.trim(),email:$("f_email").value.trim()};openMsg(leadMsgCtx(l),null,r=>addLog("Poslána zpráva ("+r.ch+"): "+r.tpl,{msg:r.ch}))};
 $("f_log").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("logBtn").click()}});
 $("addBtn").onclick=()=>openEdit(null);
 $("cancelBtn").onclick=()=>$("dlg").close();
