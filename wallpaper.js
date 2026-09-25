@@ -1,13 +1,14 @@
-/* živá tapeta – budova ZFP GROUP, 12 měsíčních scén; střídá se každou minutu na další měsíc (začíná aktuálním)
-   localStorage.wp="off" vypne · localStorage.wp_mode="kalendar" drží aktuální měsíc · náhled: ?month=1..12 */
+/* živá tapeta – budova ZFP GROUP, 12 měsíčních scén
+   volba v nastavení (✓): localStorage.wp_month = "auto" (podle aktuálního měsíce) nebo "1".."12" · localStorage.wp="off" vypne · náhled: ?month=1..12 */
 (()=>{
 let ls={};try{ls=localStorage}catch(e){}
 if(ls.wp==="off")return;
 const qm=+new URLSearchParams(location.search).get("month");
-const FIX=qm>=1&&qm<=12, CAL=ls.wp_mode==="kalendar";
+const FIX=qm>=1&&qm<=12;let MODE=ls.wp_month||"auto";if(!(MODE==="auto"||(+MODE>=1&&+MODE<=12)))MODE="auto";
 const RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MN=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
-let M=FIX?qm-1:new Date().getMonth();
+const want=()=>FIX?qm-1:MODE==="auto"?new Date().getMonth():+MODE-1;
+let M=want();
 const NIGHT=m=>m===10||m===11;
 const st=document.createElement("style");
 st.textContent=`html.wp,html.wp body{background:transparent!important}html.wp{background:#0b1220!important}
@@ -166,7 +167,7 @@ let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(size,150)})
 document.addEventListener("visibilitychange",()=>{const v=document.visibilityState==="visible"&&!RM;if(v&&!run){run=true;last=0;requestAnimationFrame(frame)}else if(!v)run=false});
 img.onload=()=>{base=drawBase(M);if(RM)paintOnce()};
 size();setMonth(M,false);
-if(!FIX&&!CAL)setInterval(()=>{if(document.visibilityState==="visible")setMonth((M+1)%12,true)},60000);
-if(!FIX&&CAL)setInterval(()=>{const m=new Date().getMonth();if(m!==M)setMonth(m,true)},60000);
+setInterval(()=>{const m=want();if(m!==M)setMonth(m,true)},60000);
+window.__wpSet=v=>{MODE=v==="auto"||(+v>=1&&+v<=12)?String(v):"auto";const m=want();if(m!==M)setMonth(m,true)};
 if(!RM)requestAnimationFrame(frame);else run=false;
 })();
