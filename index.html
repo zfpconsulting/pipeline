@@ -453,9 +453,12 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 @keyframes cicon{0%{transform:scale(0) rotate(-30deg)}60%{transform:scale(1.2) rotate(8deg)}100%{transform:none}}
 @media (prefers-reduced-motion:reduce){.celebr,.celebr.out,.c-box,.c-icon{animation:none}}
 /* ===== v4 ===== */
-.pstack{display:grid;gap:10px}
-.pstack .tile{background:var(--fill2);box-shadow:none;padding:12px 14px}
-.pstack .tile .v{font-size:22px!important}
+.pstack{display:grid;gap:6px}
+.pstack .tile{background:var(--fill2);box-shadow:none;padding:7px 12px;gap:0}
+.pstack .tile .v{font-size:18px!important;line-height:1.2}
+.pstack .tile .h,.pstack .tile .k{font-size:12px}
+.pstack .tile.ptot{background:var(--green-soft,rgba(52,199,89,.15))}
+.pstack .tile.ptot .v{color:var(--green)}
 .mpanel{padding-bottom:12px}
 .mtop .seg.mini button{white-space:nowrap}
 .mslides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -18px;overscroll-behavior-x:contain}
@@ -1449,7 +1452,8 @@ function renderPassive(cur){
   $("pTiles").replaceChildren(
     tile("Udržovací z investic",kc(s0.udr*rate)+"/měs",fmt1(s0.udr)+" b měsíčně · AUM "+shortKc(M.aumTotal)+" Kč","var(--green)",openAumSheet),
     tile("Z pravidelných vkladů",kc(s0.reg*rate)+"/měs",fmt1(s0.reg)+" b měsíčně","var(--tint)",openRegSheet),
-    tile("Meziprovize z týmu",kc(teamQ),"tento kvartál · "+team.length+" "+plural(team.length,"člen","členové","členů"),"var(--orange)",()=>{$("teamSec").scrollIntoView({behavior:"smooth",block:"start"})}));
+    tile("Meziprovize z týmu",kc(teamQ),"tento kvartál · "+team.length+" "+plural(team.length,"člen","členové","členů"),"var(--orange)",()=>{$("teamSec").scrollIntoView({behavior:"smooth",block:"start"})}),
+    (()=>{const t=tile("Celkem",kc(s0.udr*rate+s0.reg*rate+teamQ/3)+"/měs","udržovačky + vklady + tým (kvartál / 3)","var(--label)",()=>{$("passiveSec").scrollIntoView({behavior:"smooth",block:"start"})});t.classList.add("ptot");return t})());
   $("passiveSec").querySelector(".sechead").textContent="Pasivní příjem v čase";
   $("pHorizon").replaceChildren(...[[12,"1 rok"],[36,"3 roky"],[60,"5 let"],[120,"10 let"]].map(([m,t])=>el("button",{type:"button","aria-selected":String(pHorizon===m),onclick:()=>{pHorizon=m;renderPassive(cur)}},t)));
   const end=M.series[pHorizon];
