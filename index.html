@@ -538,6 +538,14 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .nstat{font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap}
 .nstat.red{background:var(--red-soft);color:var(--red)}.nstat.green{background:var(--green-soft);color:var(--green)}.nstat.gray{background:var(--fill);color:var(--label2)}
 @media (max-width:760px){.rboard{grid-template-columns:repeat(4,78vw)}}
+/* ===== v16: šablony, zálohy ===== */
+.tpllist{display:grid;gap:10px}
+.tpl{background:var(--fill2);border-radius:12px;padding:10px;display:grid;gap:6px}
+.tpl input,.tpl textarea{font:inherit;font-size:15px;color:var(--label);background:var(--fill);border:none;border-radius:8px;padding:8px 10px;width:100%}
+.tpl textarea{resize:vertical;min-height:84px}
+.tpl .del{justify-self:end;border:none;background:none;color:var(--red);font:600 13px var(--font);cursor:pointer}
+.msgbox textarea{width:100%;min-height:150px;font:inherit;font-size:16px;color:var(--label);background:var(--fill2);border:none;border-radius:12px;padding:12px;resize:vertical}
+.msgto{font-size:14px;color:var(--label2)}
 </style>
 </head>
 <body>
@@ -776,7 +784,11 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
     <div class="dbody">
       <p id="dataInfo"></p>
       <button type="button" class="dbtn" id="dSync">Synchronizovat teď</button>
-      <button type="button" class="dbtn" id="dExport">Stáhnout zálohu (.json)</button>
+      <button type="button" class="dbtn" id="dExport">Stáhnout zálohu (.json – pro obnovu)</button>
+      <button type="button" class="dbtn" id="dCsvC">Excel – klienti a smlouvy (.csv)</button>
+      <button type="button" class="dbtn" id="dCsvL">Excel – leady (.csv)</button>
+      <button type="button" class="dbtn" id="dPdf">Přehled do PDF</button>
+      <p class="hint" id="bkInfo">Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů).</p>
       <button type="button" class="dbtn" id="dImport">Importovat zálohu…</button>
       <input type="file" id="dFile" accept="application/json,.json" hidden>
       <div class="dcfg">
@@ -787,6 +799,13 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
       </div>
       <div class="dcfg">
         <label>Tapeta<select id="dWp"><option value="auto">Automaticky (podle měsíce)</option><option value="1">Leden – zima</option><option value="2">Únor – zima</option><option value="3">Březen – tání</option><option value="4">Duben – déšť a duha</option><option value="5">Květen – rozkvetlé stromy</option><option value="6">Červen – léto</option><option value="7">Červenec – léto</option><option value="8">Srpen – západ slunce</option><option value="9">Září – javorové listí</option><option value="10">Říjen – podzim</option><option value="11">Listopad – Halloween</option><option value="12">Prosinec – Vánoce</option></select></label>
+      </div>
+      <div class="dcfg">
+        <label>Šablony zpráv</label>
+        <label>Podpis <input id="dSign" placeholder="např. Vojtěch Kudlička, ZFP Group" autocomplete="off"></label>
+        <div id="tplList" class="tpllist"></div>
+        <button type="button" class="dbtn" id="tplAdd">+ Nová šablona</button>
+        <p class="hint">Proměnné: <b>{osloveni}</b> (pane inženýre / paní Nováková / pane Nováku), <b>{jmeno}</b>, <b>{prijmeni}</b>, <b>{den}</b> (ve čtvrtek), <b>{datum}</b>, <b>{cas}</b>, <b>{zaKolik}</b> (dnes / zítra / za 3 dny), <b>{kde}</b> (online nebo místo), <b>{podpis}</b>. Zprávu pošleš z „Co tě dneska čeká“ nebo z volacího bloku – před odesláním ji ještě můžeš upravit.</p>
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
@@ -940,7 +959,7 @@ const GSync=(()=>{
       const now=mergeDocs(merged,LStore.docs());
       if(JSON.stringify(now)!==JSON.stringify(LStore.docs()))LStore.replace(now);
       if(JSON.stringify(now)!==JSON.stringify(merged))again=true;
-      last=Date.now();lsSet("g_synced",last);status("ok");
+      last=Date.now();lsSet("g_synced",last);status("ok");setTimeout(()=>{try{weeklyDriveBackup()}catch(e){}},3000);
     }catch(e){console.warn(e);status(e.code===401?"expired":"error",e.message)}
     finally{busy=false;if(again){again=false;soon()}}
   }
@@ -1969,6 +1988,8 @@ function openToday(){
   if(btns.length)nodes.push(el("div",{class:"tdbtns"},btns));
   nodes.push(...tdSection("Dnešní schůzky",D.meets.map(ev=>tdRow(ev.name||ev.title||"Schůzka",fmtMeet(ev.start)+(ev.online?" · online":""),new Date(ev.start)<new Date()?"proběhla":"dnes","green",()=>{const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));if(l){$("edDlg").close();openEdit(l)}})),calState==="ok"?"Dnes nemáš žádnou schůzku.":"Kalendář se ještě načítá nebo není připojený."));
   const pk=p=>(p.id||p.no||p.type)+"";
+  const tmr=addDaysFrom(t,1),conf=(calEvents||[]).filter(ev=>ev.start.slice(0,10)===tmr||(ev.start.slice(0,10)===t&&new Date(ev.start)>new Date())).sort((a,b)=>a.start.localeCompare(b.start));
+  if(conf.length)nodes.push(...tdTasks("Potvrdit schůzky",conf.map(ev=>{const c=contactFor(ev),k="conf:"+ev.id;return tdTask(k,false,c.name||ev.name,fmtMeet(ev.start)+(ev.online?" · online":ev.place?" · "+ev.place:"")+(c.phone?" · "+c.phone:" · bez telefonu"),"✉︎ zpráva","green",()=>openMsg({...c,start:ev.start,online:ev.online,place:ev.place},ev.start.slice(0,10)===tmr?"zitra":"potvrzeni",()=>setTodo(k,{s:"done",d:todayStr()})))}),""));
   nodes.push(...tdTasks("Komu zavolat",D.calls.slice(0,15).map(l=>{const s=dueState(l);return tdTask("call:"+l.id,true,l.name||"Bez jména",(l.nextStep||ST(l.stage).t)+(l.phone?" · "+l.phone:""),s==="late"?"po termínu "+fmtDate(l.nextDate):s==="today"?"dnes":"bez kroku",s==="late"?"red":s==="today"?"orange":"",()=>{$("edDlg").close();openEdit(l)},
     async()=>{const now=new Date().toISOString();try{await db.doc("leads/"+l.id).update({nextDate:addDaysFrom(todayStr(),1),nextStep:l.nextStep||"Zavolat",updatedAt:now})}catch(e){}})}),"Všechno máš naplánované."));
   if(D.rec.length)nodes.push(...tdTasks("Nábor – ozvat se",D.rec.map(r=>tdTask("rec:"+r.id,true,r.name||"Kandidát",RS(r.stage).t+(r.next?" · "+r.next:"")+(r.phone?" · "+r.phone:""),r.nextDate<t?"po termínu "+fmtDate(r.nextDate):"dnes",r.nextDate<t?"red":"orange",()=>{openRecruit(r)},async()=>recUpd(r,{nextDate:addDaysFrom(todayStr(),1)}))),""));
@@ -1993,6 +2014,7 @@ function openCallBlock(ids,i=0){
     last.length?el("div",{class:"prog"},"Naposledy: "+last.map(x=>fmtDate(x.d.slice(0,10))+" "+x.t).join(" · ")):null,
     el("div",{class:"grid"},
       el("button",{type:"button",onclick:async()=>{await quickNo(l);next()}},"Nezvedl"),
+      el("button",{type:"button",onclick:()=>{const nm=nextMeeting(l);openMsg({name:l.name,phone:l.phone,email:l.email,start:nm?.start||null,online:/online/i.test(nm?.title||""),place:""})}},"✉︎ Poslat zprávu"),
       el("button",{type:"button",class:"g",onclick:async()=>{if(l.stage!=="schuzka")await moveTo(l,"schuzka");next()}},"Schůzka domluvena"),
       el("button",{type:"button",onclick:()=>later(5,"Zavolat za týden")},"Zavolat za týden"),
       el("button",{type:"button",class:"r",onclick:async()=>{await moveTo(l,"zamrzly");next()}},"Nemá zájem"),
@@ -2108,6 +2130,76 @@ function openRecruit(r0,isNew){
     el("div",{class:"group"},del)]);
   if(isNew)setTimeout(()=>nm.focus(),80);
 }
+/* ================= Šablony zpráv (oslovení podle titulu a pádu) ================= */
+const TPL_DEF=[{id:"potvrzeni",name:"Potvrzení schůzky",text:"Dobrý den, {osloveni}, potvrzuji naši schůzku {den} {datum} v {cas}{kde}. Kdyby se Vám cokoli změnilo, dejte mi prosím vědět. Děkuji a těším se.\n{podpis}"},
+  {id:"zitra",name:"Připomenutí zítřejší schůzky",text:"Dobrý den, {osloveni}, jen připomínám naši zítřejší schůzku v {cas}{kde}. Budu se těšit.\n{podpis}"}];
+function tpls(){return settings.tpls&&settings.tpls.length?settings.tpls:TPL_DEF}
+const TITLES=[[/^prof\.?$/i,"profesore","profesorko",5],[/^doc\.?$/i,"docente","docentko",4],[/^(judr|mudr|phdr|rndr|paeddr|mvdr|pharmdr|thdr|phmr|dr)\.?$/i,"doktore","doktorko",3],[/^ing\.?$/i,"inženýre","inženýrko",2],[/^mgr\.?$/i,"magistře","magistro",2],[/^(bc|ba|bsc|mba|ph\.?d|csc|dis|llm|msc)\.?,?$/i,null,null,0]];
+function parseName(full){const parts=(full||"").replace(/,/g," ").split(/\s+/).filter(Boolean);let title=null,words=[];
+  parts.forEach(w=>{const T=TITLES.find(t=>t[0].test(w)||t[0].test(w.replace(/\.$/,"")));if(T){if(T[1]&&(!title||T[3]>title[3]))title=T}else words.push(w)});
+  const sur=words[words.length-1]||"",first=words.length>1?words[0]:"",fem=/(ová|á)$/i.test(sur)||(/a$/i.test(first)&&!/^(nikola|sáva|jiří)$/i.test(first)&&!/[ýí]$/.test(sur));
+  return {title,first,sur,fem}}
+function vocSur(s){if(!s)return "";const l=s.toLowerCase();
+  if(/[ýí]$/.test(l))return s; if(/a$/.test(l))return s.slice(0,-1)+"o"; if(/ek$/.test(l))return s.slice(0,-2)+"ku"; if(/ec$/.test(l))return s.slice(0,-2)+"če";
+  if(/[kgh]$/.test(l)||/ch$/.test(l))return s+"u"; if(/[šžčřcjťďň]$/.test(l))return s+"i"; if(/[bcdfhlmnprstvz]r$/.test(l))return s.slice(0,-1)+"ře";
+  if(/e$/.test(l)||/[ouy]$/.test(l))return s; return s+"e"}
+function salutation(full){const p=parseName(full);if(p.title)return (p.fem?"paní ":"pane ")+(p.fem?p.title[2]:p.title[1]);if(!p.sur)return "";return p.fem?"paní "+p.sur:"pane "+vocSur(p.sur)}
+const DNY_V=["v neděli","v pondělí","v úterý","ve středu","ve čtvrtek","v pátek","v sobotu"];
+function fillTpl(text,c){const p=parseName(c.name),d=c.start?new Date(c.start):null,z=n=>String(n).padStart(2,"0");
+  const days=d?dDiff(ymd(d),todayStr()):null, zk=days==null?"":days===0?"dnes":days===1?"zítra":days===2?"pozítří":days>0?"za "+days+" dní":"";
+  const kde=c.online?" (online)":c.place?" ("+c.place+")":"";
+  const V={osloveni:salutation(c.name),jmeno:p.first,prijmeni:p.sur,den:d?DNY_V[d.getDay()]:"",datum:d?d.getDate()+". "+(d.getMonth()+1)+".":"",cas:d?d.getHours()+":"+z(d.getMinutes()):"",zaKolik:zk,kde,misto:c.online?"online":c.place||"",podpis:settings.sign||""};
+  return text.replace(/\{(\w+)\}/g,(m,k)=>k in V?V[k]:m).replace(/\n\s*$/,"").replace(/ ,/g,",").replace(/ {2,}/g," ")}
+function contactFor(ev){const l=ev?leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l)):null;const c=!l?.phone&&ev?clients.find(c=>!c.hidden&&c.phone&&sameSurname(c.calKey||surnameOf(c.name),ev.key)):null;return {lead:l||null,client:c||null,phone:l?.phone||c?.phone||"",email:l?.email||c?.email||"",name:l?.name||c?.name||ev?.name||""}}
+function openMsg(ctx,tplId,onSent){
+  const T=tpls(),cur=T.find(t=>t.id===tplId)||T[0];const ta=el("textarea",{"aria-label":"Text zprávy"});ta.value=fillTpl(cur.text,ctx);
+  let tel=(ctx.phone||"").replace(/[^\d+]/g,"");if(/^\d{9}$/.test(tel))tel="+420"+tel;const wa=tel.replace(/^\+/,"");
+  const sent=()=>{if(onSent)onSent()};
+  openSheet("Zpráva",[el("div",{class:"msgbox",style:"display:grid;gap:10px"},
+    el("div",{class:"msgto"},(ctx.name||"")+(tel?" · "+tel:" · telefon chybí")+(ctx.start?" · schůzka "+fmtMeet(ctx.start):"")),
+    el("div",{class:"chips"},T.map(t=>el("button",{type:"button",class:"chipbtn",style:t.id===cur.id?"background:var(--tint);color:#fff":"",onclick:()=>openMsg(ctx,t.id,onSent)},t.name))),ta,
+    el("div",{class:"tdbtns"},
+      tel?el("button",{type:"button",onclick:()=>{location.href="sms:"+tel+"?&body="+encodeURIComponent(ta.value);sent()}},"💬 SMS"):null,
+      tel?el("button",{type:"button",class:"sec",onclick:()=>{window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(ta.value),"_blank");sent()}},"WhatsApp"):null,
+      ctx.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+ctx.email+"?subject="+encodeURIComponent(cur.name)+"&body="+encodeURIComponent(ta.value);sent()}},"E-mail"):null,
+      el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno");sent()}catch(e){ta.select();toast("Označeno – zkopíruj")}}},"Kopírovat")),
+    el("p",{class:"hint"},"Šablony a podpis upravíš v nastavení (tlačítko ✓ vpravo nahoře)."))]);
+}
+function renderTpls(){const box=$("tplList");if(!box)return;const list=tpls().map(t=>({...t}));
+  const save=async()=>{try{await db.doc("settings/main").set({...settings,tpls:list});toast("Šablony uloženy")}catch(e){toast("Nepodařilo se uložit")}};
+  box.replaceChildren(...list.map((t,i)=>{const n=el("input",{value:t.name,"aria-label":"Název šablony"});n.value=t.name;n.onchange=()=>{t.name=n.value.trim()||"Šablona";save()};
+    const x=el("textarea",{"aria-label":"Text šablony"});x.value=t.text;x.onchange=()=>{t.text=x.value;save()};
+    return el("div",{class:"tpl"},n,x,el("button",{type:"button",class:"del",onclick:()=>{list.splice(i,1);save().then(renderTpls)}},"Smazat"))}));
+  $("tplAdd").onclick=()=>{list.push({id:newId(),name:"Nová šablona",text:"Dobrý den, {osloveni}, \n{podpis}"});save().then(renderTpls)};
+  const sg=$("dSign");sg.value=settings.sign||"";sg.onchange=async()=>{try{await db.doc("settings/main").set({...settings,sign:sg.value.trim()});toast("Uloženo")}catch(e){}}}
+/* ================= Exporty a týdenní záloha ================= */
+function dl(name,text,type){const blob=new Blob([text],{type});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}
+function csv(rows){return "﻿"+rows.map(r=>r.map(v=>{v=v==null?"":String(v);return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(";")).join("\r\n")}
+function exportCsvClients(){const rows=[["Klient","Telefon","E-mail","Produkt","Společnost","Částka","Jednotka","Číslo smlouvy","Sjednáno","Fixace (let)","Stav","Poslední schůzka","Další schůzka"]];
+  clientEntries().filter(e=>!e.calOnly).forEach(e=>{const P=e.products.length?e.products:[{}];P.forEach(p=>rows.push([e.name,e.phone,e.rec?.email||e.lead?.email||"",p.type||"",p.company||"",p.amt??"",p.unit||"",p.no||"",p.from||"",p.fix??"",p.status==="ended"?"zaniklá":p.type?"aktivní":"",(e.last||"").slice(0,10),(e.next||"").slice(0,10)]))});
+  dl("pipeline-klienti-"+todayStr()+".csv",csv(rows),"text/csv;charset=utf-8")}
+function exportCsvLeads(){const rows=[["Jméno","Telefon","E-mail","Fáze","Zdroj","Doporučil","Body","Podepsáno","Další krok","Kdy","Vytvořeno"]];
+  leads.filter(l=>!l.example).forEach(l=>rows.push([l.name,l.phone||"",l.email||"",ST(l.stage).t,l.source||"",l.referredBy||"",l.points??"",l.signedAt||"",l.nextStep||"",l.nextDate||"",(l.createdAt||"").slice(0,10)]));
+  dl("pipeline-leady-"+todayStr()+".csv",csv(rows),"text/csv;charset=utf-8")}
+function exportPdf(){const esc=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));const g=goalInfo(),E=clientEntries().filter(e=>!e.calOnly);
+  const cl=E.map(e=>"<tr><td>"+esc(e.name)+"</td><td>"+esc(e.phone)+"</td><td>"+esc(e.products.map(p=>p.type+(p.company?" ("+p.company+")":"")+(p.status==="ended"?" – zaniklá":"")).join(", "))+"</td><td>"+esc((e.last||"").slice(0,10))+"</td></tr>").join("");
+  const ld=leads.filter(l=>ACTIVE(l.stage)).map(l=>"<tr><td>"+esc(l.name)+"</td><td>"+esc(ST(l.stage).t)+"</td><td class=r>"+fmt1(+l.points||0)+"</td><td>"+esc((l.nextStep||"")+(l.nextDate?" ("+fmtDate(l.nextDate)+")":""))+"</td></tr>").join("");
+  const w=window.open("","_blank");if(!w){toast("Povol vyskakovací okna");return}
+  w.document.write(`<!doctype html><html lang=cs><head><meta charset=utf-8><title>Přehled pipeline ${esc(todayStr())}</title><style>body{font:13px/1.4 -apple-system,system-ui,sans-serif;margin:28px;color:#111}h1{font-size:20px}h2{font-size:15px;margin-top:22px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e5e5;padding:5px 6px;text-align:left;vertical-align:top}th{font-size:11px;color:#666}.r{text-align:right}</style></head><body>
+  <h1>Přehled pipeline – ${esc(fmtDate(todayStr()))} ${todayStr().slice(0,4)}</h1><div>${esc(qLabel(g.cq))}: ${fmt1(g.cur.total)} b · tarif ${cz(g.cur.rate)} Kč${g.nx?" · do "+cz(g.nx.rate)+" Kč chybí "+fmt1(g.need)+" b":""}</div>
+  <h2>Rozjednané leady (${leads.filter(l=>ACTIVE(l.stage)).length})</h2><table><tr><th>Jméno</th><th>Fáze</th><th class=r>Body</th><th>Další krok</th></tr>${ld}</table>
+  <h2>Klienti a smlouvy (${E.length})</h2><table><tr><th>Klient</th><th>Telefon</th><th>Produkty</th><th>Poslední schůzka</th></tr>${cl}</table>
+  <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
+async function weeklyDriveBackup(){try{
+  if(!GAuth.token()||!navigator.onLine)return;const wk=weekStart(todayStr(),0);if(lsGet("bk_week")===wk)return;
+  const name="Vojtova pipeline – záloha "+todayStr()+".json",b="bk"+newId(),meta={name,mimeType:"application/json",description:"Týdenní záloha z Pipeline"};
+  const body=JSON.stringify({app:"vojtova-pipeline",v:1,exportedAt:new Date().toISOString(),docs:LStore.docs()});
+  await gfetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body:`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`});
+  lsSet("bk_week",wk);lsSet("bk_last",todayStr());
+  const q=encodeURIComponent("name contains 'Vojtova pipeline – záloha' and trashed=false");
+  const r=await(await gfetch("https://www.googleapis.com/drive/v3/files?q="+q+"&spaces=drive&fields=files(id,name)&orderBy=name desc&pageSize=50")).json();
+  for(const f of (r.files||[]).slice(8))await gfetch("https://www.googleapis.com/drive/v3/files/"+f.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({trashed:true})});
+}catch(e){console.warn("backup",e)}}
 function openSheet(title,nodes){$("edTitle").textContent=title;$("edBody").replaceChildren(...nodes.flat().filter(Boolean));const d=$("edDlg");if(!d.open)d.showModal();$("edBody").scrollTop=0}
 $("edClose").onclick=()=>$("edDlg").close();
 
@@ -2246,7 +2338,7 @@ function parseEvent(e){
   let cap=kept.filter(w=>/^\p{Lu}/u.test(w));
   if(!cap.length)return null;
   const name=cap.join(" ");
-  return {id:e.id,start:e.start.dateTime,title:raw,name,keys:cap.map(norm),key:name?norm(cap[cap.length-1]):"",online:/online|teams|zoom/i.test(raw),podpis:/podpis/i.test(raw),link:e.htmlLink||""};
+  return {id:e.id,start:e.start.dateTime,title:raw,name,keys:cap.map(norm),key:name?norm(cap[cap.length-1]):"",online:/online|teams|zoom|meet/i.test(raw+" "+(e.location||"")),podpis:/podpis/i.test(raw),link:e.htmlLink||"",place:(e.location||"").trim()};
 }
 function evMatches(ev,l){const sn=surnameOf(l.name);if(sn.length<3)return false;return ev.keys.some(k=>k===sn||k===sn+"ovi"||(k.length>4&&sn.length>4&&(k===sn+"a"||sn===k+"a")))}
 function fmtMeet(iso){const d=new Date(iso);const z=n=>String(n).padStart(2,"0");return ["ne","po","út","st","čt","pá","so"][d.getDay()]+" "+d.getDate()+". "+(d.getMonth()+1)+". "+z(d.getHours())+":"+z(d.getMinutes())}
@@ -2588,13 +2680,13 @@ setView(["pipe","money","cli","net","pp"].includes(sv)?sv:"pipe");
   sb.onclick=()=>{const st=GSync.state;if(st==="out"||st==="expired"){GAuth.login(false);return}dd.showModal()};
   $("dataClose").onclick=()=>dd.close();
   $("dSync").onclick=()=>{GAuth.token()?GSync.run().then(refreshCalendar):GAuth.login(false)};
-  $("dExport").onclick=exportBackup;
+  $("dExport").onclick=exportBackup;$("dCsvC").onclick=exportCsvClients;$("dCsvL").onclick=exportCsvLeads;$("dPdf").onclick=exportPdf;
   $("dImport").onclick=()=>$("dFile").click();
   $("dFile").onchange=e=>{const f=e.target.files[0];if(f)importBackup(f);e.target.value=""};
   $("dLogout").onclick=()=>{GAuth.logout()};
   const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);lsSet("cal_hist",null);calHist=null;calEvents=null;calState="loading";render();refreshCalendar().then(()=>fetchCalHistory(true))}catch(e){toast("Nepodařilo se uložit")}};
   sb.addEventListener("click",async()=>{
-    if(!dd.open)return;const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
+    if(!dd.open)return;renderTpls();{const b=lsGet("bk_last");$("bkInfo").textContent="Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů)."+(b?" Poslední: "+fmtDate(b)+" "+b.slice(0,4)+".":"")}const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
     const me=lsGet("g_owner");$("dataInfo").textContent=(me?"Účet "+me+" · ":"")+($("syncBtn").title||"");
     if(!GAuth.token()){sel.replaceChildren(new Option(c.name,c.id));return}
     try{const cals=await listCalendars();sel.replaceChildren(...cals.map(k=>new Option((k.primary?"★ ":"")+(k.summary||k.id),k.id)));sel.value=cals.some(k=>k.id===c.id)?c.id:(cals.find(k=>k.primary)?.id||"primary")}catch(e){sel.replaceChildren(new Option(c.name,c.id))}
