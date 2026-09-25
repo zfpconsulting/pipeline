@@ -1091,14 +1091,13 @@ function passiveModel(months){
 const STAT_POS=[["P1",80,0],["P2",90,101],["P3",130,500],["P4",150,2500],["P5",160,10000],["P6",170,20000],["P7",180,50000],["P8",190,150000]];
 const PROFI=[[333,180],[500,200],[1000,220],[1500,230],[2500,236],[4000,242],[6000,248],[8000,252],[11000,256],[14000,260],[17000,264],[21000,267],[25000,270],[30000,272.5],[40000,275],[60000,277.5],[90000,280]]
   .map(([m,r],i)=>({k:"PROFI"+(i+1),t:"PROFI "+(i+1),m,q:i===0?1000:m*3,r}));
-function career(){const c=settings.career||{}, cum=cumPts();return {stat:cum!=null?statFor(cum)[0]:(c.stat||"P1"),auto:cum!=null,obrat:c.obrat??"auto",cpts:c.cpts==null||c.cpts===""?null:+c.cpts,cAsOf:c.cAsOf||null,cBase:+c.cBase||0}}
+function career(){const c=settings.career||{}, cum=cumPts();return {stat:cum!=null?statFor(cum)[0]:(c.stat||"P1"),auto:cum!=null,obrat:c.obrat??"auto",obratQ:c.obratQ||null,cpts:c.cpts==null||c.cpts===""?null:+c.cpts,cAsOf:c.cAsOf||null,cBase:+c.cBase||0}}
 function statRate(pos){return (STAT_POS.find(p=>p[0]===pos)||STAT_POS[0])[1]}
 function statFor(pts){return STAT_POS.filter(p=>pts>=p[2]).pop()||STAT_POS[0]}
 function obratLevelFor(pts){return PROFI.filter(p=>pts>=p.q).pop()||null}
 function rateTiers(){
   const c=career(), sr=statRate(c.stat), t=[{from:0,rate:sr,t:c.stat+" (statická)"}];
-  if(c.obrat==="auto")PROFI.forEach(p=>{if(p.r>sr)t.push({from:p.q,rate:p.r,t:p.t})});
-  else if(c.obrat){const p=PROFI.find(x=>x.k===c.obrat);if(p&&p.r>sr)t.push({from:1000,rate:p.r,t:p.t})}
+  PROFI.forEach(p=>{if(p.r>sr)t.push({from:p.q,rate:p.r,t:p.t})});
   return t;
 }
 function rateInfo(prevPts){const t=rateTiers().filter(x=>prevPts>=x.from).pop();return {rate:t.rate,src:t.t}}
@@ -1125,14 +1124,14 @@ function quarterTotal(qk){return quarterMonths(qk).reduce((s,ym)=>s+periodVal(ym
 function qualPts(qk){return {pts:quarterTotal(qk),known:quarterMonths(qk).some(ym=>sjSum(ym)!=null)||quarterPoints(qk).total!==0}}
 function quarterRateInfo(qk){
   const c=career(), pq=qShift(qk,-1), prev=qualPts(pq), sr=statRate(c.stat);
-  if(c.obrat&&c.obrat!=="auto"){
+  // obratová: v kvartálu, pro který sis úroveň zvolil, platí tvoje volba; další kvartály se počítají z bodů předchozího kvartálu
+  if(c.obratQ===qk&&c.obrat!=="auto"){
     const p=PROFI.find(x=>x.k===c.obrat);
     if(!p||p.r<=sr)return {rate:sr,src:c.stat+" (statická)",prev:prev.pts};
-    if(!prev.known||prev.pts>=1000)return {rate:p.r,src:p.t+(prev.known?"":" (nastaveno)"),prev:prev.pts};
-    return {rate:sr,src:c.stat+" statická – v "+qLabel(pq)+" pod 1 000 b",prev:prev.pts};
+    return {rate:p.r,src:p.t+" (zvoleno)",prev:prev.pts};
   }
   const ri=rateInfo(prev.pts);
-  return {rate:ri.rate,src:c.obrat==="auto"?(prev.pts>=1000?ri.src+" podle bodů":"statická "+c.stat+" (pod 1 000 b)"):ri.src,prev:prev.pts};
+  return {rate:ri.rate,src:prev.pts>=1000?ri.src+" podle bodů":"statická "+c.stat+" (pod 1 000 b)",prev:prev.pts};
 }
 function quarterRate(qk){return quarterRateInfo(qk).rate}
 /* body celkem: zadaný stav + vyplacené provize od data zadání (body se přičítají až po vyplacení) */
@@ -1224,11 +1223,13 @@ function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;
   const c=career(), cum=cumPts();
   const s1=el("select",{id:"c_stat","aria-label":"Statická kariéra"},STAT_POS.map(([k,r])=>el("option",{value:k},k+" · "+r+" Kč")));s1.value=c.stat;
-  const s2=el("select",{id:"c_obrat","aria-label":"Obratová kariéra"},el("option",{value:"auto"},"Podle bodů (auto)"),el("option",{value:""},"Nemám"),...PROFI.map(p=>el("option",{value:p.k},p.t+" · "+cz(p.r)+" Kč")));s2.value=c.obrat;
+  const s2=el("select",{id:"c_obrat","aria-label":"Obratová kariéra v "+qLabel(cur.qk)},el("option",{value:""},"Nemám (statická)"),...PROFI.map(p=>el("option",{value:p.k},p.t+" · "+cz(p.r)+" Kč")));
+  s2.value=c.obratQ===cur.qk&&c.obrat!=="auto"?c.obrat:(obratLevelFor(cur.prev)?.k||"");
+  const nL=obratLevelFor(cur.total), nQ=qShift(cur.qk,1);
   const cp=el("input",{id:"c_cpts",type:"number",min:"0",step:"1",inputmode:"numeric",placeholder:"zadej",class:"cpts","aria-label":"Kariérní body celkem"});cp.value=cum!=null?Math.round(cum):"";
   const save=async patch=>{try{await db.doc("settings/main").set({...settings,career:{...(settings.career||{}),...patch}});toast("Kariéra uložena")}catch(e){toast("Nepodařilo se uložit")}};
   s1.onchange=()=>{s1.blur();save({stat:s1.value})};
-  s2.onchange=()=>{s2.blur();save({obrat:s2.value})};
+  s2.onchange=()=>{s2.blur();save({obrat:s2.value,obratQ:cur.qk})};
   cp.onchange=()=>{cp.blur();if(cp.value===""){save({cpts:null,cAsOf:null,cBase:0});return}
     const v=Math.max(0,Math.round(+cp.value)), d=todayStr();save({cpts:v,cAsOf:d,cBase:sinceTotal(d),stat:statFor(v)[0]})};
   cp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();cp.blur()}});
@@ -1236,7 +1237,7 @@ function renderCareer(cur){
   $("careerBar").replaceChildren(
     el("label",{},"Statická kariéra",c.auto?el("span",{class:"statchip",title:"Podle bodů celkem"},c.stat+" · "+statRate(c.stat)+" Kč"):s1),
     el("label",{title:"Body celkem podle výpisu. Přičítají se až vyplacené provize (fáze Provize vyplacena)."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
-    el("label",{},"Obratová kariéra",s2),
+    el("label",{title:"Zvol úroveň, na které jsi teď. Další kvartál se určí automaticky podle bodů za tento kvartál."},"Obratová v "+qLabel(cur.qk),s2,el("span",{class:"cnext"},"→ "+qLabel(nQ)+": "+(nL&&nL.r>statRate(c.stat)?nL.t+" · "+cz(nL.r)+" Kč":"statická "+c.stat+" (zatím "+fmt0(cur.total)+" b z 1 000)"))),
     el("span",{class:"rate"},"Tarif "+qLabel(cur.qk)+" ",el("b",{},cz(cur.rate)+" Kč/b"),el("small",{},cur.src+" · v "+qLabel(pq)+" "+fmt1(cur.prev)+" b")));
 }
 
@@ -1333,7 +1334,7 @@ function renderMoney(cq,cur){
   $("lbar").replaceChildren(el("div",{class:"lfill",style:"width:"+pct(lt)+"%"}),
     ...vis.map((t,i)=>{const b=vis[i+1]?.from??MAX;return el("div",{class:"lseg"+(i===0?" on":""),style:"width:"+(pct(b)-pct(t.from))+"%",title:t.t},cz(t.rate)+" Kč")}));
   $("lticks").replaceChildren(...vis.map(t=>el("span",{style:"left:"+pct(t.from)+"%;"+(pct(t.from)===0?"transform:none":"")},fmt0(t.from))));
-  const nx=tiers[idx+1], c=career(), keep=c.obrat&&c.obrat!=="auto"&&lr>nextRate;
+  const nx=tiers[idx+1], c=career(), keep=lr>nextRate;
   let msg;
   if(!nx)msg=[el("b",{},"V "+qLabel(nq)+" budeš mít "+cz(nextRate)+" Kč za bod"),"."];
   else{const need=nx.from-lt;
@@ -1811,8 +1812,7 @@ async function afterStage(before,id,from,to){
     if(i1>i0){const P=STAT_POS[i1];title="Postup na "+P[0];kicker="Statická kariéra";big=P[1]+" Kč za bod";lines.push("Máš "+fmt0(after.cum)+" bodů celkem (hranice "+fmt0(P[2])+").")}}
   // obratová kariéra – vyplacené body kvartálu, ve kterém byl obchod podepsán
   {const nq=qLabel(qShift(before.qk,1));
-    if(c.obrat==="auto"){const a=obratLevelFor(before.q),b=obratLevelFor(after.q);if(b&&(!a||b.q>a.q)&&b.r>statRate(c.stat)){if(!title){title=b.t+" splněno";kicker="Obratová kariéra";big=cz(b.r)+" Kč za bod"}lines.push(fmt0(after.q)+" b v "+qLabel(before.qk)+" → v "+nq+" budeš mít "+cz(b.r)+" Kč za bod.")}}
-    else if(c.obrat){const p=PROFI.find(x=>x.k===c.obrat);if(p&&p.r>statRate(c.stat)&&before.q<1000&&after.q>=1000){if(!title){title="1 000 bodů splněno";kicker="Obratová kariéra";big=p.t+" · "+cz(p.r)+" Kč"}lines.push("V "+nq+" budeš mít "+p.t+" – "+cz(p.r)+" Kč za bod.")}}}
+    {const a=obratLevelFor(before.q),b=obratLevelFor(after.q);if(b&&(!a||b.q>a.q)&&b.r>statRate(c.stat)){if(!title){title=b.t+" splněno";kicker="Obratová kariéra";big=cz(b.r)+" Kč za bod"}lines.push(fmt0(after.q)+" b v "+qLabel(before.qk)+" → v "+nq+" budeš mít "+cz(b.r)+" Kč za bod.")}}}
   if(title){celebrate({title,kicker,big,sub:"Vyplacená provize – "+(l.name||"")+" (+"+fmt1(+l.points||0)+" b)",lines,kind:"level"});return}
   paidCelebrate(l);
 }
@@ -2317,6 +2317,6 @@ setView(["pipe","money","cli","pp"].includes(sv)?sv:"pipe");
   if(!LStore.count()&&!GAuth.token())$("sub").textContent="Zatím prázdné – přihlas se Googlem, nebo naimportuj zálohu.";
 })();
 </script>
-<script src="wallpaper.js" defer></script>
+<script src="wallpaper.js?v=2" defer></script>
 </body>
 </html>
