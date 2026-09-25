@@ -706,6 +706,9 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
         <p class="hint">Do CRM se berou jen události, jejichž název začíná tímto textem (např. „VK: Novák“). Porady, tréninky a ostatní události se ignorují. Bez vyplnění se z kalendáře nic nenačte.</p>
         <button type="button" class="dbtn" id="dTasks" hidden>Povolit zápis úkolů do kalendáře</button>
       </div>
+      <div class="dcfg">
+        <label>Tapeta<select id="dWp"><option value="auto">Automaticky (podle měsíce)</option><option value="1">Leden – zima</option><option value="2">Únor – zima</option><option value="3">Březen – tání</option><option value="4">Duben – déšť a duha</option><option value="5">Květen – rozkvetlé stromy</option><option value="6">Červen – léto</option><option value="7">Červenec – léto</option><option value="8">Srpen – západ slunce</option><option value="9">Září – javorové listí</option><option value="10">Říjen – podzim</option><option value="11">Listopad – Halloween</option><option value="12">Prosinec – Vánoce</option></select></label>
+      </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
     </div>
@@ -1410,7 +1413,7 @@ function drawMonthly(rows,k,label){
   const vals=rows.map(r=>mVal(r,k)), hi=Math.max(0,...vals), lo=Math.min(0,...vals);
   const maxV=Math.max(hi,k==="tot"?1000:200)*1.12, minV=lo<0?lo*1.12:0;
   const x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)), y=v=>T+(H-T-B)*(1-(v-minV)/(maxV-minV));
-  const P=rows.map((r,i)=>[x(i),y(vals[i])]), line=smoothPath(P), up=vals[vals.length-1]>=vals[0], gid="mg_"+k;
+  const P=rows.map((r,i)=>[x(i),y(vals[i])]), line=smoothPath(P), up=k!=="udr"||vals[vals.length-1]>=vals[0], gid="mg_"+k;
   const col=up?"var(--green)":"var(--red)", hex=up?"#34C759":"#FF3B30";
   let g="";for(let j=1;j<=3;j++){const v=maxV/1.12*j/3;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--sep)" stroke-width=".5" stroke-dasharray="2 4"/><text x="${L-8}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(v)}</text>`}
   if(minV<0)g+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--label3)" stroke-width="1"/><text x="${L-8}" y="${y(0)+3}" text-anchor="end" font-size="10" fill="var(--label2)">0</text><text x="${L-8}" y="${y(minV/1.12)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(minV/1.12)}</text>`;
@@ -2308,6 +2311,7 @@ setView(["pipe","money","cli","pp"].includes(sv)?sv:"pipe");
   $("dCal").onchange=e=>{const o=e.target.selectedOptions[0];saveCal({calId:o.value,calName:o.textContent.replace(/^★ /,"")})};
   $("dPrefix").onchange=e=>saveCal({calPrefix:e.target.value.trim()});
   $("dTasks").onclick=()=>GAuth.login(false);
+  {const s=$("dWp");try{s.value=localStorage.getItem("wp_month")||"auto"}catch(e){}s.onchange=()=>{try{localStorage.setItem("wp_month",s.value)}catch(e){}if(window.__wpSet)window.__wpSet(s.value)}}
   const err=lsGet("g_err");if(err){localStorage.removeItem("g_err");if(err!=="interaction_required"&&err!=="login_required"&&err!=="consent_required")toast("Přihlášení se nepovedlo ("+err+")")}
   if(!GAuth.maybeRefresh()){GSync.run().then(refreshCalendar).then(()=>{scheduleTasks();fetchCalHistory()})}
   addEventListener("online",()=>{GSync.run().then(refreshCalendar).then(()=>fetchCalHistory())});
@@ -2317,6 +2321,6 @@ setView(["pipe","money","cli","pp"].includes(sv)?sv:"pipe");
   if(!LStore.count()&&!GAuth.token())$("sub").textContent="Zatím prázdné – přihlas se Googlem, nebo naimportuj zálohu.";
 })();
 </script>
-<script src="wallpaper.js?v=3" defer></script>
+<script src="wallpaper.js?v=4" defer></script>
 </body>
 </html>
