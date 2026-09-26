@@ -1023,12 +1023,14 @@ const STAGES=[
   {k:"nabidka",t:"Nabídka odeslána",c:"var(--purple)",p:.65},
   {k:"podpis",t:"Podpis",c:"var(--green)",p:1},
   {k:"vyplaceno",t:"Provize vyplacena",c:"var(--teal)",p:1},
-  {k:"zamrzly",t:"Zamrzlý",c:"var(--red)",p:0}
+  {k:"zamrzly",t:"Zamrzlý",c:"var(--red)",p:0},
+  {k:"lost",t:"Lost",c:"#636366",p:0}
 ];
 const SOURCES=["Cold call","Placený lead","Doporučení","Vlastní kontakt"];
 const STALE_DAYS=14;
 const SIGNED=s=>s==="podpis"||s==="vyplaceno";
-const ACTIVE=s=>!SIGNED(s)&&s!=="zamrzly";
+const DEAD=s=>s==="zamrzly"||s==="lost";
+const ACTIVE=s=>!SIGNED(s)&&!DEAD(s);
 const ST=k=>STAGES.find(s=>s.k===k)||STAGES[0];
 
 /* ---- Provizní příloha PP/2026/09/01 ---- */
@@ -1375,7 +1377,7 @@ function renderPipe(cur){
     const items=list.filter(l=>l.stage===st.k).sort((a,b)=>SIGNED(st.k)?(b.signedAt||"").localeCompare(a.signedAt||""):(a.nextDate||"9").localeCompare(b.nextDate||"9"));
     const colPts=items.reduce((s,l)=>s+(+l.points||0),0);
     const meta=st.k==="podpis"?"tento kvartál "+fmt1(items.filter(l=>l.signedAt&&qOf(l.signedAt)===CURQ()).reduce((s,l)=>s+(+l.points||0),0))+" b"
-      :st.k==="vyplaceno"?(items.length?fmt1(colPts)+" b celkem":""):st.k==="zamrzly"?"":fmt1(colPts)+" b";
+      :st.k==="vyplaceno"?(items.length?fmt1(colPts)+" b celkem":""):DEAD(st.k)?"":fmt1(colPts)+" b";
     const col=el("section",{class:"col","data-stage":st.k},
       el("div",{class:"colhead"},el("span",{class:"t"},el("i",{style:"background:"+st.c}),st.t),el("span",{class:"n"},String(items.length))),
       meta?el("div",{class:"colmeta"},meta):null,
@@ -1410,9 +1412,9 @@ function card(l,i,cur){
         ACTIVE(l.stage)&&l.phone?el("button",{class:"open",type:"button",style:"color:var(--red);margin-left:6px",title:"Zapsat: volal, nezvedl",onclick:e=>{e.stopPropagation();quickNo(l)}},"Nezvedl"):null,
         l.phone?el("button",{class:"open",type:"button",style:"color:var(--green);margin-left:6px",title:"Potvrzení schůzky / zpráva",onclick:e=>{e.stopPropagation();openMsg(leadMsgCtx(l),null,r=>logLeadMsg(l,r))}},"Zpráva"):null),
       el("div",{class:"stepper"},
-        l.stage==="zamrzly"?el("button",{type:"button",class:"txt",onclick:e=>{e.stopPropagation();moveTo(l,"kontaktovan")}},"Oživit"):null,
-        i>0&&l.stage!=="zamrzly"?el("button",{type:"button","aria-label":"O fázi zpět",title:"O fázi zpět",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i-1].k)}},"‹"):null,
-        i<STAGES.length-2?el("button",{type:"button","aria-label":"Posunout dál",title:"Posunout dál",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i+1].k)}},"›"):null)));
+        DEAD(l.stage)?el("button",{type:"button",class:"txt",onclick:e=>{e.stopPropagation();moveTo(l,"kontaktovan")}},"Oživit"):null,
+        i>0&&!DEAD(l.stage)?el("button",{type:"button","aria-label":"O fázi zpět",title:"O fázi zpět",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i-1].k)}},"‹"):null,
+        i<STAGES.findIndex(s=>s.k==="vyplaceno")?el("button",{type:"button","aria-label":"Posunout dál",title:"Posunout dál",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i+1].k)}},"›"):null)));
   c.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",l.id));
   c.addEventListener("dblclick",()=>openEdit(l));
   c.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target===c)openEdit(l)});
@@ -2050,7 +2052,7 @@ function maybeOpenToday(){const t=todayStr();if(lsGet("today_seen")===t)return;l
 /* ================= Klienti: úspěšnost, průměr, hodnota klientů, doporučení ================= */
 function renderStats(){
   const L=leads.filter(l=>!l.example), SI=STAGES.findIndex(s=>s.k==="schuzka");
-  const met=l=>SIGNED(l.stage)||(l.stage!=="zamrzly"&&STAGES.findIndex(s=>s.k===l.stage)>=SI)||(l.meetings||[]).length>0;
+  const met=l=>SIGNED(l.stage)||(!DEAD(l.stage)&&STAGES.findIndex(s=>s.k===l.stage)>=SI)||(l.meetings||[]).length>0;
   const nL=L.length,nM=L.filter(met).length,signed=L.filter(l=>SIGNED(l.stage)),nS=signed.length, pc=(a,b)=>b?Math.round(a/b*100)+" %":"–";
   const bar=(lab,n,of,col)=>el("div",{class:"r"},el("span",{},lab),el("span",{class:"bar"},el("i",{style:"width:"+(nL?Math.max(2,n/nL*100):0)+"%;background:"+col})),el("b",{},n+" · "+pc(n,of)));
   const fun=el("div",{class:"panel"},el("h2",{},"Konverzní trychtýř"),el("div",{class:"cap"},"Ze všech leadů v pipeline"),
@@ -2289,7 +2291,7 @@ function landFx(c,f){
       if(t.animate&&!REDUCED)t.animate([{opacity:0,transform:"translate(-50%,-30%) scale(.6)"},{opacity:1,transform:"translate(-50%,-90%) scale(1.1)",offset:.25},{opacity:1,transform:"translate(-50%,-140%) scale(1)",offset:.75},{opacity:0,transform:"translate(-50%,-190%) scale(1)"}],{duration:1800,easing:"ease-out"}).onfinish=()=>t.remove();else setTimeout(()=>t.remove(),1500)}
   }else if(f.stage==="vyplaceno"){
     if(!REDUCED)sparkle(x,r.top,"var(--teal)");
-  }else if(f.stage==="zamrzly"){
+  }else if(DEAD(f.stage)){
     if(!REDUCED&&c.animate)c.animate([{filter:"grayscale(0)",transform:"translateX(0)"},{transform:"translateX(-6px)"},{transform:"translateX(5px)"},{transform:"translateX(-3px)"},{filter:"grayscale(1)",transform:"translateX(0)"},{filter:"grayscale(0)"}],{duration:900,easing:"ease-out"});
   }else if(!REDUCED){
     sparkle(x,r.top,ST(f.stage).c);
@@ -2326,6 +2328,7 @@ function sparkle(x,y,cssColor){
 /* ================= writes ================= */
 async function moveTo(l,stage){
   if(!db){toast("Úložiště není dostupné");return}
+  if(stage==="lost"&&SIGNED(l.stage)){toast("Podepsaný obchod nejde do Lost – zmizely by body a provize z historie");return}
   armFlip(l,stage);
   const before=progressSnap(l.signedAt||todayStr()), from=l.stage;
   const patch={stage,stageAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
@@ -2636,6 +2639,7 @@ function showErr(e){$("fErr").textContent="Uložení se nepovedlo ("+(e.code||"c
 $("form").addEventListener("submit",async e=>{
   e.preventDefault();
   if(!db){showErr({code:"úložiště nedostupné"});return}
+  if($("f_stage").value==="lost"&&editing&&SIGNED(editing.stage)){toast("Podepsaný obchod nejde do Lost – zmizely by body a provize z historie");return}
   const man=$("f_points").value, stage=$("f_stage").value, now=new Date().toISOString(), before=progressSnap($("f_signed").value||todayStr()), from=editing?.stage||null;
   const items=formItems.filter(it=>+it.amt>0).map(it=>{const o={p:it.p,amt:+it.amt};["fee","yrs","var","age","vziz","g","price","pct","plusDph","mode","storno","zal","zan"].forEach(k=>{if(it[k]!=null&&it[k]!=="")o[k]=it[k]});if(!o.storno||!SIGNED(stage)){delete o.storno;delete o.zal;delete o.zan}o.pts=r1(itemCalc(it).pts);o.share=it.share??100;if(SIGNED(stage))o.signed=it.signed!==false;return o});
   const c=calcTotal();
