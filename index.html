@@ -599,7 +599,7 @@ html.locked body{overflow:hidden}
 .ucard .chips{display:flex;gap:8px;flex-wrap:wrap}.chipbtn.ok{background:var(--green);color:#fff}.chipbtn.no{color:var(--red)}
 .mrate{flex:1;text-align:right;color:var(--label);font-size:15px}
 .mlink{font-size:13px;color:var(--label2);padding:8px 0;line-height:1.35}.mlink.on{color:var(--green);font-weight:500}
-.chipbtn.mpipe{justify-self:start;margin:4px 0 10px;background:var(--tint);color:#fff}
+.chipbtn.mpipe{justify-self:start;margin:4px 0 10px;background:var(--tint);color:#fff}.chipbtn.mpipe.off{background:var(--bg2);color:var(--tint)}
 .mbars{display:flex;gap:8px;align-items:flex-end;justify-content:space-between;background:var(--fill2);border-radius:14px;padding:12px 14px 8px;margin-bottom:6px}
 .mbar{flex:1;display:grid;justify-items:center;gap:3px}.mbar i{display:block;width:70%;max-width:34px;border-radius:6px 6px 2px 2px;background:var(--green)}
 .mbar span{font-size:11px;color:var(--label2)}.mbv{font-size:11px;color:var(--label2);min-height:13px}
@@ -779,6 +779,8 @@ html.locked body{overflow:hidden}
     <div class="sechead-row"><h3 class="sechead">Nábor – kandidáti</h3><button type="button" class="chipbtn" id="addRecruit">+ Kandidát</button></div>
     <div class="rboard" id="rBoard"></div>
     <p class="secfoot" id="rFoot"></p>
+    <div class="sechead-row" style="margin-top:18px"><h3 class="sechead">Tým a meziprovize</h3><button type="button" class="chipbtn" id="addMember3">+ Člen přímo pode mnou</button></div>
+    <div class="org"><div id="teamTree2"></div></div>
     <div class="sechead-row" style="margin-top:18px"><h3 class="sechead">Tvůj tým – kdo roste a kdo stojí</h3><button type="button" class="chipbtn" id="addMember2">+ Člen týmu</button></div>
     <div class="group" id="nTeam"></div>
     <p class="secfoot">Body po měsících a „Body celkem“ zapisuješ v kartě člena (klikni na něj). Když u člena vyplníš Gmail a on používá Pipeline, doplňují se samy. Tým a meziprovize najdeš i ve Výdělku.</p>
@@ -1754,7 +1756,8 @@ function memberMPts(m,ym){if(m.m&&m.m[ym]!=null&&m.m[ym]!=="")return +m.m[ym]||0
 /* meziprovize za kvartál: u měsíců se zapsanou meziprovizí ze sjetiny ta, jinak z bodů členů */
 function teamQuarter(qk){return quarterMonths(qk).reduce((s,ym)=>{const o=settings.monthlyTeam?.[ym];return s+(hasV(o)?+o:teamOverride({ym},monthRate(ym)).total)},0)}
 function teamOverride({qk,ym},myRate){let total=0;const per={};const q=qk||qOf(ym+"-01");team.forEach(m=>{const pts=ym?memberMPts(m,ym):memberQPts(m,qk);const maxR=Math.max(...pathTo(m).map(x=>teamRate(x,q)));const o=pts*Math.max(0,myRate-maxR);per[m.id]={pts,o,maxR};total+=o});return {total,per}}
-function renderTeam(cur){
+function renderTeam(cur,tid){
+  tid=tid||"teamTree";
   const qk=CURQ(), rate=cur.rate, ov=teamOverride({qk},rate);ov.calc=ov.total;ov.total=teamQuarter(qk);
   const node=(o)=>el("div",{class:"onode"+(o.me?" me":""),style:"--oc:"+o.col},
       el("button",{type:"button",class:"ohit",title:o.me?"Tvoje meziprovize":"Upravit "+o.name,"aria-label":o.me?"Tvoje meziprovize":"Upravit "+o.name,onclick:o.open}),
@@ -1767,9 +1770,9 @@ function renderTeam(cur){
   const sub=(pid)=>{const kids=team.filter(m=>parentOf(m)===pid).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
     return kids.length?el("ul",{},...kids.map(m=>{const p=ov.per[m.id];return el("li",{},node({name:m.name||"Bez jména",ini:initials(m.name),col:POSCOL[m.pos]||POSCOL.P1,sub:(m.pos||"P1")+" · "+cz(teamRate(m))+" Kč/b",pts:fmt1(p.pts)+" b v "+qLabel(qk),kc:p.o,pid:m.id,open:()=>openMember(m)}),sub(m.id))})):null};
   const tree=el("ul",{class:"otree"},el("li",{},node({me:true,name:"Ty",ini:"Já",col:"var(--tint)",sub:career().stat+" · "+cz(rate)+" Kč/b",pts:"meziprovize "+qLabel(qk),kc:ov.total,pid:null,open:()=>openMe(ov,rate,qk)}),sub(null)));
-  $("teamTree").replaceChildren(tree);
-  const org=$("teamTree").parentElement;requestAnimationFrame(()=>{if(org.scrollWidth>org.clientWidth)org.scrollLeft=(org.scrollWidth-org.clientWidth)/2});
-  if(!team.length)$("teamTree").append(el("p",{class:"org-empty"},"Zatím nikoho nemáš. Klikni na + pod sebou a přidej prvního člena."));
+  $(tid).replaceChildren(tree);
+  const org=$(tid).parentElement;requestAnimationFrame(()=>{if(org.scrollWidth>org.clientWidth)org.scrollLeft=(org.scrollWidth-org.clientWidth)/2});
+  if(!team.length)$(tid).append(el("p",{class:"org-empty"},"Zatím nikoho nemáš. Klikni na + pod sebou a přidej prvního člena."));
 }
 function openMe(ov,rate,qk){
   const rows=team.map(m=>({m,...ov.per[m.id]})).sort((a,b)=>b.o-a.o||b.pts-a.pts);
@@ -1824,7 +1827,7 @@ function openMember(m0){
   const stTxt=!m.gmail?null:!S?"Propojuji…":S.status==="sdílí"?(S.snap?"✓ Propojeno – body, pozice a pipeline se propisují samy · aktualizováno "+ago(S.at):"✓ Souhlasil – čekám na první data z jeho aplikace"):S.status==="odmítnuto"?"Sdílení odmítl – můžeš ho požádat znovu (smaž a znovu zadej Gmail)":S.uses?"Čeká na jeho souhlas – žádost uvidí v aplikaci":"Zatím nepoužívá Pipeline – až se přihlásí tímto Gmailem, uvidí žádost";
   openSheet(m.name||"Člen týmu",[
     el("div",{class:"mhero"},el("span",{class:"oav big",style:"background:"+(POSCOL[m.pos]||POSCOL.P1)},initials(m.name)),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(p.o)),el("div",{class:"mh-s"},"tvoje meziprovize za "+qLabel(CURQ())+" · "+fmt1(p.pts)+" b"))),
-    synced?el("button",{type:"button",class:"chipbtn mpipe",onclick:()=>openMemberPipe(m,S)},"Otevřít jeho pipeline ›"):null,
+    el("button",{type:"button",class:"chipbtn mpipe"+(synced?"":" off"),onclick:()=>synced?openMemberPipe(m,S):pipeHelp(m,S)},"Otevřít "+(isFem(m.name)?"její":"jeho")+" pipeline ›"),
     el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Pod kým"),par),
       el("div",{class:"frow"},el("label",{},"Gmail"),gm),
       stTxt?el("div",{class:"frow"},el("span",{class:"mlink"+(S&&S.status==="sdílí"?" on":"")},stTxt)):null,
@@ -2475,6 +2478,7 @@ const RS=k=>RST.find(x=>x.k===k)||RST[0];
 async function recUpd(r,patch){try{await db.doc("recruits/"+r.id).update({...patch,updatedAt:new Date().toISOString()})}catch(e){toast("Nepodařilo se uložit")}}
 async function recMove(r,k){const now=new Date().toISOString();const log=[...(r.log||[]),{d:now,t:"→ "+RS(k).t}].slice(-50);await recUpd(r,{stage:k,stageAt:now,log,[k+"At"]:now});toast(RS(k).t)}
 function renderNet(){
+  try{renderTeam(quarterRow(CURQ()),"teamTree2")}catch(e){}
   if(typeof renderShareBox==="function")renderShareBox();
   const t=todayStr(), act=recruits.filter(r=>r.stage!=="pryc"), cq=CURQ(), inQ=(r,k)=>r[k+"At"]&&qOf(r[k+"At"])===cq;
   $("sub").textContent=act.length+" "+plural(act.length,"kandidát","kandidáti","kandidátů")+" v náboru · "+team.length+" "+plural(team.length,"člen","členové","členů")+" týmu";
@@ -3074,7 +3078,7 @@ setView(["pipe","money","tax","cli","net","pp"].includes(sv)?sv:"pipe");
   db.collection("recruits").onSnapshot(snap=>{recruits=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="net")render()});
   db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};render();scheduleTasks()});
   $("todayBtn").onclick=openToday;maybeOpenToday();
-  $("addRecruit").onclick=addRecruit;$("addMember2").onclick=()=>addMember(null);
+  $("addRecruit").onclick=addRecruit;$("addMember2").onclick=()=>addMember(null);$("addMember3").onclick=()=>addMember(null);
   $("cbBtn").onclick=()=>{const ids=todayData().calls.filter(l=>!todoState("call:"+l.id,true)).map(l=>l.id);if(!ids.length){toast("Dnes nemáš koho volat – všechno je naplánované");return}openCallBlock(ids)};
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeOpenToday()});
   startCalendar();
@@ -3183,6 +3187,10 @@ Acc.apply();
 if(Acc.me())Acc.check();
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Acc.me()&&Date.now()-(Acc.get().at||0)>10*60000)Acc.check()});
 if(Acc.me()===ADMIN){usersBadge(lsGet("adm_list"));if(GAuth.token())adminCall({op:"list"}).catch(()=>{})}
+function isFem(name){try{if(parseName(name).fem)return true}catch(e){}const w=String(name||"").trim().split(/\s+/);return w.length===1&&/[aá]$/i.test(w[0])&&!/^(Nikola|Saša|Honza|Jirka|Míra|Tonda|Pepa|Láďa|Vojta|Kuba|Luca)$/i.test(w[0])}
+function pipeHelp(m,S){const f=isFem(m.name),on=f?"ní":"něj",ho=f?"ji":"ho",ta=f?"její":"jeho";
+  const msg=!m.gmail?"Aby šla vidět "+ta+" pipeline, vyplň u "+on+" v kartě Gmail, kterým se přihlašuje do Pipeline.":!S||!S.uses?"Na Gmail "+m.gmail+" se zatím nikdo nepřihlásil do Pipeline. Pošli "+(f?"jí":"mu")+" odkaz – po přihlášení "+ho+" schválíš v Uživatelích a "+(f?"ona":"on")+" potvrdí sdílení.":S.status==="odmítnuto"?"Sdílení "+(f?"odmítla":"odmítl")+". Můžeš "+ho+" požádat znovu – smaž Gmail a zadej ho znovu.":"Žádost o sdílení "+(f?"jí":"mu")+" už svítí v aplikaci – jakmile ji potvrdí, uvidíš tady "+ta+" pipeline.";
+  openSheet((m.name||"Člen")+" – pipeline",[el("div",{class:"ucard pend"},el("p",{style:"margin:0;line-height:1.45"},msg)),el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>openMember(m)},"‹ Zpět na kartu"))])}
 /* ===== v25: propojení týmu – člen sdílí výsledky s nadřízeným (se souhlasem) ===== */
 function ago(iso){if(!iso)return"–";const s=(Date.now()-new Date(iso))/1000;if(s<90)return"právě teď";if(s<3600)return"před "+Math.round(s/60)+" min";if(s<86400)return"před "+Math.round(s/3600)+" h";return fmtDate(iso.slice(0,10))}
 let TS=lsGet("team_share")||{list:[],at:0};
