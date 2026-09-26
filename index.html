@@ -605,6 +605,7 @@ html.locked body{overflow:hidden}
 .mbar span{font-size:11px;color:var(--label2)}.mbv{font-size:11px;color:var(--label2);min-height:13px}
 .pdeal .s.late{color:var(--red)}.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .mstat{margin-bottom:6px}
+.sbody>*,.fg,#itemsList,#itemsList>*{min-width:0}#itemsList .frow select{width:0;text-overflow:ellipsis}
 .xdel{border:none;background:none;color:var(--red);font-size:20px;cursor:pointer;padding:0 4px}
 @media (max-width:600px){.bar .seg{overflow-x:auto;grid-auto-columns:max-content;max-width:100%}}
 /* ===== v16: šablony, zálohy ===== */
@@ -1190,8 +1191,124 @@ const INV_VARS=[
   {v:"PLAT",s:"PLATINiQ",t:"Conseq PLATINiQ",min:0,max:5,f:(a,i)=>a*i/325,fx:"vstupní poplatek ÷ 325"},
   {v:"GEN",s:"Generali Inv.",t:"Generali Investments – PARTNER Invest Plus",min:0,max:5,f:(a,i)=>a*i/324,fx:"vstupní poplatek ÷ 324"},
   {v:"GEN_P",s:"Generali Inv. předpl.",t:"Generali Investments – předplacená provize",min:0,max:5,f:(a,i)=>a*i/360,fx:"vstupní poplatek ÷ 360"},
-  {v:"ATL",s:"Atlantik",t:"ATLANTIK finanční trhy – investiční fondy",min:0,max:5,f:(a,i)=>a*i/324,fx:"vstupní poplatek ÷ 324"}
+  {v:"ATL",s:"Atlantik",t:"ATLANTIK finanční trhy – investiční fondy",min:0,max:5,f:(a,i)=>a*i/324,fx:"vstupní poplatek ÷ 324",g:"jt"},
+  {v:"JT",s:"J&T fondy",t:"J&T Banka – fondy J&T a ostatních správců",min:0,max:5,f:(a,i)=>a*i/324,fx:"vstupní poplatek ÷ 324",g:"jt"},
+  {v:"JT_DL1",s:"J&T dluhopis",t:"J&T Banka – dluhopisy ROHLIK, EMMA, EUROPACITY, AUCTOR, DOCK",nofee:1,nomode:1,f:a=>a/32400,fx:"investovaná částka ÷ 32 400",g:"jt"},
+  {v:"JT_DL2",s:"J&T dluhopis",t:"J&T Banka – dluhopisy EN.-PRO GF 7,50/29 a J&T BANKA VAR/34",nofee:1,nomode:1,f:a=>a/64800,fx:"investovaná částka ÷ 64 800",g:"jt"},
+  {v:"GEN_TK",s:"Generali Trend",t:"Generali – Konzervativní Trend",nofee:1,f:a=>a/40500,fx:"vklad ÷ 40 500",g:"gen",amtL:"Vklad"},
+  {v:"GEN_TV",s:"Generali Trend",t:"Generali – Vyvážený Trend",nofee:1,f:a=>a/27000,fx:"vklad ÷ 27 000",g:"gen",amtL:"Vklad"},
+  {v:"GEN_TD",s:"Generali Trend",t:"Generali – Dynamický Trend",nofee:1,f:a=>a/12960,fx:"vklad ÷ 12 960",g:"gen",amtL:"Vklad"},
+  {v:"ZG_STD",s:"ZFP Gold",t:"ZFP Gold – Zlatý finanční program (standardní)",nofee:1,nomode:1,noaum:1,f:a=>a/370,fx:"vstupní cenové navýšení ÷ 370 (průběžně, jak klient platí)",g:"gold",amtL:"Vstupní cenové navýšení"},
+  {v:"ZG_PRE",s:"ZFP Gold",t:"ZFP Gold – Zlatý finanční program (předplacený)",nofee:1,nomode:1,noaum:1,f:a=>Math.min(a,22500)/415,fx:"vstupní cenové navýšení ÷ 415 (celé po 1. platbě, max. 22 500 Kč)",g:"gold",amtL:"Vstupní cenové navýšení"},
+  ...[["1 g",3750,4050],["2 g / 2,5 g",5150,5250],["5 g",6430,6920],["10 g",8130,8750],["20 g",9850,10000],["31,1 g (unce)",11050,11900],["50 g",12880,13850],["100 g",19300,20770],["250–1000 g",25750,27770]].flatMap(([w,a,p],i)=>[
+    {v:"ZG_AH"+i,s:"Zlato",t:"ZFP Gold – slitek Argor-Heraeus / Münze Österreich "+w,nofee:1,nomode:1,noaum:1,f:x=>x/a,fx:"cena slitku ÷ "+(a).toLocaleString("cs-CZ"),g:"goldbar",amtL:"Cena slitku"},
+    {v:"ZG_PB"+i,s:"Zlato",t:"ZFP Gold – slitek PAMP / Britannia "+w,nofee:1,nomode:1,noaum:1,f:x=>x/p,fx:"cena slitku ÷ "+(p).toLocaleString("cs-CZ"),g:"goldbar",amtL:"Cena slitku"}]),
+  {v:"ZG_AG",s:"Stříbro",t:"ZFP Gold – stříbro Argor-Heraeus 1000 g",nofee:1,nomode:1,noaum:1,f:a=>a/8900,fx:"cena bez DPH ÷ 8 900",g:"goldbar",amtL:"Cena bez DPH"},
+  {v:"AUV_Z",s:"AUVESTA",t:"AUVESTA – založení depozitu M / L / XL",nofee:1,nomode:1,noaum:1,f:a=>a/849,fx:"poplatek v Kč ÷ 849 (M 600 €, L 1 200 €, XL 2 400 €; depozit S bez provize)",g:"auv",amtL:"Poplatek v Kč"},
+  {v:"AUV_V",s:"AUVESTA",t:"AUVESTA – vklad do depozitu M / L / XL",nofee:1,noaum:1,f:a=>a/16972,fx:"vklad ÷ 16 972 (depozit S bez provize)",g:"auv",amtL:"Vklad v Kč"}
 ];
+const INV_G={zfp:"ZFP fondy",conseq:"Conseq",gen:"Generali Investments",jt:"J&T / ATLANTIK",gold:"ZFP Gold – spoření",goldbar:"ZFP Gold – jednorázový nákup",auv:"AUVESTA"};
+["ZFPI","UP","WI"].forEach(k=>{const x=INV_VARS.find(v=>v.v===k);if(x)x.g="zfp"});["CQ_EX","CQ_BE","PLAT"].forEach(k=>{const x=INV_VARS.find(v=>v.v===k);if(x)x.g="conseq"});["GEN","GEN_P"].forEach(k=>{const x=INV_VARS.find(v=>v.v===k);if(x)x.g="gen"});
+const NZP_G={auto:"Auto a motorka",majetek:"Nemovitost a domácnost",odpovednost:"Odpovědnost",cestovni:"Cestovní",ostatni:"Úraz, zdraví, zvířata, cizinci",podnikatele:"Podnikatelé a flotily"};
+const NZP=[{"v":"ALLIA_AUT","g":"auto","t":"Allianz – Autopojištění (POV i HAV)","d":1800,"n":"sleva 1–15 % krátí provizi o 1/15 za každé %"},
+  {"v":"ALLIA_MAJ","g":"majetek","t":"Allianz – Majetek a odpovědnost občanů","d":589,"n":"smlouva na max. 1 rok ÷ 2160 · přepracovaná ÷ 3888"},
+  {"v":"ALLIA_CES","g":"cestovni","t":"Allianz – Cestovní (jednorázové pojistné)","d":4952},
+  {"v":"ALLIA_POD","g":"podnikatele","t":"Allianz – Majetek a odpovědnost podnikatelů","d":2407},
+  {"v":"ALLIA_POD2","g":"podnikatele","t":"Allianz – Průmyslová rizika","d":2407,"n":"ze zaplaceného pojistného"},
+  {"v":"ALLIA_POD3","g":"podnikatele","t":"Allianz – Flotily (5+ vozidel)","d":2407,"n":"ze zaplaceného pojistného"},
+  {"v":"CPP_AUT","g":"auto","t":"ČPP – Autopojištění (POV i HAV)","d":1800},
+  {"v":"CPP_MAJ","g":"majetek","t":"ČPP – Majetek a odpovědnost občanů","d":675},
+  {"v":"CPP_ODP","g":"odpovednost","t":"ČPP – Odpovědnost zaměstnance (ZAMEX)","d":2160},
+  {"v":"CPP_CES","g":"cestovni","t":"ČPP – Cestovní a léčebné výlohy","d":1386},
+  {"v":"CPP_CES2","g":"cestovni","t":"ČPP – Cestovní – rámcová smlouva","d":3466},
+  {"v":"CPP_OST","g":"ostatni","t":"ČPP – Veterinární péče","d":1733},
+  {"v":"CPP_POD","g":"podnikatele","t":"ČPP – Majetek a odpovědnost podnikatelů","d":2400},
+  {"v":"CPP_POD2","g":"podnikatele","t":"ČPP – Odpovědnost personální agentury","d":4320},
+  {"v":"CPP_POD3","g":"podnikatele","t":"ČPP – SIMPLEX (malí a střední)","d":2160},
+  {"v":"CPP_POD4","g":"podnikatele","t":"ČPP – KOMPLEX – s pomocí pojišťovny","d":2400},
+  {"v":"CPP_POD5","g":"podnikatele","t":"ČPP – KOMPLEX – sjedná certifikovaný sám","d":1728},
+  {"v":"CPP_POD6","g":"podnikatele","t":"ČPP – PODNIKATEL PLUS","d":960},
+  {"v":"CPP_POD7","g":"podnikatele","t":"ČPP – Flotily (POV i HAV)","d":2400},
+  {"v":"CPP_POD8","g":"podnikatele","t":"ČPP – Finanční způsobilost dopravce","d":2400},
+  {"v":"CSOB_AUT","g":"auto","t":"ČSOB – NAŠE AUTO (POV i HAV)","d":1897},
+  {"v":"CSOB_MAJ","g":"majetek","t":"ČSOB – NÁŠ DOMOV – majetek a odpovědnost","d":675},
+  {"v":"CSOB_ODP","g":"odpovednost","t":"ČSOB – NAŠE ODPOVĚDNOST (občan, zaměstnanec)","d":1620},
+  {"v":"CSOB_CES","g":"cestovni","t":"ČSOB – ATLAS cestovní","d":2700},
+  {"v":"CSOB_OST","g":"ostatni","t":"ČSOB – Úrazové hromadné (HUP)","d":2311},
+  {"v":"CSOB_OST2","g":"ostatni","t":"ČSOB – Úrazové řidičů RENTO","d":866},
+  {"v":"CSOB_OST3","g":"ostatni","t":"ČSOB – Internetová rizika","d":1733},
+  {"v":"CSOB_OST4","g":"ostatni","t":"ČSOB – Právní ochrana","d":1620},
+  {"v":"CSOB_POD","g":"podnikatele","t":"ČSOB – Odpovědnost z provozu vozidla – hromadné (OPV)","d":1926},
+  {"v":"CSOB_POD2","g":"podnikatele","t":"ČSOB – TRUMF – živnostníci a menší firmy","d":2888},
+  {"v":"CSOB_POD3","g":"podnikatele","t":"ČSOB – Podnikatelská rizika (PPR)","d":2407},
+  {"v":"DIREC_AUT","g":"auto","t":"Direct – Autopojištění","d":1800},
+  {"v":"DIREC_MAJ","g":"majetek","t":"Direct – Majetek","d":648,"n":"přesjednání: do výše původního pojistného ÷ 2160"},
+  {"v":"DIREC_ODP","g":"odpovednost","t":"Direct – Občanská odpovědnost","d":648},
+  {"v":"DIREC_CES","g":"cestovni","t":"Direct – Cestovní","d":3240},
+  {"v":"DIREC_OST","g":"ostatni","t":"Direct – Mazlíčci","d":2160},
+  {"v":"DIREC_OST2","g":"ostatni","t":"Direct – Úrazové","d":1730},
+  {"v":"DIREC_POD","g":"podnikatele","t":"Direct – Pojištění podnikání","d":2166},
+  {"v":"DIREC_POD2","g":"podnikatele","t":"Direct – Malí a střední podnikatelé","d":2407},
+  {"v":"DIREC_POD3","g":"podnikatele","t":"Direct – Velká rizika","d":2407},
+  {"v":"DIREC_POD4","g":"podnikatele","t":"Direct – Odpovědnost autodopravců","d":2888},
+  {"v":"DIREC_POD5","g":"podnikatele","t":"Direct – Flotily","d":2888},
+  {"v":"GENER_AUT","g":"auto","t":"Generali – Autopojištění (POV i HAV)","d":1800},
+  {"v":"GENER_MAJ","g":"majetek","t":"Generali – Majetek a odpovědnost občanů","d":720,"n":"přepracovaná bez splnění podmínek ÷ 2160"},
+  {"v":"GENER_ODP","g":"odpovednost","t":"Generali – Občanská odpovědnost","d":720},
+  {"v":"GENER_ODP2","g":"odpovednost","t":"Generali – Odpovědnost zaměstnance","d":2160},
+  {"v":"GENER_CES","g":"cestovni","t":"Generali – Cestovní","d":2160},
+  {"v":"GENER_OST","g":"ostatni","t":"Generali – Mazlíček","d":720},
+  {"v":"GENER_POD","g":"podnikatele","t":"Generali – Malá a střední rizika (podnikatelé, profesní odpovědnost…)","d":2407},
+  {"v":"GENER_POD2","g":"podnikatele","t":"Generali – Flotily","d":2407},
+  {"v":"KP_MAJ","g":"majetek","t":"KP – Nemovitost","d":590,"n":"storno stejného rizika u KP za 6 měsíců → jen ÷ 2160"},
+  {"v":"KP_CES","g":"cestovni","t":"KP – Cestovní","d":1387},
+  {"v":"KOOPE_AUT","g":"auto","t":"Kooperativa – NAMÍRU autopojištění (POV i HAV)","d":2150,"n":"s telematikou (Cashback) se pojistné sníží o slevu"},
+  {"v":"KOOPE_AUT2","g":"auto","t":"Kooperativa – Dodatkové pojištění k vozidlu","d":2160,"n":"kromě čelních skel"},
+  {"v":"KOOPE_MAJ","g":"majetek","t":"Kooperativa – Majetek a odpovědnost občanů (nemovitost, domácnost, KOMPLETY)","d":675},
+  {"v":"KOOPE_ODP","g":"odpovednost","t":"Kooperativa – Odpovědnost zaměstnance (BOB)","d":3000},
+  {"v":"KOOPE_CES","g":"cestovni","t":"Kooperativa – Cestovní","d":2492,"n":"KOLUMBUS ABONENT RODINA = 0 bodů"},
+  {"v":"KOOPE_OST","g":"ostatni","t":"Kooperativa – FIT – sportovní výbava","d":675},
+  {"v":"KOOPE_POD","g":"podnikatele","t":"Kooperativa – Podnikatelská rizika (TREND)","d":2890},
+  {"v":"KOOPE_POD2","g":"podnikatele","t":"Kooperativa – Odpovědnost a profesní odpovědnost","d":2890},
+  {"v":"KOOPE_POD3","g":"podnikatele","t":"Kooperativa – Flotily","d":2409},
+  {"v":"OMO_POD","g":"podnikatele","t":"OMO – Makléřské – průmyslová a podnikatelská rizika","d":2476,"n":"dělí se s kolegou z OMO"},
+  {"v":"OMO_ODP","g":"odpovednost","t":"OMO – Makléřské – odpovědnost zaměstnance","d":2476,"n":"dělí se s kolegou z OMO"},
+  {"v":"OMO_POD2","g":"podnikatele","t":"OMO – Makléřské – flotily","d":2476,"n":"dělí se s kolegou z OMO"},
+  {"v":"PILLO_AUT","g":"auto","t":"Pillow – Autopojištění","d":1705},
+  {"v":"PILLO_MAJ","g":"majetek","t":"Pillow – Majetek","d":648},
+  {"v":"VZP_AUT","g":"auto","t":"VZP – Autopojištění (POV i HAV)","d":2150},
+  {"v":"VZP_MAJ","g":"majetek","t":"VZP – MAJOB – majetek a odpovědnost občanů","d":865},
+  {"v":"VZP_CES","g":"cestovni","t":"VZP – Cestovní","d":1386},
+  {"v":"VZP_OST","g":"ostatni","t":"VZP – Zdravotní PATRON","d":990},
+  {"v":"VZP_OST2","g":"ostatni","t":"VZP – Úrazové ÚRAZ","d":990},
+  {"v":"VZP_OST3","g":"ostatni","t":"VZP – Závažná onemocnění FÉNIX","d":2476},
+  {"v":"VZP_OST4","g":"ostatni","t":"VZP – Cizinci – základní (ZZPC)","d":1386},
+  {"v":"VZP_OST5","g":"ostatni","t":"VZP – Cizinci – komplexní PLUS / EXCLUSIVE","d":6933},
+  {"v":"VZP_POD","g":"podnikatele","t":"VZP – Podnikatelská rizika (PPR)","d":2407},
+  {"v":"VZP_POD2","g":"podnikatele","t":"VZP – Flotily","d":2888},
+  {"v":"SLAVI_AUT","g":"auto","t":"Slavia – SP Autopojištění (POV i HAV)","d":1951,"n":"z uhrazeného ročního pojistného"},
+  {"v":"SLAVI_MAJ","g":"majetek","t":"Slavia – Občanský majetek a odpovědnost","d":648},
+  {"v":"SLAVI_CES","g":"cestovni","t":"Slavia – Cestovní","d":1733},
+  {"v":"SLAVI_OST","g":"ostatni","t":"Slavia – Cizinci – KZPC","d":1620},
+  {"v":"SLAVI_OST2","g":"ostatni","t":"Slavia – Cizinci – KZPC Máma a mimino","d":3240},
+  {"v":"SLAVI_OST3","g":"ostatni","t":"Slavia – Cizinci – cestovní KCPC","d":2309},
+  {"v":"SLAVI_OST4","g":"ostatni","t":"Slavia – Cizinci – neodkladná péče NZPC","d":1733},
+  {"v":"SLAVI_OST5","g":"ostatni","t":"Slavia – Domácí zvíře","d":1733},
+  {"v":"SLAVI_OST6","g":"ostatni","t":"Slavia – Úraz (Bezkrevní léčba)","d":866},
+  {"v":"SLAVI_POD","g":"podnikatele","t":"Slavia – Podnikatelská rizika","d":2400},
+  {"v":"SLAVI_POD2","g":"podnikatele","t":"Slavia – Finanční způsobilost / odpovědnost dopravce","d":2400},
+  {"v":"SLAVI_POD3","g":"podnikatele","t":"Slavia – Flotily","d":2890},
+  {"v":"UNIQA_AUT","g":"auto","t":"UNIQA – Autopojištění","d":1800,"n":"náhrada smlouvy na stejné vozidlo = jen pečovatelská"},
+  {"v":"UNIQA_MAJ","g":"majetek","t":"UNIQA – Majetek","d":650,"n":"náhrada smlouvy jen při navýšení o 50 % a víc"},
+  {"v":"UNIQA_ODP","g":"odpovednost","t":"UNIQA – Občanská odpovědnost","d":650},
+  {"v":"UNIQA_ODP2","g":"odpovednost","t":"UNIQA – Odpovědnost za zvíře","d":1083},
+  {"v":"UNIQA_CES","g":"cestovni","t":"UNIQA – Cestovní","d":3466},
+  {"v":"UNIQA_OST","g":"ostatni","t":"UNIQA – Cizinci","d":2311},
+  {"v":"UNIQA_OST2","g":"ostatni","t":"UNIQA – Cizinci – KZPC / neodkladná péče","d":1155},
+  {"v":"UNIQA_OST3","g":"ostatni","t":"UNIQA – Právní ochrana","d":1155},
+  {"v":"UNIQA_POD","g":"podnikatele","t":"UNIQA – Podnikatelé","d":2890},
+  {"v":"UNIQA_POD2","g":"podnikatele","t":"UNIQA – Kompletní pojištění průmyslu","d":2890},
+  {"v":"UNIQA_POD3","g":"podnikatele","t":"UNIQA – Flotily","d":2710}];
 const HYPO=[
   {v:"CS",t:"Česká spořitelna",d:20266},
   {v:"CSOB",t:"ČSOB Hypoteční banka",d:20801,max:12e6},
@@ -1229,18 +1346,20 @@ const PROD={
   "DPS":{kind:"monthly",amt:"Příspěvek účastníka",unit:"Kč/měs",color:"var(--indigo)",vars:DPS_VARS,def:"NN",varLabel:"Penzijní společnost",
     info:"Doplňkové penzijní spoření",formula:"podle penzijní společnosti, věku klienta a výše příspěvku; strop 10,4 b (Conseq, ČS 10,41 b)"},
   "Investice":{kind:"invest",amt:"Investice",unit:"Kč",color:"var(--green)",vars:INV_VARS,def:"ZFPI",varLabel:"Investiční společnost",
-    info:"Jednorázové investice",formula:"z vstupního poplatku podle investiční společnosti"},
+    info:"Fondy, dluhopisy, ZFP Gold, AUVESTA",formula:"u fondů ze vstupního poplatku, u dluhopisů, zlata a AUVESTY z částky podle koeficientu",groups:INV_G},
   "Hypotéka":{kind:"loan",amt:"Výše úvěru",unit:"Kč",color:"var(--purple)",vars:HYPO,def:"CS",varLabel:"Banka",
     info:"Hypoteční úvěry",formula:"výše úvěru ÷ koeficient banky"},
   "Úvěr":{kind:"loan",amt:"Výše úvěru",unit:"Kč",color:"var(--gray)",vars:UVER,def:"CSOB",varLabel:"Banka",
     info:"Spotřebitelské úvěry",formula:"výše úvěru ÷ koeficient banky"},
+  "Neživotní pojištění":{kind:"annual",amt:"Roční pojistné",unit:"Kč/rok",color:"var(--orange)",vars:NZP,groups:NZP_G,def:"KOOPE_MAJ",varLabel:"Pojišťovna a pojištění",
+    info:"Majetek, domácnost, auto, motorka, odpovědnost, cestovní, podnikatelé",formula:"roční pojistné ÷ koeficient pojišťovny = získatelská provize za novou smlouvu. Pečovatelská provize v dalších letech se nepočítá."},
   "Reality":{kind:"reality",amt:"Provize RK vč. DPH",unit:"Kč",color:"var(--orange)",vars:REAL,def:"PRODEJ",varLabel:"Obchod",
     info:"ZFP Reality",formula:"(provize realitky vč. DPH − částka, která zůstává ZFP Reality) ÷ 440,46. U prodeje zůstává 30 000 Kč + DPH (36 300 Kč), u pronájmu 3 000 Kč + DPH (3 630 Kč)."}
 };
 const PRODUCTS=Object.keys(PROD);
 function cz(n){return String(Math.round(n*100)/100).replace(".",",")}
 function varOf(it){const P=PROD[it.p];return P?.vars?.find(x=>x.v===it.var)||P?.vars?.find(x=>x.v===P.def)||P?.vars?.[0]}
-function itemLabel(it){it=normItem(it);if(it.p==="Investice")return varOf(it)?.s||"Investice";if(it.p==="ŽP"){const v=varOf(it)?.v||"";return v.startsWith("NN")?"ŽP":"ŽP "+(varOf(it)?.t.split(" ")[0]||"")}if(it.p==="DPS"){const v=varOf(it);return v&&v.v!=="NN"?"DPS "+v.t.split(" ")[0]:"DPS"}return it.p}
+function itemLabel(it){it=normItem(it);if(it.p==="Investice")return varOf(it)?.s||"Investice";if(it.p==="Neživotní pojištění")return ({auto:"Auto",majetek:"Majetek",odpovednost:"Odpovědnost",cestovni:"Cestovní",ostatni:"NŽP",podnikatele:"NŽP firma"})[varOf(it)?.g]||"NŽP";if(it.p==="ŽP"){const v=varOf(it)?.v||"";return v.startsWith("NN")?"ŽP":"ŽP "+(varOf(it)?.t.split(" ")[0]||"")}if(it.p==="DPS"){const v=varOf(it);return v&&v.v!=="NN"?"DPS "+v.t.split(" ")[0]:"DPS"}return it.p}
 function itemCalc(it0){
   const it=normItem(it0), a=+it.amt||0, i=(+it.fee||0)/100, V=varOf(it);
   if(!a)return {pts:0,det:""};
@@ -1251,8 +1370,10 @@ function itemCalc(it0){
       return {pts:full*first+vziz,det:`${fmt0(annual)} Kč ročně ÷ ${k} = ${fmt1(full)} b${first<1?`, ${Math.round(first*100)} % teď ${fmt1(full*first)} b`:""} + VZIZ ${vziz} b${warn}`}}
     case "DPS":return V.f(a,+it.age||35);
     case "Investice":{
+      if(V.nofee&&(V.nomode||it.mode!=="mesicne"))return {pts:V.f(a,0),det:`${fmt0(a)} Kč · ${V.fx}`};
       if(it.mode==="mesicne"){const m=V.f(a,i), up=invPassive(it);return {pts:0,det:`pravidelně ${fmt0(a)} Kč/měs → ${fmt1(m)} b měsíčně z poplatků (pasivní)${up.coefY?` + udržovací ~${fmt1(a*12*up.coefY)} b ročně po 1. roce`:""}`}}
       const v=V.f(a,i), up=invPassive(it);return {pts:v,det:`poplatek ${fmt0(a*i)} Kč · ${V.fx}${up.coefY?` · udržovací ~${fmt1(up.net*up.coefY/12)} b měsíčně`:""}`}}
+    case "Neživotní pojištění":return {pts:a/V.d,det:`${fmt0(a)} Kč ročně ÷ ${fmt0(V.d)}${V.n?" · "+V.n:""}`};
     case "Hypotéka":case "Úvěr":{const base=V.max?Math.min(a,V.max):a;
       return {pts:base/V.d,det:`${fmt0(base)} Kč ÷ ${fmt0(V.d)}${V.max&&a>V.max?" (strop "+fmt0(V.max)+" Kč)":""}`}}
     case "Reality":{const net=Math.max(0,a-V.keep);return {pts:net/440.46,det:`${it.price?`${cz(it.pct)} % z ${fmt0(it.price)} Kč${it.plusDph?" + DPH":""} = `:""}provize ${fmt0(a)} Kč − ${fmt0(V.keep)} Kč pro ZFP Reality = ${fmt0(net)} Kč ÷ 440,46`}}
@@ -1268,7 +1389,7 @@ const UDR={ // roční body na 1 Kč majetku (pečovatelská provize podle PP) +
 };
 const FAM={ZFPI:{t:"ZFP realitní fond (ZFPI, UP)",g:.05},WI:{t:"ZFP World Index",g:.09},CONSEQ:{t:"Conseq / PLATINiQ",g:.09},OST:{t:"Ostatní",g:.09}};
 function invPassive(it){
-  const V=varOf(it), u=UDR[V.v]||{coefY:0,fam:"OST"}, a=+it.amt||0, i=(+it.fee||0)/100;
+  const V=varOf(it), u=UDR[V.v]||{coefY:0,fam:"OST"}, a=V.noaum?0:(+it.amt||0), i=(+it.fee||0)/100;
   const net=V.v==="ZFPI"?a/(1+i):a*(1-i);
   return {coefY:u.coefY,fam:u.fam,net,monthly:it.mode==="mesicne",dep:it.mode==="mesicne"?a*(1-i):0,regPts:it.mode==="mesicne"?V.f(a,i):0};
 }
@@ -1517,7 +1638,7 @@ function card(l,i,cur){
       l.origin?el("span",{class:"tag",title:"Převzatý klient"},l.origin.replace("EISIS Heč","EISIS")+(l.contracts?.length?" · "+l.contracts.map(c=>c.kind==="PP"?"DPS":"ŽP").join("+"):"")):null,
       isCold(l)?el("span",{class:"tag cold"},daysSince(lastTouch(l))+" dní ticho"):null,
       stor.length?el("span",{class:"tag storno"},"storno −"+fmt1(stor.reduce((a,x)=>a+x.pts,0))+" b"):null,
-      l.items?.length?l.items.map(it=>{const off=signed&&it.signed===false;return el("span",{class:"tag "+(off?"":"blue"),style:off?"text-decoration:line-through":null,title:it.p+" "+kc(it.amt)+(off?" · nepodepsáno":"")},itemLabel(it)+" "+shortKc(it.amt)+(PROD[normItem(it).p]?.kind==="monthly"||it.mode==="mesicne"?"/měs":"")+((it.share??l.share??100)<100?" · "+(it.share??l.share)+" %":""))}):(l.products||[]).map(p=>el("span",{class:"tag blue"},p)),
+      l.items?.length?l.items.map(it=>{const off=signed&&it.signed===false;return el("span",{class:"tag "+(off?"":"blue"),style:off?"text-decoration:line-through":null,title:it.p+" "+kc(it.amt)+(off?" · nepodepsáno":"")},itemLabel(it)+" "+shortKc(it.amt)+(PROD[normItem(it).p]?.kind==="monthly"||it.mode==="mesicne"?"/měs":PROD[normItem(it).p]?.kind==="annual"?"/rok":"")+((it.share??l.share??100)<100?" · "+(it.share??l.share)+" %":""))}):(l.products||[]).map(p=>el("span",{class:"tag blue"},p)),
       !l.items?.length&&l.share!=null&&l.share<100?el("span",{class:"tag"},"podíl "+l.share+" %"):null,
       l.source?el("span",{class:"tag"},l.source+(l.referredBy?" · "+l.referredBy:"")):null),
     l.points?el("div",{class:"money"},signed?[l.signedAt?"Podepsáno "+fmtDate(l.signedAt)+" · ":"",el("b",{},"+"+kc(l.points*rateUsed))]:"≈ "+kc(l.points*rateUsed)+" při podpisu"):null,
@@ -2614,7 +2735,8 @@ function renderPP(){
     const blocks=P.vars.map(V=>{
       let rows=[];
       if(p==="ŽP")rows=V.flat?[["bez ohledu na dobu","÷ "+V.flat+(V.first===1?" · 100 % průběžně":"")]]:V.bands?V.bands.map((b,i)=>[(i?V.bands[i-1][0]+1:1)+(b[0]<99?"–"+b[0]:" a více")+" let","÷ "+b[1]]):years(V);
-      else if(p==="Investice")rows=[[V.fx,"poplatek "+V.min+"–"+V.max+" %"]];
+      else if(p==="Investice")rows=[[V.fx,V.nofee?"":"poplatek "+V.min+"–"+V.max+" %"]];
+      else if(p==="Neživotní pojištění")rows=[["÷ "+fmt0(V.d),V.n||""]];
       else if(p==="Hypotéka"||p==="Úvěr")rows=[["÷ "+fmt0(V.d),V.max?"strop "+shortKc(V.max):""]];
       else if(p==="Reality")rows=[["zůstává ZFP Reality",kc(V.keep)]];
       return {V,rows};
@@ -2623,6 +2745,7 @@ function renderPP(){
       el("h3",{class:"sechead"},p+" · "+P.info),
       el("div",{class:"group"},
         el("div",{class:"row"},el("span",{class:"avatar",style:"background:"+P.color},p.slice(0,2)),el("span",{class:"main pp"},el("div",{class:"t",style:"white-space:normal"},P.formula))),
+        p==="Neživotní pojištění"?Object.entries(NZP_G).map(([g,gt])=>{const L=NZP.filter(x=>x.g===g);return el("details",{class:"ppd"},el("summary",{},el("span",{},gt),el("span",{class:"cnt"},L.length+" pojištění")),el("div",{class:"tblwrap"},el("table",{class:"ppt"},L.map(x=>el("tr",{},el("td",{style:"white-space:normal"},x.t+(x.n?" ("+x.n+")":"")),el("td",{},"÷ "+fmt0(x.d)))))))}):
         p==="DPS"?el("div",{class:"tblwrap"},el("table",{class:"ppt"},[
           ["NN","3,70 b (0–17) · 2,46 b (18–49) · 0,30 b (50+) za 100 Kč, max 10,4 b"],
           ["Allianz","1,23 (0–15) · 0,86 (16–49) · 0,46 (50–57) · 0,15 (58–70) b za 100 Kč, max 10,4 b"],
@@ -2877,7 +3000,7 @@ async function quickNo(l){
   try{await db.doc("leads/"+l.id).update(patch);toast("Nezvedl · "+(patch.nextDate?"další pokus "+fmtDate(patch.nextDate):"zapsáno"))}catch(e){toast("Nepodařilo se uložit")}
 }
 /* ================= sheet ================= */
-function fillSelect(sel,opts){sel.replaceChildren(...opts.map(([v,t])=>el("option",{value:v},t)))}
+function fillSelect(sel,opts){if(!opts.some(o=>o[2])){sel.replaceChildren(...opts.map(([v,t])=>el("option",{value:v},t)));return}const out=[],grp=new Map();opts.forEach(([v,t,g])=>{const o=el("option",{value:v},t);if(!g){out.push(o);return}if(!grp.has(g)){const og=el("optgroup",{label:g});grp.set(g,og);out.push(og)}grp.get(g).append(o)});sel.replaceChildren(...out)}
 fillSelect($("f_source"),[["","Nevybráno"],...SOURCES.map(s=>[s,s])]);
 fillSelect($("f_stage"),STAGES.map(s=>[s.k,s.t]));
 $("quickDates").replaceChildren(...[["Zítra",1],["Za 3 dny",3],["Za týden",7],["Za 14 dní",14]].map(([t,n])=>el("button",{type:"button",onclick:()=>{const d=addWorkDays(n);$("f_date").value=d;if(d!==addDays(n))toast("Vychází na víkend, posunuto na pondělí "+fmtDate(d))}},t)));
@@ -2895,15 +3018,15 @@ function selRow(label,id,opts,val,on){const s=el("select",{id});fillSelect(s,opt
 function renderItems(){
   $("itemsList").replaceChildren(...formItems.map(it=>{
     const P=PROD[it.p], id="it"+it._k, V=varOf(it);
-    const rows=[selRow(P.varLabel,id+"_var",P.vars.map(x=>[x.v,x.t]),V.v,v=>{it.var=v;if(it.p==="Investice"){const nv=varOf(it);it.fee=Math.min(Math.max(+it.fee||0,nv.min),nv.max)}renderItems()})];
-    if(it.p==="Investice"){
+    const rows=[selRow(P.varLabel,id+"_var",(P.groups?[...P.vars].sort((a,b)=>Object.keys(P.groups).indexOf(a.g)-Object.keys(P.groups).indexOf(b.g)):P.vars).map(x=>[x.v,x.t,x.g&&P.groups?P.groups[x.g]:null]),V.v,v=>{it.var=v;if(it.p==="Investice"){const nv=varOf(it);it.fee=nv.nofee?0:Math.min(Math.max(+it.fee||0,nv.min),nv.max);if(nv.nomode)it.mode="jednorazove"}renderItems()})];
+    if(it.p==="Investice"&&!V.nomode){
       const mk=(m,t)=>el("button",{type:"button","aria-pressed":String((it.mode||"jednorazove")===m),onclick:()=>{it.mode=m;renderItems()}},t);
       rows.push(el("div",{class:"frow"},el("span",{class:"lab"},"Typ vkladu"),el("span",{style:"flex:1"}),el("span",{class:"mini-seg"},mk("jednorazove","Jednorázově"),mk("mesicne","Měsíčně"))));
     }
     const realSale=it.p==="Reality"&&V.v==="PRODEJ";
     const amt=el("input",{type:"number",min:"0",step:"1",inputmode:"numeric",id:id+"_amt",placeholder:P.unit});amt.value=realSale?(it.price??""):(it.amt??"");
     amt.addEventListener("input",()=>{if(realSale){it.price=amt.value;syncReal(it)}else it.amt=amt.value;updCalc()});
-    rows.push(el("div",{class:"frow"},el("label",{for:id+"_amt"},realSale?"Prodejní cena":it.p==="Reality"?"Provize RK vč. DPH":it.p==="Investice"&&it.mode==="mesicne"?"Měsíční vklad":P.amt),amt));
+    rows.push(el("div",{class:"frow"},el("label",{for:id+"_amt"},realSale?"Prodejní cena":it.p==="Reality"?"Provize RK vč. DPH":it.p==="Investice"&&it.mode==="mesicne"?"Měsíční vklad":it.p==="Investice"&&V.amtL?V.amtL:P.amt),amt));
     if(realSale){
       if(it.pct==null)it.pct=3;
       const pv=el("b",{},fmtPct(it.pct));
@@ -2914,7 +3037,7 @@ function renderItems(){
       dz.addEventListener("change",()=>{it.plusDph=dz.checked;syncReal(it);updCalc()});
       rows.push(el("div",{class:"frow"},el("label",{for:id+"_dph"},"Procento je bez DPH"),el("span",{style:"flex:1;text-align:right;color:var(--label2);font-size:14px"},"+21 %"),dz));
     }
-    if(it.p==="Investice"){
+    if(it.p==="Investice"&&!V.nofee){
       const fv=el("b",{id:id+"_feev"},fmtPct(it.fee));
       const r=el("input",{type:"range",min:String(V.min),max:String(V.max),step:"0.1",id:id+"_fee","aria-label":"Vstupní poplatek"});r.value=it.fee;sliderFill(r);
       r.addEventListener("input",()=>{it.fee=+r.value;fv.textContent=fmtPct(it.fee);sliderFill(r);updCalc()});
