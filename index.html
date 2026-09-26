@@ -565,6 +565,15 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .xcmp td.cur{background:var(--fill2)}
 .xcmp tr.tot td{font-weight:700}
 .xcmp td.best{color:var(--green)}
+.xu{color:var(--label2);font-size:14px;flex:none}
+#view_tax .frow>input[type=number],#view_tax .frow>input[type=month]{margin-left:auto}
+.xd+.xd,.xd+.row,.row+.xd,.xd+.xnote{border-top:.5px solid var(--sep)}
+.xdh{width:100%;text-align:left}
+.xdh .end.on{color:var(--label);font-weight:600}
+.xdh .chev{transition:transform .2s;color:var(--label3)}
+.xd.open .xdh .chev{transform:rotate(90deg)}
+.xdb{background:var(--fill2)}
+.xdb .xnote{border-top:.5px solid var(--sep)}
 .xdel{border:none;background:none;color:var(--red);font-size:20px;cursor:pointer;padding:0 4px}
 @media (max-width:600px){.bar .seg{overflow-x:auto;grid-auto-columns:max-content;max-width:100%}}
 /* ===== v16: šablony, zálohy ===== */
@@ -584,9 +593,9 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
     <div class="seg" role="tablist" aria-label="Sekce">
       <button role="tab" id="tab_pipe" aria-selected="true">Pipeline</button>
       <button role="tab" id="tab_money" aria-selected="false">Výdělek</button>
-      <button role="tab" id="tab_tax" aria-selected="false">Daně</button>
       <button role="tab" id="tab_cli" aria-selected="false">Klienti</button>
       <button role="tab" id="tab_net" aria-selected="false">Rozvoj sítě</button>
+      <button role="tab" id="tab_tax" aria-selected="false">Daně</button>
       <button role="tab" id="tab_pp" aria-selected="false">Sazebník</button>
     </div>
     <div class="spacer"></div>
@@ -2136,17 +2145,35 @@ function renderStats(){
     rL.length&&oL.length&&rc>oc*1.3?el("div",{class:"stnote"},"Doporučení se ti uzavírají "+(rc/Math.max(oc,.001)).toFixed(1).replace(".",",")+"× častěji než ostatní leady – po každém podpisu si řekni o 3 jména."):null);
   $("stGrid").replaceChildren(fun,hist,val,refP);
 }
-/* ================= Daně (v21) ================= */
+/* ================= Daně (v22) ================= */
 const TAXP={2026:{avg:48967,pop:30840,man:24840,inv12:2520,inv3:5040,ztpp:16140,kids:[15204,22320,27840],minInc:134400,
   flat:[9984,16745,27139],flatLim:{40:[1e6,1.5e6,2e6],60:[1.5e6,2e6,2e6],80:[2e6,2e6,2e6]},
   socRate:.292,socShare:.55,socMinMain:19587,socMinSide:5387,socDec:117521,socMax:2350416,zdrRate:.135,zdrShare:.5,zdrMinMain:24483.5,
-  krev:3000,dren:20000,darMax:.30,hypo:150000,hypoOld:300000,prod:48000,dpsFree:1700}};
+  krev:3000,dren:20000,darMax:.30,hypo:150000,hypoOld:300000,prod:48000,dpsFree:1700,autoFull:5000,autoPart:4000}};
 const PAUS_CAP={40:800000,60:1200000,80:1600000};
-let taxYear=new Date().getFullYear();
-function taxCfg(){return {regime:"p40",pct:40,act:"side",band:0,proj:true,exp:[],oth:0,othPct:60,pTax:0,pSoc:0,pZdr:0,flatM:null,
-  dar:0,krev:0,dren:0,hypo:0,hypoOld:false,dps:0,zp:0,dip:0,dlp:0,man:false,inv:"",ztpp:false,kids:0,kz:[],...((settings.tax||{})[taxYear]||{})}}
+/* nejčastější výdaje finančního poradce; m = zadává se měsíčně */
+const XPRE=[
+  ["tel","Telefon a internet","paušál, data, pevný internet – podíl na podnikání",1],
+  ["sw","Software a aplikace","CRM, Office, cloud, kalkulačky, podpis",1],
+  ["sit","Poplatky síti","licence, systémy, tablet, extranet",1],
+  ["tech","Notebook, tablet, mobil","do 80 000 Kč za kus jednorázově, dražší se odepisuje"],
+  ["skol","Školení a konference","kurzy, semináře, akademie, odborná literatura"],
+  ["cnb","ČNB a odborné zkoušky","registrace, zkoušky odbornosti"],
+  ["odp","Pojištění profesní odpovědnosti",""],
+  ["lead","Leady a reklama","placené kontakty, sociální sítě, web, vizitky"],
+  ["kanc","Kancelář / coworking","nájem, energie – jen prostor pro podnikání",1],
+  ["potr","Kancelářské potřeby a pošta","papír, tisk, tonery, poštovné"],
+  ["cest","Cesty bez auta","vlak, MHD, ubytování na pracovních cestách"],
+  ["park","Dlouhodobé parkování / garáž","nájem parkovacího místa"],
+  ["ucet","Účetní / daňový poradce",""],
+  ["bank","Podnikatelský účet","poplatky bance",1]];
+let taxYear=new Date().getFullYear(), taxOpen=new Set();
+function taxCfg(){return {regime:"p40",pct:40,act:"side",band:0,proj:true,exp:[],pre:{},autoM:0,autoP:"full",autoReal:0,oth:0,othPct:60,
+  mTax:0,mSoc:0,mZdr:0,advM:null,flatM:null,gifts:[],krev:0,dren:0,hy:{},dps:0,dpsM:12,zp:0,zpM:12,dip:0,dipM:12,dlp:0,dlpM:12,
+  man:false,inv:"",ztpp:false,kids:0,kz:[],...((settings.tax||{})[taxYear]||{})}}
 async function taxSave(p){await new Promise(r=>setTimeout(r,0));const all={...(settings.tax||{})};all[taxYear]={...taxCfg(),...p};settings.tax=all;try{await db.doc("settings/main").set({...settings,tax:all})}catch(e){toast("Nepodařilo se uložit")}
   const f=()=>[...$("view_tax").querySelectorAll("input,select")],ai=f().indexOf(document.activeElement);renderTax(true);if(ai>=0)f()[ai]?.focus()}
+function taxMonthsSoFar(){const y=new Date().getFullYear();return taxYear<y?12:taxYear>y?0:new Date().getMonth()+1}
 function taxIncome(){
   const P=(()=>{try{const s=passiveNow();return {tot:s.tot,udr:s.udr}}catch(e){return {tot:0,udr:0}}})(), curYm=ymOf(todayStr());
   const rows=[];for(let m=0;m<12;m++){const d=new Date(taxYear,m-1,1);const ym=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");rows.push(monthRow(ym,P))}
@@ -2154,29 +2181,51 @@ function taxIncome(){
   const sum=paid.reduce((s,r)=>s+(r.tot||0),0), last=paid.slice(-6), avg=last.length?last.reduce((s,r)=>s+(r.tot||0),0)/last.length:0;
   return {rows,paid:paid.length,sum,left,avg,proj:avg*left};
 }
+/* úroky z hypotéky za rok: anuita, první splátka měsíc po čerpání */
+function hypoCalc(h,year,T){
+  const P=+h.amt||0, rate=+h.rate||+h.rpsn||0, n=Math.round((+h.yrs||30)*12), from=h.from||"";
+  const old=from&&from<"2021-01", share=(h.share==null||h.share==="")?100:+h.share;
+  const out={old,share,rateUsed:rate,fromRpsn:!+h.rate&&!!+h.rpsn,int:null,months:0,pay:0};
+  if(P&&rate&&from&&n){const r=rate/100/12,[y0,m0]=from.split("-").map(Number),pay=P*r/(1-Math.pow(1+r,-n));let bal=P;
+    let tot=0,months=0;for(let k=1;k<=n&&bal>0.5;k++){const yy=new Date(y0,m0-1+k,1).getFullYear();const it=bal*r;bal-=pay-it;if(yy===year){tot+=it;months++}if(yy>year)break}
+    out.int=tot;out.months=months;out.pay=pay}
+  const own=hasV(h.ov)?+h.ov:out.int;out.base=own==null?0:own*share/100;
+  const capY=old?T.hypoOld:T.hypo, m=hasV(h.ov)?12:out.months;out.cap=m>=12?capY:capY/12*m;
+  out.ded=Math.min(out.base,out.cap);return out;
+}
+function prodCalc(c,T){
+  const dps=Math.max(0,(+c.dps||0)-T.dpsFree)*(+c.dpsM||0), zp=(+c.zp||0)*(+c.zpM||0), dip=(+c.dip||0)*(+c.dipM||0), dlp=(+c.dlp||0)*(+c.dlpM||0);
+  const raw=dps+zp+dip+dlp;return {dps,zp,dip,dlp,raw,ded:Math.min(raw,T.prod)};
+}
+function realExp(c,T){
+  const pre=c.pre||{}, m=k=>XPRE.find(x=>x[0]===k)?.[3];
+  const items=XPRE.map(([k,t])=>({k,t,v:(+pre[k]||0)*(m(k)?12:1)})).filter(x=>x.v);
+  const auto=(+c.autoM||0)*(c.autoP==="part"?T.autoPart:T.autoFull), autoReal=+c.autoReal||0;
+  const own=(c.exp||[]).reduce((s,x)=>s+(+x.amt||0),0);
+  return {items,auto,autoReal,own,total:items.reduce((s,x)=>s+x.v,0)+auto+autoReal+own};
+}
 function taxCalc(c,inc,regime){
-  const T=TAXP[taxYear]||TAXP[2026], oth=+c.oth||0, R={regime,inc,oth,lines:[]};
-  const thr=36*T.avg;
+  const T=TAXP[taxYear]||TAXP[2026], oth=+c.oth||0, R={regime,inc,oth};
+  const thr=36*T.avg, adv=c.advM==null||c.advM===""?taxMonthsSoFar():+c.advM;
   if(regime==="flat"){
     const tot=inc+oth, lim=T.flatLim[40], auto=tot<=lim[0]?1:tot<=lim[1]?2:tot<=lim[2]?3:0, band=+c.band||auto;
     R.band=band;R.auto=auto;R.ok=auto>0&&oth<=50000;
     const mo=band?T.flat[band-1]:0;R.tax=mo*12;R.soc=0;R.zdr=0;R.total=mo*12;R.mo=mo;
-    const mPaid=c.flatM==null||c.flatM===""?Math.min(12,new Date().getFullYear()>taxYear?12:new Date().getFullYear()<taxYear?0:new Date().getMonth()+1):+c.flatM;
-    R.paid=mo*mPaid;R.mPaid=mPaid;R.due=R.total-R.paid;return R}
+    const mPaid=c.flatM==null||c.flatM===""?taxMonthsSoFar():+c.flatM;
+    R.paid=mo*mPaid;R.mPaid=mPaid;R.due=R.total-R.paid;R.dueEnd=R.due;return R}
   let exp;
-  if(regime==="real"){exp=(c.exp||[]).reduce((s,x)=>s+(+x.amt||0),0)+0;R.exp=exp;R.othExp=0}
+  if(regime==="real"){R.rx=realExp(c,T);exp=R.rx.total}
   else{const pct=+c.pct||40;exp=Math.min(inc*pct/100,PAUS_CAP[pct]);R.pct=pct}
   const othExp=regime==="real"?0:Math.min(oth*(+c.othPct||60)/100,PAUS_CAP[+c.othPct||60]);
   const profit=Math.max(0,inc-exp)+Math.max(0,oth-othExp);R.exp=exp+othExp;R.profit=profit;
   // odpočty
-  let dar=(+c.dar||0)+(+c.krev||0)*T.krev+(+c.dren||0)*T.dren;
+  let dar=(c.gifts||[]).reduce((s,x)=>s+(+x.amt||0),0)+(+c.krev||0)*T.krev+(+c.dren||0)*T.dren;
   const darOk=dar>0&&(dar>=1000||dar>0.02*profit);R.darRaw=dar;dar=darOk?Math.min(dar,T.darMax*profit):0;
-  const hypo=Math.min(+c.hypo||0,c.hypoOld?T.hypoOld:T.hypo);
-  const prodRaw=Math.max(0,(+c.dps||0)-12*T.dpsFree)+(+c.zp||0)+(+c.dip||0)+(+c.dlp||0), prod=Math.min(prodRaw,T.prod);
-  const ded=Math.min(profit,dar+hypo+prod);R.ded={dar,hypo,prod,prodRaw,total:ded};
+  R.hy=hypoCalc(c.hy||{},taxYear,T);R.pr=prodCalc(c,T);
+  const ded=Math.min(profit,dar+R.hy.ded+R.pr.ded);R.ded={dar,hypo:R.hy.ded,prod:R.pr.ded,total:ded};
   const base=Math.floor((profit-ded)/100)*100;R.base=base;
   const tax0=base<=thr?base*.15:thr*.15+(base-thr)*.23;R.tax0=Math.round(tax0);R.hi=base>thr;
-  let cred=T.pop+(c.man?T.man:0)+(c.inv==="12"?T.inv12:c.inv==="3"?T.inv3:0)+(c.ztpp?T.ztpp:0);
+  const cred=T.pop+(c.man?T.man:0)+(c.inv==="12"?T.inv12:c.inv==="3"?T.inv3:0)+(c.ztpp?T.ztpp:0);
   const afterCred=Math.max(0,R.tax0-cred);R.cred=Math.min(cred,R.tax0);
   let kid=0;for(let i=0;i<(+c.kids||0);i++){const a=T.kids[Math.min(i,2)];kid+=(c.kz||[])[i]?a*2:a}
   R.kid=kid;const afterKid=afterCred-kid;R.bonusOk=(inc+oth)>=T.minInc;
@@ -2187,9 +2236,10 @@ function taxCalc(c,inc,regime){
   R.soc=Math.round(sv*T.socRate);R.socVZ=sv;
   let zv=profit*T.zdrShare;if(!side)zv=Math.max(zv,12*T.zdrMinMain);R.zdr=Math.round(zv*T.zdrRate);
   R.total=R.tax+R.soc+R.zdr;
-  R.paid=(+c.pTax||0)+(+c.pSoc||0)+(+c.pZdr||0);R.due=R.total-R.paid;
-  R.dueTax=R.tax-(+c.pTax||0);R.dueSoc=R.soc-(+c.pSoc||0);R.dueZdr=R.zdr-(+c.pZdr||0);
-  // zálohy na další rok
+  // zálohy: měsíčně × měsíce
+  R.adv=adv;const mT=+c.mTax||0,mS=+c.mSoc||0,mZ=+c.mZdr||0;
+  R.paid=(mT+mS+mZ)*adv;R.paidY={tax:mT*12,soc:mS*12,zdr:mZ*12};R.left=(mT+mS+mZ)*(12-adv);
+  R.dueTax=R.tax-mT*12;R.dueSoc=R.soc-mS*12;R.dueZdr=R.zdr-mZ*12;R.dueEnd=R.dueTax+R.dueSoc+R.dueZdr;R.due=R.dueEnd;
   R.nextTaxAdv=R.tax>150000?["čtvrtletně",R.tax*.25]:R.tax>30000?["pololetně",R.tax*.4]:null;
   R.nextSoc=R.soc/12;R.nextZdr=R.zdr/12;
   return R;
@@ -2203,83 +2253,132 @@ function renderTax(force){
   const R=taxCalc(c,inc,c.regime), RR={flat:taxCalc(c,inc,"flat"),p40:taxCalc(c,inc,"p40"),real:taxCalc(c,inc,"real")};
   $("sub").textContent="Rok "+taxYear+" · odhad daně a pojistného z tvých výplat";
   const tile=(k,v,h,col,a)=>el("div",{class:"tile"+(a?" alert":"")},el("div",{class:"k"},el("i",{style:"background:"+col}),k),el("div",{class:"v"},v),el("div",{class:"h"},h));
+  const flat=c.regime==="flat";
   RC("xTiles",
     tile("Hrubý příjem "+taxYear,kc(inc+(+c.oth||0)),c.incOv?"zadáno ručně":cur&&c.proj&&I.left?"vč. odhadu "+I.left+" "+plural(I.left,"měsíce","měsíců","měsíců"):I.paid+" výplat","var(--green)"),
-    tile("Daň + pojistné",kc(R.total),c.regime==="flat"?R.band+". pásmo paušální daně":"daň "+kc(R.tax)+" · SP "+kc(R.soc)+" · ZP "+kc(R.zdr),"var(--orange)"),
-    tile("Zaplaceno",kc(R.paid),c.regime==="flat"?R.mPaid+"× měsíční platba":"zálohy daň + SP + ZP","var(--tint)"),
-    tile(R.due>=0?"Doplatíš":"Přeplatek",kc(Math.abs(R.due)),c.regime==="flat"?"zbývající platby paušálu":"v přiznání a přehledech",R.due>0?"var(--red)":"var(--green)",R.due>0));
-  const inp=(k,ph,o={})=>{const i=el("input",{type:"number",inputmode:"decimal",min:"0",step:o.step||"1",placeholder:ph});i.value=c[k]??"";i.addEventListener("change",()=>taxSave({[k]:i.value===""?(o.nul?null:0):+i.value}));return i};
-  const sel=(k,opts)=>{const s=el("select",{},opts.map(([v,t])=>el("option",{value:v},t)));s.value=String(c[k]??"");s.addEventListener("change",()=>taxSave({[k]:s.value}));return s};
-  const chk=k=>{const i=el("input",{type:"checkbox",class:"switch"});i.checked=!!c[k];i.addEventListener("change",()=>taxSave({[k]:i.checked}));return i};
-  const fr=(lab,ctl,hint)=>el("div",{class:"frow"},el("label",{},lab,hint?el("div",{class:"xh"},hint):null),ctl);
+    tile("Daň + pojistné",kc(R.total),flat?R.band+". pásmo paušální daně":"daň "+kc(R.tax)+" · SP "+kc(R.soc)+" · ZP "+kc(R.zdr),"var(--orange)"),
+    tile("Zaplaceno zatím",kc(R.paid),flat?R.mPaid+"× měsíční platba":"zálohy za "+R.adv+" "+plural(R.adv,"měsíc","měsíce","měsíců")+(R.left?" · do prosince ještě "+kc(R.left):""),"var(--tint)"),
+    tile(R.due>=0?(flat?"Zbývá zaplatit":"Doplatíš v přiznání"):"Přeplatek",kc(Math.abs(R.due)),flat?"zbývající platby paušálu":"když zálohy platíš až do prosince",R.due>0?"var(--red)":"var(--green)",R.due>0));
+  const num=(v,ph,on,w)=>{const i=el("input",{type:"number",inputmode:"decimal",min:"0",step:"any",placeholder:ph,style:w?"flex:0 0 "+w:null});i.value=v??"";i.addEventListener("change",()=>on(i.value===""?null:+i.value));return i};
+  const inp=(k,ph,o={})=>num(c[k],ph,v=>taxSave({[k]:v==null?(o.nul?null:0):v}),o.w);
+  const sel=(k,opts,on)=>{const s=el("select",{},opts.map(([v,t])=>el("option",{value:v},t)));s.value=String(c[k]??"");s.addEventListener("change",()=>on?on(s.value):taxSave({[k]:s.value}));return s};
+  const chk=(v,on)=>{const i=el("input",{type:"checkbox",class:"switch"});i.checked=!!v;i.addEventListener("change",()=>on(i.checked));return i};
+  const fr=(lab,ctl,hint,...more)=>el("div",{class:"frow"},el("label",{},lab,hint?el("div",{class:"xh"},hint):null),ctl,...more);
   const line=(t,v,cls,sub)=>el("div",{class:"row xl"+(cls?" "+cls:"")},el("span",{class:"main"},el("div",{class:"t"},t),sub?el("div",{class:"s"},sub):null),el("span",{class:"end"},v));
+  const unit=t=>el("span",{class:"xu"},t);
+  /* rozklikávací položka */
+  const fold=(key,title,sub,val,body)=>{const open=taxOpen.has(key);
+    return el("div",{class:"xd"+(open?" open":"")},
+      el("button",{type:"button",class:"row row-btn xdh","aria-expanded":String(open),onclick:()=>{open?taxOpen.delete(key):taxOpen.add(key);renderTax(true)}},
+        el("span",{class:"main"},el("div",{class:"t"},title),sub?el("div",{class:"s"},sub):null),el("span",{class:"end"+(val?" on":"")},val?kc(val):"–"),chev()),
+      open?el("div",{class:"xdb"},body()):null)};
   const yrs=[...new Set([taxYear,new Date().getFullYear(),new Date().getFullYear()-1,...Object.keys(settings.tax||{}).map(Number)])].sort();
   RC("xYear",...yrs.map(y=>el("button",{type:"button","aria-selected":String(y===taxYear),onclick:()=>{taxYear=y;render()}},String(y))));
   $("xYearNote").textContent=TAXP[taxYear]?"":"Pro rok "+taxYear+" nemám ověřené parametry – počítám se sazbami 2026.";
   // příjem
-  const ovI=el("input",{type:"number",inputmode:"decimal",min:"0",placeholder:fmt0(pipeInc)});ovI.value=c.incOv??"";ovI.addEventListener("change",()=>taxSave({incOv:ovI.value===""?null:+ovI.value}));
+  const ovI=num(c.incOv,fmt0(pipeInc),v=>taxSave({incOv:v}));
   RC("xInc",
     line("Vyplaceno z pipeline",kc(I.sum),"",I.paid+" "+plural(I.paid,"výplata","výplaty","výplat")+" v roce "+taxYear+" (uzávěrky prosinec–listopad se vyplácí následující měsíc)"),
-    cur&&I.left?fr("Dopočítat zbytek roku",chk("proj"),"≈ "+kc(I.proj)+" (průměr posledních výplat × "+I.left+")"):null,
+    cur&&I.left?fr("Dopočítat zbytek roku",chk(c.proj,v=>taxSave({proj:v})),"≈ "+kc(I.proj)+" (průměr posledních výplat × "+I.left+")"):null,
     fr("Příjem ručně",ovI,"přepíše částku z pipeline – třeba podle ročního výpisu ZFP"),
     fr("Další příjmy z podnikání",inp("oth","0 Kč"),"např. realitní činnost"),
     (+c.oth>0&&c.regime!=="real")?fr("Paušál u dalších příjmů",sel("othPct",[["80","80 %"],["60","60 %"],["40","40 %"]])):null);
   // režim
   RC("xReg",...[["flat","Paušální daň"],["p40","Výdajový paušál"],["real","Skutečné výdaje"]].map(([k,t])=>el("button",{type:"button","aria-selected":String(c.regime===k),onclick:()=>taxSave({regime:k})},t)));
   const regRows=[];
-  if(c.regime==="flat"){
+  if(flat){
     regRows.push(fr("Pásmo",sel("band",[["0","Podle příjmu ("+(R.auto?R.auto+". pásmo":"nad limit")+")"],["1","1. pásmo – "+kc(T.flat[0])+"/měs"],["2","2. pásmo – "+kc(T.flat[1])+"/měs"],["3","3. pásmo – "+kc(T.flat[2])+"/měs"]])),
-      fr("Zaplacených měsíců",inp("flatM",String(R.mPaid),{nul:true}),"kolik měsíčních plateb už odešlo"));
+      fr("Zaplacených měsíců",inp("flatM",String(R.mPaid),{nul:true}),"automaticky podle aktuálního měsíce"));
     regRows.push(el("p",{class:"xnote"},"Jedna měsíční platba pokryje daň, sociální i zdravotní pojištění, přiznání se nepodává. Slevy (i na děti) a odpočty se v paušálním režimu neuplatní. Pro příjmy s 40% paušálem je 1. pásmo do 1 mil., 2. do 1,5 mil., 3. do 2 mil. Kč. Jiné příjmy smí být max. 50 000 Kč/rok. Vstup na další rok se hlásí do 10. ledna."+(c.act==="side"?" Pozor: i při vedlejší činnosti (student) platíš plnou částku pásma.":"")));
     if(!R.ok)regRows.push(el("p",{class:"xnote warn"},R.auto?"Další příjmy nad 50 000 Kč – paušální režim by ti nešel.":"Příjem nad 2 mil. Kč – paušální režim nejde."));
   }else if(c.regime==="p40"){
     regRows.push(fr("Výdajový paušál",sel("pct",[["40","40 %"],["60","60 %"],["80","80 %"]]),"40 % zprostředkování · 60 % živnost · 80 % řemeslo · strop "+kc(PAUS_CAP[+c.pct||40])),
       el("p",{class:"xnote"},"Finanční poradci registrovaní u ČNB (vázaný zástupce, pojišťovací zprostředkovatel) standardně uplatňují 40 % – nejde o živnost. Odečte se "+kc(Math.min(inc*(+c.pct||40)/100,PAUS_CAP[+c.pct||40]))+"."));
   }else{
-    const ex=c.exp||[];
-    regRows.push(...ex.map((x,i)=>{const n=el("input",{placeholder:"Výdaj (např. auto, telefon)",style:"text-align:left"});n.value=x.t||"";n.addEventListener("change",()=>{const a=[...ex];a[i]={...a[i],t:n.value.trim()};taxSave({exp:a})});
-      const a=el("input",{type:"number",inputmode:"decimal",min:"0",placeholder:"0 Kč",style:"flex:0 0 110px"});a.value=x.amt||"";a.addEventListener("change",()=>{const arr=[...ex];arr[i]={...arr[i],amt:+a.value||0};taxSave({exp:arr})});
-      return el("div",{class:"frow"},n,a,el("button",{type:"button",class:"xdel","aria-label":"Smazat výdaj",onclick:()=>taxSave({exp:ex.filter((_,j)=>j!==i)})},"×"))}),
-      el("div",{class:"row"},el("button",{type:"button",class:"chipbtn",onclick:()=>taxSave({exp:[...ex,{t:"",amt:0}]})},"+ Výdaj"),el("span",{class:"end",style:"margin-left:auto"},"celkem "+kc(ex.reduce((s,x)=>s+(+x.amt||0),0)))),
-      el("p",{class:"xnote"},"Jen prokazatelné výdaje na podnikání s doklady (auto – odpisy nebo paušál na dopravu, telefon, software, kancelář, školení…). Vyplatí se, jen když jsou vyšší než paušál: 40 % = "+kc(Math.min(inc*.4,PAUS_CAP[40]))+"."));
+    const rx=R.rx||realExp(c,T), pre=c.pre||{};
+    const setPre=(k,v)=>taxSave({pre:{...pre,[k]:v||0}});
+    regRows.push(
+      fold("x_auto","Auto – paušál na dopravu",(+c.autoM?c.autoM+" měs. × "+kc(c.autoP==="part"?T.autoPart:T.autoFull):"5 000 Kč měsíčně bez dokladů"),rx.auto,()=>[
+        fr("Počet měsíců",inp("autoM","0",{w:"80px"}),"kdy jsi auto používal k podnikání"),
+        fr("Použití",sel("autoP",[["full","Jen podnikání – "+kc(T.autoFull)],["part","I soukromě – "+kc(T.autoPart)]])),
+        el("p",{class:"xnote"},"Potřebuješ knihu jízd. K paušálu už nejde uplatnit benzín ani krátkodobé parkovné – dlouhodobý nájem parkovacího místa ano. Max. 3 auta.")]),
+      fold("x_autor","Auto – skutečné náklady","benzín, servis, pneu, pojištění, odpisy",rx.autoReal,()=>[
+        fr("Za rok",inp("autoReal","0 Kč"),"jen když nepoužíváš paušál na dopravu"),
+        (+c.autoM&&+c.autoReal)?el("p",{class:"xnote warn"},"Pozor: u stejného auta nejde paušál i skutečné náklady zároveň."):null]),
+      ...XPRE.map(([k,t,h,m])=>fold("x_"+k,t,h,(+pre[k]||0)*(m?12:1),()=>[
+        fr(m?"Měsíčně":"Za rok",num(pre[k],"0 Kč",v=>setPre(k,v)),m?"× 12 = "+kc((+pre[k]||0)*12):"")])),
+      fold("x_own","Vlastní položky",(c.exp||[]).length?(c.exp||[]).length+" "+plural((c.exp||[]).length,"položka","položky","položek"):"cokoli dalšího s dokladem",rx.own,()=>{const ex=c.exp||[];return [
+        ...ex.map((x,i)=>{const n=el("input",{placeholder:"Název výdaje",style:"text-align:left"});n.value=x.t||"";n.addEventListener("change",()=>{const a=[...ex];a[i]={...a[i],t:n.value.trim()};taxSave({exp:a})});
+          return el("div",{class:"frow"},n,num(x.amt||"","0 Kč",v=>{const a=[...ex];a[i]={...a[i],amt:v||0};taxSave({exp:a})},"110px"),el("button",{type:"button",class:"xdel","aria-label":"Smazat",onclick:()=>taxSave({exp:ex.filter((_,j)=>j!==i)})},"×"))}),
+        el("div",{class:"row"},el("button",{type:"button",class:"chipbtn",onclick:()=>{taxOpen.add("x_own");taxSave({exp:[...ex,{t:"",amt:0}]})}},"+ Položka"))]}),
+      line("Výdaje celkem",kc(rx.total),"xs"),
+      el("p",{class:"xnote"},"Jen výdaje na podnikání s dokladem; věci používané i soukromě jen poměrnou částí. Daňový výdaj nejsou: pohoštění a dárky klientům (reprezentace), oblečení, sociální a zdravotní pojistné. Skutečné výdaje se vyplatí, jen když jsou vyšší než 40% paušál = "+kc(Math.min(inc*.4,PAUS_CAP[40]))+"."));
   }
-  if(c.regime!=="flat")regRows.push(fr("Činnost",sel("act",[["side","Vedlejší"],["main","Hlavní"]]),c.act==="side"?"student, zaměstnanec… · sociální až nad zisk "+kc(T.socDec)+", zdravotní bez minima":"platíš minimální pojistné"));
+  if(!flat)regRows.push(fr("Činnost",sel("act",[["side","Vedlejší"],["main","Hlavní"]]),c.act==="side"?"student, zaměstnanec… · sociální až nad zisk "+kc(T.socDec)+", zdravotní bez minima":"platíš minimální pojistné"));
   RC("xRegRows",...regRows);
-  $("xFlatHide").hidden=c.regime==="flat";
-  if(c.regime!=="flat"){
-    RC("xPaid",fr("Zálohy na daň",inp("pTax","0 Kč")),fr("Zálohy na sociální",inp("pSoc","0 Kč")),fr("Zálohy na zdravotní",inp("pZdr","0 Kč")));
+  $("xFlatHide").hidden=flat;
+  if(!flat){
+    const advDef=taxMonthsSoFar();
+    RC("xPaid",
+      fr("Záloha na daň",inp("mTax","0 Kč",{w:"110px"}),"měsíčně",unit("/měs")),
+      fr("Záloha na sociální",inp("mSoc","0 Kč",{w:"110px"}),"měsíčně",unit("/měs")),
+      fr("Záloha na zdravotní",inp("mZdr","0 Kč",{w:"110px"}),"měsíčně",unit("/měs")),
+      fr("Zaplacených měsíců",inp("advM",String(advDef),{nul:true,w:"110px"}),"automaticky podle aktuálního měsíce ("+advDef+")"),
+      line("Zaplaceno zatím",kc(R.paid),"xs",((+c.mTax||0)+(+c.mSoc||0)+(+c.mZdr||0))?kc((+c.mTax||0)+(+c.mSoc||0)+(+c.mZdr||0))+" × "+R.adv+(R.left?" · do prosince ještě "+kc(R.left):""):""));
+    // odpočty
+    const gifts=c.gifts||[], hy=c.hy||{}, H=R.hy, setHy=p=>taxSave({hy:{...hy,...p}}), pr=R.pr;
+    const hyNum=(k,ph,w)=>num(hy[k],ph,v=>setHy({[k]:v}),w);
+    const hyFrom=el("input",{type:"month"});hyFrom.value=hy.from||"";hyFrom.addEventListener("change",()=>setHy({from:hyFrom.value}));
+    const giftDed=gifts.reduce((s,x)=>s+(+x.amt||0),0);
+    const prodRow=(k,t,h,val)=>fold("d_"+k,t,h,val,()=>[
+      fr("Měsíčně",inp(k,"0 Kč",{w:"110px"}),k==="dps"?"tvůj vlastní příspěvek":"",unit("/měs")),
+      fr("Počet měsíců",inp(k+"M","12",{w:"110px"}),"v roce "+taxYear),
+      k==="dps"?el("p",{class:"xnote"},"Odečíst jde jen část nad "+kc(T.dpsFree)+" měsíčně – do této částky dostáváš státní příspěvek."):null]);
     RC("xDed",
-      fr("Dary",inp("dar","0 Kč"),"neziskovkám, církvím, školám… (min. 1 000 Kč nebo 2 % základu, max. 30 %)"),
-      fr("Odběry krve",inp("krev","počet"),"každý bezplatný odběr = "+kc(T.krev)),
-      fr("Kostní dřeň / orgán",inp("dren","počet"),"= "+kc(T.dren)+" za odběr"),
-      fr("Úroky z hypotéky",inp("hypo","0 Kč"),"podle potvrzení banky, na vlastní bydlení (i ze stavebního spoření)"),
-      fr("Úvěr sjednán před 2021",chk("hypoOld"),"limit "+kc(T.hypoOld)+" místo "+kc(T.hypo)),
-      fr("Penzijko (DPS)",inp("dps","0 Kč za rok"),"vlastní příspěvky; odečíst lze část nad "+kc(12*T.dpsFree)+" ročně"),
-      fr("Životní pojištění",inp("zp","0 Kč za rok"),"pojistné z daňově uznatelné smlouvy (potvrzení pojišťovny)"),
-      fr("DIP",inp("dip","0 Kč za rok"),"dlouhodobý investiční produkt"),
-      fr("Pojištění dlouhodobé péče",inp("dlp","0 Kč za rok")),
-      el("p",{class:"xnote"},"DPS + ŽP + DIP + dlouhodobá péče mají dohromady limit "+kc(T.prod)+" ročně – teď využito "+kc(R.ded.prod)+(R.ded.prodRaw>T.prod?" (zbytek "+kc(R.ded.prodRaw-T.prod)+" už nesníží daň)":R.ded.prod<T.prod?" · zbývá "+kc(T.prod-R.ded.prod)+" = až "+kc((T.prod-R.ded.prod)*.15)+" na dani":"")+"."));
-    const kz=[];for(let i=0;i<(+c.kids||0);i++){const b=el("input",{type:"checkbox",class:"switch"});b.checked=!!(c.kz||[])[i];b.addEventListener("change",()=>{const a=[...(c.kz||[])];a[i]=b.checked;taxSave({kz:a})});kz.push(fr((i+1)+". dítě – ZTP/P",b,kc(T.kids[Math.min(i,2)]*(b.checked?2:1))+" ročně"))}
+      fold("d_dar","Dary","neziskovkám, církvím, školám, sbírkám",giftDed,()=>[
+        ...gifts.map((x,i)=>{const n=el("input",{placeholder:"Komu",style:"text-align:left"});n.value=x.t||"";n.addEventListener("change",()=>{const a=[...gifts];a[i]={...a[i],t:n.value.trim()};taxSave({gifts:a})});
+          return el("div",{class:"frow"},n,num(x.amt||"","0 Kč",v=>{const a=[...gifts];a[i]={...a[i],amt:v||0};taxSave({gifts:a})},"110px"),el("button",{type:"button",class:"xdel","aria-label":"Smazat",onclick:()=>taxSave({gifts:gifts.filter((_,j)=>j!==i)})},"×"))}),
+        el("div",{class:"row"},el("button",{type:"button",class:"chipbtn",onclick:()=>taxSave({gifts:[...gifts,{t:"",amt:0}]})},"+ Dar")),
+        el("p",{class:"xnote"},"Všechny dary dohromady musí být aspoň 1 000 Kč nebo 2 % základu, max. 30 % základu. Potřebuješ potvrzení o daru.")]),
+      fold("d_krev","Darování krve","bezplatné odběry krve nebo plazmy",(+c.krev||0)*T.krev,()=>[fr("Počet odběrů",inp("krev","0",{w:"110px"}),kc(T.krev)+" za odběr · potvrzení z transfuzní stanice")]),
+      fold("d_dren","Kostní dřeň, orgán","odběr od živého dárce",(+c.dren||0)*T.dren,()=>[fr("Počet odběrů",inp("dren","0",{w:"110px"}),kc(T.dren)+" za odběr")]),
+      fold("d_hypo","Úroky z hypotéky",H.int!=null||hasV(hy.ov)?"úroky "+kc(hasV(hy.ov)?+hy.ov:H.int)+(H.share<100?" · tvůj podíl "+H.share+" %":""):"spočítám z výše úvěru, úroku a data",H.ded,()=>[
+        fr("Výše úvěru",hyNum("amt","0 Kč","130px")),
+        fr("Úroková sazba",hyNum("rate","např. 4,59","130px"),"ze smlouvy, ne RPSN",unit("%")),
+        fr("RPSN",hyNum("rpsn","volitelné","130px"),H.fromRpsn?"úrok nezadán – počítám z RPSN (vyjde o něco víc)":"jen pro kontrolu – obsahuje i poplatky, ty se neodečítají",unit("%")),
+        fr("Čerpáno od",hyFrom,"první splátka měsíc po čerpání"),
+        fr("Splatnost",hyNum("yrs","30","130px"),"",unit("let")),
+        fr("Tvůj podíl",hyNum("share","100","130px"),"když splácíte ve dvou, každý uplatní svou část",unit("%")),
+        fr("Podle potvrzení banky",hyNum("ov","volitelné","130px"),"přepíše výpočet – na konci roku ti ho pošle banka"),
+        el("p",{class:"xnote"},(H.int!=null?"Splátka "+kc(H.pay)+" · úroky v roce "+taxYear+": "+kc(H.int)+" za "+H.months+" "+plural(H.months,"měsíc","měsíce","měsíců")+". ":"Vyplň výši úvěru, úrok a datum čerpání. ")+"Limit "+kc(H.old?T.hypoOld:T.hypo)+" ročně na domácnost"+(H.old?" (úvěr před 2021)":"")+(H.months&&H.months<12&&!hasV(hy.ov)?", poměrně za měsíce splácení = "+kc(H.cap):"")+". Jen na vlastní bydlení; výpočet je orientační – do přiznání dej číslo z potvrzení banky.")]),
+      prodRow("dps","Penzijko (DPS)","doplňkové penzijní spoření",pr.dps),
+      prodRow("zp","Životní pojištění","daňově uznatelná smlouva, potvrzení pojišťovny",pr.zp),
+      prodRow("dip","DIP","dlouhodobý investiční produkt",pr.dip),
+      prodRow("dlp","Pojištění dlouhodobé péče","",pr.dlp),
+      el("p",{class:"xnote"},"Penzijko + ŽP + DIP + dlouhodobá péče mají dohromady limit "+kc(T.prod)+" ročně – teď využito "+kc(pr.ded)+(pr.raw>T.prod?" (zbytek "+kc(pr.raw-T.prod)+" už daň nesníží)":pr.ded<T.prod?" · zbývá "+kc(T.prod-pr.ded)+" = až "+kc((T.prod-pr.ded)*.15)+" na dani":"")+"."));
+    const kz=[];for(let i=0;i<(+c.kids||0);i++){const on=!!(c.kz||[])[i];kz.push(fr((i+1)+". dítě – ZTP/P",chk(on,v=>{const a=[...(c.kz||[])];a[i]=v;taxSave({kz:a})}),kc(T.kids[Math.min(i,2)]*(on?2:1))+" ročně"))}
     RC("xCred",
       line("Sleva na poplatníka",kc(T.pop),"","má každý automaticky"),
-      fr("Manžel(ka)",chk("man"),"jen když pečuje o dítě do 3 let a má příjem do 68 000 Kč"),
+      fr("Manžel(ka)",chk(c.man,v=>taxSave({man:v})),"jen když pečuje o dítě do 3 let a má příjem do 68 000 Kč"),
       fr("Invalidita",sel("inv",[["","Ne"],["12","1. nebo 2. stupeň"],["3","3. stupeň"]])),
-      fr("Držitel ZTP/P",chk("ztpp")),
-      fr("Počet dětí",inp("kids","0"),"daňové zvýhodnění; když je vyšší než daň, stát doplatí bonus"),...kz,
+      fr("Držitel ZTP/P",chk(c.ztpp,v=>taxSave({ztpp:v}))),
+      fr("Počet dětí",inp("kids","0",{w:"110px"}),"daňové zvýhodnění; když je vyšší než daň, stát doplatí bonus"),...kz,
       el("p",{class:"xnote"},"Sleva na studenta a školkovné jsou od roku 2024 zrušené. Slevu na studenta parlament schválil znovu od roku 2027."));
   }
   // výpočet
   const B=[];
-  if(c.regime==="flat"){B.push(line("Měsíční platba",kc(R.mo)),line("Za rok",kc(R.total),"xs"),line("Zaplaceno",kc(R.paid),"","za "+R.mPaid+" "+plural(R.mPaid,"měsíc","měsíce","měsíců")),line(R.due>=0?"Zbývá zaplatit":"Přeplaceno",kc(Math.abs(R.due)),"xs"))}
+  if(flat){B.push(line("Měsíční platba",kc(R.mo)),line("Za rok",kc(R.total),"xs"),line("Zaplaceno",kc(R.paid),"","za "+R.mPaid+" "+plural(R.mPaid,"měsíc","měsíce","měsíců")),line(R.due>=0?"Zbývá zaplatit":"Přeplaceno",kc(Math.abs(R.due)),"xs"))}
   else{
     B.push(line("Příjmy",kc(inc+(+c.oth||0))),line("Výdaje",kcN(R.exp),"",c.regime==="real"?"skutečné":R.pct+" % paušál"),line("Zisk (dílčí základ)",kc(R.profit),"xs"));
-    if(R.ded.total)B.push(line("Odpočty",kcN(R.ded.total),"",[R.ded.dar?"dary "+fmt0(R.ded.dar):"",R.ded.hypo?"hypotéka "+fmt0(R.ded.hypo):"",R.ded.prod?"produkty "+fmt0(R.ded.prod):""].filter(Boolean).join(" · ")+(R.darRaw&&!R.ded.dar?" · dary pod minimem":"")));
-    B.push(line("Základ daně (zaokr.)",kc(R.base)),line("Daň "+(R.hi?"15 % + 23 %":"15 %"),kc(R.tax0)),line("Slevy",kcN(R.cred),"",R.cred<T.pop&&R.tax0<T.pop?"sleva nemůže jít pod nulu":""));
-    if(R.kid)B.push(line("Zvýhodnění na děti",kcN(R.kid),"",R.bonus?"daňový bonus "+kc(R.bonus)+" ti stát vyplatí":!R.bonusOk&&R.kid?"bonus jen při příjmech aspoň "+kc(T.minInc):""));
-    B.push(line(R.tax<0?"Daňový bonus":"Daň",kc(R.tax),"xs"),line("Zálohy na daň",kcN(+c.pTax||0)),line(R.dueTax>=0?"Doplatek daně":"Přeplatek daně",kc(Math.abs(R.dueTax)),R.dueTax>0?"xs xr":"xs xg"));
-    B.push(line("Sociální pojištění",kc(R.soc),"",R.soc?"29,2 % z "+kc(R.socVZ)+(c.act==="side"?"":" (min. "+kc(12*T.socMinMain)+")"):"zisk pod "+kc(T.socDec)+" – nic neplatíš"),line(R.dueSoc>=0?"Doplatek SP":"Přeplatek SP",kc(Math.abs(R.dueSoc)),R.dueSoc>0?"xs xr":"xs xg","po odečtení záloh "+kc(+c.pSoc||0)),
-      line("Zdravotní pojištění",kc(R.zdr),"","13,5 % z poloviny zisku"+(c.act==="side"?" · student do 26 let: za tebe zbytek platí stát":"")),line(R.dueZdr>=0?"Doplatek ZP":"Přeplatek ZP",kc(Math.abs(R.dueZdr)),R.dueZdr>0?"xs xr":"xs xg","po odečtení záloh "+kc(+c.pZdr||0)));
-    B.push(el("p",{class:"xnote"},"Příští rok: "+(R.nextTaxAdv?"zálohy na daň "+R.nextTaxAdv[0]+" "+kc(R.nextTaxAdv[1])+", ":"zálohy na daň žádné, ")+"sociální ≈ "+kc(R.nextSoc)+"/měs, zdravotní ≈ "+kc(R.nextZdr)+"/měs (od podání přehledů)."));
+    if(R.ded.total)B.push(line("Odpočty",kcN(R.ded.total),"",[R.ded.dar?"dary "+fmt0(R.ded.dar):"",R.ded.hypo?"hypotéka "+fmt0(R.ded.hypo):"",R.ded.prod?"produkty "+fmt0(R.ded.prod):""].filter(Boolean).join(" · ")));
+    else if(R.darRaw)B.push(line("Odpočty",kc(0),"","dary pod minimem 1 000 Kč / 2 %"));
+    B.push(line("Základ daně (zaokr.)",kc(R.base)),line("Daň "+(R.hi?"15 % + 23 %":"15 %"),kc(R.tax0)),line("Slevy",kcN(R.cred)));
+    if(R.kid)B.push(line("Zvýhodnění na děti",kcN(R.kid),"",R.bonus?"daňový bonus "+kc(R.bonus)+" ti stát vyplatí":!R.bonusOk?"bonus jen při příjmech aspoň "+kc(T.minInc):""));
+    const dl=(t,d,y,sub)=>line(d>=0?"Doplatek "+t:"Přeplatek "+t,kc(Math.abs(d)),d>0?"xs xr":"xs xg",sub);
+    B.push(line(R.tax<0?"Daňový bonus":"Daň",kc(R.tax),"xs"),dl("daně",R.dueTax,0,"zálohy za rok "+kc(R.paidY.tax)));
+    B.push(line("Sociální pojištění",kc(R.soc),"",R.soc?"29,2 % z "+kc(R.socVZ)+(c.act==="side"?"":" (min. "+kc(12*T.socMinMain)+")"):"zisk pod "+kc(T.socDec)+" – nic neplatíš"),dl("SP",R.dueSoc,0,"zálohy za rok "+kc(R.paidY.soc)),
+      line("Zdravotní pojištění",kc(R.zdr),"","13,5 % z poloviny zisku"+(c.act==="side"?" · student do 26 let: zbytek za tebe platí stát":"")),dl("ZP",R.dueZdr,0,"zálohy za rok "+kc(R.paidY.zdr)));
+    B.push(el("p",{class:"xnote"},"Doplatky počítají se zálohami za celý rok (12×). Příští rok: "+(R.nextTaxAdv?"zálohy na daň "+R.nextTaxAdv[0]+" "+kc(R.nextTaxAdv[1])+", ":"zálohy na daň žádné, ")+"sociální ≈ "+kc(R.nextSoc)+"/měs, zdravotní ≈ "+kc(R.nextZdr)+"/měs (od podání přehledů)."));
   }
   RC("xCalc",...B);
   // srovnání
