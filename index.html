@@ -574,6 +574,29 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .xd.open .xdh .chev{transform:rotate(90deg)}
 .xdb{background:var(--fill2)}
 .xdb .xnote{border-top:.5px solid var(--sep)}
+#accGate{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;background:rgba(242,242,247,.72);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) #accGate{background:rgba(0,0,0,.6)}}
+:root[data-theme="dark"] #accGate{background:rgba(0,0,0,.6)}
+html.locked body{overflow:hidden}
+.gbox{background:var(--bg2);border-radius:22px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:28px 24px;max-width:420px;width:100%;display:grid;gap:10px;text-align:center}
+.glogo{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--tint)}
+.gbox .gt{font-size:24px;font-weight:700}.gbox p{margin:0;color:var(--label2);line-height:1.45}
+.gbtns{display:grid;gap:8px;margin-top:8px}.gbtns button{height:46px;border-radius:12px;background:var(--fill);color:var(--label);font:600 16px var(--font)}
+.gbtns button.gp{background:var(--tint);color:#fff}
+.gbox .gsmall{font-size:12px;color:var(--label3);margin-top:6px}
+#usersBtn.hot{background:var(--orange);color:#fff}
+.ulist{display:grid;gap:10px}.utiles{margin-bottom:6px!important;grid-template-columns:repeat(4,1fr)!important;gap:8px!important}
+.utiles .tile{padding:10px 12px;box-shadow:none;background:var(--fill2)}.utiles .tile .v{font-size:20px}
+@media (max-width:520px){.utiles{grid-template-columns:1fr 1fr!important}}
+.ulist .sechead{margin:10px 4px 0}
+.ucard{background:var(--fill2);border-radius:14px;padding:12px;display:grid;gap:6px;border-left:4px solid var(--green)}
+.ucard.pend,.ucard.st-ceka{border-left-color:var(--tint)}.ucard.st-zkusebni{border-left-color:var(--orange)}.ucard.st-blokovan{border-left-color:var(--red);opacity:.8}
+.uhead{display:flex;justify-content:space-between;align-items:center;gap:10px}.uhead .t{font-weight:600}.uhead .s{font-size:13px;color:var(--label2);word-break:break-all}
+.uhead select{font:inherit;font-size:14px;border:none;background:var(--bg2);border-radius:8px;padding:6px 8px;color:var(--label)}
+.ustats{font-size:12.5px;color:var(--label2)}.ustats.warn{color:var(--red);font-weight:600}
+.urow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.urow label{font-size:13px;color:var(--label2);display:flex;gap:6px;align-items:center}
+.urow input{font:inherit;font-size:14px;border:none;background:var(--bg2);border-radius:8px;padding:6px 8px;color:var(--label);flex:1;min-width:120px}
+.ucard .chips{display:flex;gap:8px;flex-wrap:wrap}.chipbtn.ok{background:var(--green);color:#fff}.chipbtn.no{color:var(--red)}
 .xdel{border:none;background:none;color:var(--red);font-size:20px;cursor:pointer;padding:0 4px}
 @media (max-width:600px){.bar .seg{overflow-x:auto;grid-auto-columns:max-content;max-width:100%}}
 /* ===== v16: šablony, zálohy ===== */
@@ -600,6 +623,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
     </div>
     <div class="spacer"></div>
     <label class="search" id="searchBox"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Hledat" aria-label="Hledat"></label>
+    <button class="syncbtn" id="usersBtn" type="button" hidden title="Správa uživatelů">Uživatelé</button>
     <button class="syncbtn" id="todayBtn" type="button" title="Co tě dneska čeká">Dnes</button>
     <button class="syncbtn" id="syncBtn" type="button" data-s="idle">…</button>
     <button class="plus" id="addBtn" aria-label="Nový lead" title="Nový lead"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>
@@ -869,6 +893,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
+      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se nikam neodesílají.</p>
     </div>
   </div>
 </dialog>
@@ -948,6 +973,7 @@ const GAuth={
     const owner=lsGet("g_owner");
     if(owner&&owner!==email){wipeLocal();toast("Přihlášen jiný účet – načítám jeho data")}
     lsSet("g_owner",email);lsSet("g_hint",email);localStorage.removeItem("g_check");
+    Trk.login(email,r.name||"");
   },
   handleRedirect(){
     const h=location.hash;if(!/access_token=|error=/.test(h))return;
@@ -965,6 +991,26 @@ const GAuth={
   }
 };
 GAuth.handleRedirect();
+
+/* --- evidence uživatelů: přihlášení + čas v aplikaci (Google Apps Script → tabulka) --- */
+const Trk={
+  url:"https://script.google.com/macros/s/AKfycbxMNEhjYov0rurgwYs-iREJxczELKdDfi9shMMRK8qbpjzBhf2AHGQKu2ShlrewZQEZXA/exec", ver:"2026-09-26", acc:0, lastIn:Date.now(),
+  dev(){let d=lsGet("dev_id");if(!d){d=newId();lsSet("dev_id",d)}return d},
+  label(){const u=navigator.userAgent;const t=/iPhone/.test(u)?"iPhone":/iPad/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1)?"iPad":/Android/.test(u)?"Android":/Mac/.test(u)?"Mac":/Windows/.test(u)?"Windows":"Jiné";
+    return t+(matchMedia("(display-mode: standalone)").matches||navigator.standalone?" · aplikace":" · prohlížeč")},
+  on(){return /^https:/.test(Trk.url)},
+  send(o,beacon){if(!Trk.on())return;const body=JSON.stringify(o);
+    try{if(beacon&&navigator.sendBeacon&&navigator.sendBeacon(Trk.url,new Blob([body],{type:"text/plain"})))return;
+      fetch(Trk.url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body,keepalive:true}).catch(()=>{})}catch(e){}},
+  login(email,name){if(typeof Acc!=="undefined")Acc.reg(email,name).catch(()=>{});else Trk.send({t:"login",email,name,dev:Trk.dev(),label:Trk.label(),ver:Trk.ver,tok:GAuth.token()})},
+  flush(beacon){const email=lsGet("g_owner");if(!email||Trk.acc<5)return;const secs=Math.round(Trk.acc);Trk.acc=0;
+    Trk.send({t:"hb",email,dev:Trk.dev(),label:Trk.label(),secs},beacon)},
+  tick(){if(document.visibilityState==="visible"&&Date.now()-Trk.lastIn<5*60000)Trk.acc+=15;if(Trk.acc>=300)Trk.flush()}
+};
+["pointerdown","keydown","touchstart","wheel","scroll"].forEach(ev=>addEventListener(ev,()=>{Trk.lastIn=Date.now()},{passive:true,capture:true}));
+setInterval(Trk.tick,15000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")Trk.flush(true);else Trk.lastIn=Date.now()});
+addEventListener("pagehide",()=>Trk.flush(true));
 
 async function gfetch(url,opt={}){
   const t=GAuth.token();if(!t)throw Object.assign(new Error("nepřihlášeno"),{code:401});
@@ -3024,6 +3070,84 @@ setView(["pipe","money","tax","cli","net","pp"].includes(sv)?sv:"pipe");
   setInterval(()=>{if(document.visibilityState==="visible")GSync.run()},120000);
   if(!LStore.count()&&!GAuth.token())$("sub").textContent="Zatím prázdné – přihlas se Googlem, nebo naimportuj zálohu.";
 })();
+</script>
+<script>
+/* ===== v23: přístup jen pro schválené + správa uživatelů (tabulka „Pipeline – uživatelé“) ===== */
+const ADMIN="kudlicka.vojtech2002@gmail.com", ACC_OK=["aktivní","zkušební"], ACC_SHEET="https://docs.google.com/spreadsheets/d/1cjh0oymhNiPFNpRGuzCIZ1KnvcqiRTKTonyyPstbQyM/edit";
+const Acc={
+  me:()=>lsGet("g_owner"), get:()=>lsGet("acc")||{},
+  async post(o){const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);try{const r=await fetch(Trk.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(o),signal:c.signal});return await r.json()}finally{clearTimeout(t)}},
+  ok(){const a=Acc.get();return !Trk.on()||(!!Acc.me()&&a.email===Acc.me()&&ACC_OK.includes(a.st))},
+  set(st,email){if(!st||["bad","unverified","denied"].includes(st))return Acc.apply();lsSet("acc",{st,email,at:Date.now()});Acc.apply()},
+  reg(email,name){const tok=GAuth.token();if(!tok)return Promise.resolve(null);return Acc.post({t:"login",email,name:name||"",dev:Trk.dev(),label:Trk.label(),ver:Trk.ver,tok}).then(j=>{Acc.set(j.status,email);return j.status})},
+  async check(){const email=Acc.me();if(!email||!Trk.on())return Acc.apply();
+    try{let st=(await Acc.post({t:"st",email})).status;if(st==="unknown"){const r=await Acc.reg(email);if(r)return;}Acc.set(st,email)}catch(e){Acc.apply()}},
+  timer:null,
+  apply(){
+    const ok=Acc.ok();let g=$("accGate");
+    $("usersBtn").hidden=Acc.me()!==ADMIN;
+    if(ok){if(g)g.remove();document.documentElement.classList.remove("locked");clearInterval(Acc.timer);Acc.timer=null;return}
+    document.documentElement.classList.add("locked");
+    if(!g){g=el("div",{id:"accGate",role:"dialog","aria-modal":"true"});document.body.append(g)}
+    if(!Acc.timer)Acc.timer=setInterval(()=>{document.querySelectorAll("dialog[open]").forEach(d=>d.close());if(Acc.get().st==="čeká"&&document.visibilityState==="visible"&&Date.now()-(Acc.get().at||0)>60000)Acc.check()},700);
+    document.querySelectorAll("dialog[open]").forEach(d=>d.close());
+    const email=Acc.me(), a=Acc.get(), st=!email?"login":a.email!==email?"checking":a.st;
+    const T={login:["Přihlas se","Pipeline je jen pro schválené uživatele. Přihlas se svým Google účtem – jakmile ti přístup povolím, aplikace se odemkne."],
+      "čeká":["Čekáš na schválení","Účet "+email+" je zaregistrovaný. Jakmile ti přístup povolím, aplikace se sama odemkne."],
+      "blokován":["Přístup pozastaven","Přístup pro "+email+" je pozastavený. Pokud jde o omyl, ozvi se. Svá data si můžeš stáhnout."],
+      unknown:["Přihlas se znovu","Potřebuju ověřit tvůj Google účet."],checking:["Ověřuju přístup…","Chvilku strpení."]};
+    const [h,p]=T[st]||T.checking;
+    g.replaceChildren(el("div",{class:"gbox"},el("div",{class:"glogo"},"Pipeline"),el("div",{class:"gt"},h),el("p",{},p),
+      el("div",{class:"gbtns"},
+        st==="login"||st==="unknown"?el("button",{type:"button",class:"gp",onclick:()=>GAuth.login(false)},"Přihlásit přes Google"):null,
+        st==="čeká"||st==="checking"?el("button",{type:"button",class:"gp",onclick:e=>{e.target.textContent="Ověřuju…";Acc.check()}},"Zkontrolovat znovu"):null,
+        st==="blokován"?el("button",{type:"button",onclick:()=>exportBackup()},"Stáhnout moje data"):null,
+        email?el("button",{type:"button",onclick:()=>GAuth.logout()},"Odhlásit"):null),
+      el("p",{class:"gsmall"},"Při přihlášení se pro správu přístupů zaznamená e-mail, typ zařízení a čas v aplikaci. Data klientů se nikam neodesílají.")));
+  }
+};
+/* ---- správa uživatelů (jen admin) ---- */
+const U_ST=[["čeká","Čeká"],["aktivní","Aktivní"],["zkušební","Zkušební"],["blokován","Blokován"]];
+function usersBadge(list){const n=(list||[]).filter(u=>u.status==="čeká").length;$("usersBtn").textContent=n?"Uživatelé · "+n:"Uživatelé";$("usersBtn").classList.toggle("hot",n>0)}
+async function adminCall(p){const tok=GAuth.token();if(!tok)throw Object.assign(new Error("login"),{code:"login"});const j=await Acc.post({t:"admin",email:ADMIN,tok,...p});if(j.status!=="ok")throw new Error(j.status);lsSet("adm_list",j.list);usersBadge(j.list);return j.list}
+function openUsers(){
+  const body=el("div",{class:"ulist"});
+  const fmtT=s=>{if(!s)return"–";const d=new Date(s);return d.toLocaleDateString("cs-CZ",{day:"numeric",month:"numeric"})+" "+d.toLocaleTimeString("cs-CZ",{hour:"2-digit",minute:"2-digit"})};
+  const mins=m=>m>=60?Math.floor(m/60)+" h "+Math.round(m%60)+" min":Math.round(m)+" min";
+  const act=async(p,msg)=>{try{draw(await adminCall(p));if(msg)toast(msg)}catch(e){toast(e.code==="login"?"Přihlášení vypršelo – obnov ho":"Nepovedlo se uložit")}};
+  const draw=list=>{
+    const pend=list.filter(u=>u.status==="čeká"), others=list.filter(u=>u.status!=="čeká").sort((a,b)=>(b.last||"").localeCompare(a.last||""));
+    const tile=(k,v)=>el("div",{class:"tile"},el("div",{class:"k"},k),el("div",{class:"v"},String(v)));
+    const card=u=>{const me=u.email===ADMIN;
+      const s=el("select",{disabled:me?"":null},U_ST.map(([v,t])=>el("option",{value:v},t)));s.value=u.status;s.onchange=()=>act({op:"set",email:u.email,status:s.value},"Stav: "+s.selectedOptions[0].textContent);
+      const pd=el("input",{type:"date"});pd.value=u.paid||"";pd.onchange=()=>act({op:"set",email:u.email,paid:pd.value},"Uloženo");
+      const nt=el("input",{placeholder:"poznámka"});nt.value=u.note||"";nt.onchange=()=>act({op:"set",email:u.email,note:nt.value.trim()},"Uloženo");
+      const due=u.paid&&u.paid<todayStr();
+      return el("div",{class:"ucard st-"+({"čeká":"ceka","aktivní":"aktivni","zkušební":"zkusebni","blokován":"blokovan"}[u.status]||"x")},
+        el("div",{class:"uhead"},el("div",{},el("div",{class:"t"},(u.name||u.email.split("@")[0])+(me?" (ty)":"")),el("div",{class:"s"},u.email)),s),
+        el("div",{class:"ustats"},"dnes "+mins(u.today)+" · týden "+mins(u.week)+" · měsíc "+mins(u.month)+" · celkem "+mins(u.total)),
+        el("div",{class:"ustats"},"naposledy "+fmtT(u.last)+" · od "+fmtT(u.first)+" · "+u.devices+" "+plural(u.devices,"zařízení","zařízení","zařízení")+" · "+u.logins+"× přihlášení"+(u.devices>2?" · ⚠ sdílí účet?":"")),
+        me?null:el("div",{class:"urow"},el("label",{},"Zaplaceno do",pd),nt),due&&!me?el("div",{class:"ustats warn"},"Předplatné vypršelo "+fmtDate(u.paid)):null)};
+    const wk=list.reduce((a,u)=>a+u.week,0);
+    body.replaceChildren(
+      el("div",{class:"tiles utiles"},tile("Uživatelů",list.length),tile("Čeká",pend.length),tile("Aktivních",list.filter(u=>ACC_OK.includes(u.status)).length),tile("Tento týden",mins(wk))),
+      pend.length?el("h3",{class:"sechead"},"Čeká na schválení"):null,
+      ...pend.map(u=>el("div",{class:"ucard pend"},el("div",{class:"uhead"},el("div",{},el("div",{class:"t"},u.name||u.email.split("@")[0]),el("div",{class:"s"},u.email+" · přihlášen "+fmtT(u.first)))),
+        el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>act({op:"set",email:u.email,status:"aktivní"},"Schváleno")},"Schválit"),
+          el("button",{type:"button",class:"chipbtn",onclick:()=>act({op:"set",email:u.email,status:"zkušební"},"Zkušební přístup")},"Na zkoušku"),
+          el("button",{type:"button",class:"chipbtn no",onclick:()=>act({op:"set",email:u.email,status:"blokován"},"Zamítnuto")},"Zamítnout")))),
+      el("h3",{class:"sechead"},"Všichni uživatelé"),...others.map(card),
+      el("p",{class:"hint"},"Nový uživatel se zapíše sám při prvním přihlášení Googlem a do schválení vidí jen zámek. Změna stavu se u něj projeví nejpozději do minuty. ",el("a",{href:ACC_SHEET,target:"_blank",rel:"noopener"},"Otevřít tabulku")));
+  };
+  const cached=lsGet("adm_list");if(cached)draw(cached);else body.replaceChildren(el("p",{class:"hint"},"Načítám…"));
+  openSheet("Uživatelé",[body]);
+  adminCall({op:"list"}).then(draw).catch(e=>{if(e.code==="login")body.prepend(el("div",{class:"ucard pend"},el("p",{},"Pro načtení a úpravy je potřeba obnovit přihlášení (platí hodinu)."),el("button",{type:"button",class:"chipbtn",onclick:()=>GAuth.login(true)},"Obnovit přihlášení")));else toast("Nepodařilo se načíst uživatele")});
+}
+$("usersBtn").onclick=openUsers;
+Acc.apply();
+if(Acc.me())Acc.check();
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Acc.me()&&Date.now()-(Acc.get().at||0)>10*60000)Acc.check()});
+if(Acc.me()===ADMIN){usersBadge(lsGet("adm_list"));if(GAuth.token())adminCall({op:"list"}).catch(()=>{})}
 </script>
 <script src="wallpaper.js?v=4" defer></script>
 </body>
