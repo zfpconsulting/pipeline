@@ -597,6 +597,14 @@ html.locked body{overflow:hidden}
 .urow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.urow label{font-size:13px;color:var(--label2);display:flex;gap:6px;align-items:center}
 .urow input{font:inherit;font-size:14px;border:none;background:var(--bg2);border-radius:8px;padding:6px 8px;color:var(--label);flex:1;min-width:120px}
 .ucard .chips{display:flex;gap:8px;flex-wrap:wrap}.chipbtn.ok{background:var(--green);color:#fff}.chipbtn.no{color:var(--red)}
+.mrate{flex:1;text-align:right;color:var(--label);font-size:15px}
+.mlink{font-size:13px;color:var(--label2);padding:8px 0;line-height:1.35}.mlink.on{color:var(--green);font-weight:500}
+.chipbtn.mpipe{justify-self:start;margin:4px 0 10px;background:var(--tint);color:#fff}
+.mbars{display:flex;gap:8px;align-items:flex-end;justify-content:space-between;background:var(--fill2);border-radius:14px;padding:12px 14px 8px;margin-bottom:6px}
+.mbar{flex:1;display:grid;justify-items:center;gap:3px}.mbar i{display:block;width:70%;max-width:34px;border-radius:6px 6px 2px 2px;background:var(--green)}
+.mbar span{font-size:11px;color:var(--label2)}.mbv{font-size:11px;color:var(--label2);min-height:13px}
+.pdeal .s.late{color:var(--red)}.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.mstat{margin-bottom:6px}
 .xdel{border:none;background:none;color:var(--red);font-size:20px;cursor:pointer;padding:0 4px}
 @media (max-width:600px){.bar .seg{overflow-x:auto;grid-auto-columns:max-content;max-width:100%}}
 /* ===== v16: šablony, zálohy ===== */
@@ -773,7 +781,8 @@ html.locked body{overflow:hidden}
     <p class="secfoot" id="rFoot"></p>
     <div class="sechead-row" style="margin-top:18px"><h3 class="sechead">Tvůj tým – kdo roste a kdo stojí</h3><button type="button" class="chipbtn" id="addMember2">+ Člen týmu</button></div>
     <div class="group" id="nTeam"></div>
-    <p class="secfoot">Body po měsících a „Body celkem“ zapisuješ v kartě člena (klikni na něj). Tým a meziprovize najdeš i ve Výdělku.</p>
+    <p class="secfoot">Body po měsících a „Body celkem“ zapisuješ v kartě člena (klikni na něj). Když u člena vyplníš Gmail a on používá Pipeline, doplňují se samy. Tým a meziprovize najdeš i ve Výdělku.</p>
+    <div id="shareBox"></div>
   </section>
   <section id="view_pp" hidden>
     <div id="ppList"></div>
@@ -1734,7 +1743,9 @@ function openRegSheet(){
 /* ---------- tým – organigram ---------- */
 let team=[];
 const POSCOL={P1:"#8E8E93",P2:"#5AC8FA",P3:"#34C759",P4:"#30B0C7",P5:"#007AFF",P6:"#5856D6",P7:"#AF52DE",P8:"#FF9500"};
-function teamRate(m){return m.rate!=null&&m.rate!==""?+m.rate:statRate(m.pos||"P1")}
+function memberObratRate(m,qk){const o=m.obrat||"none";if(o==="none")return 0;if(o==="auto"){const lv=obratLevelFor(memberQPts(m,qShift(qk||CURQ(),-1)));return lv?lv.r:0}const lv=PROFI.find(p=>p.k===o);return lv?lv.r:0}
+function teamRate(m,qk){if(m.rate!=null&&m.rate!=="")return +m.rate;qk=qk||CURQ();if(m.srate&&m.srateQ===qk)return +m.srate;return Math.max(statRate(m.pos||"P1"),memberObratRate(m,qk))}
+function teamRateSrc(m){if(m.rate!=null&&m.rate!=="")return "vlastní tarif";const qk=CURQ();if(m.srate&&m.srateQ===qk)return "z jeho Pipeline";const o=memberObratRate(m,qk);return o>statRate(m.pos||"P1")?(PROFI.find(p=>p.r===o)||{t:"obratová"}).t:(m.pos||"P1")+" statická"}
 function parentOf(m){return m.parent&&team.some(x=>x.id===m.parent&&x.id!==m.id)?m.parent:null}
 function pathTo(m){const chain=[];let c=m,g=0;while(c&&g++<60){chain.unshift(c);const p=parentOf(c);c=p?team.find(x=>x.id===p):null}return chain}
 function descendants(m){return team.filter(x=>x.id!==m.id&&pathTo(x).some(y=>y.id===m.id))}
@@ -1742,7 +1753,7 @@ function memberQPts(m,qk){const ms=Object.entries(m.m||{}).filter(([ym])=>qOf(ym
 function memberMPts(m,ym){if(m.m&&m.m[ym]!=null&&m.m[ym]!=="")return +m.m[ym]||0;const qk=qOf(ym+"-01");if(Object.keys(m.m||{}).some(k=>qOf(k+"-01")===qk))return 0;const lq=+m.q?.[qk]||0;if(!lq)return 0;const cm=ymOf(todayStr()),fm=(+qk.slice(-1)-1)*3+1;const months=[0,1,2].map(i=>qk.slice(0,4)+"-"+String(fm+i).padStart(2,"0")).filter(x=>x<=cm);return months.includes(ym)?lq/months.length:0}
 /* meziprovize za kvartál: u měsíců se zapsanou meziprovizí ze sjetiny ta, jinak z bodů členů */
 function teamQuarter(qk){return quarterMonths(qk).reduce((s,ym)=>{const o=settings.monthlyTeam?.[ym];return s+(hasV(o)?+o:teamOverride({ym},monthRate(ym)).total)},0)}
-function teamOverride({qk,ym},myRate){let total=0;const per={};team.forEach(m=>{const pts=ym?memberMPts(m,ym):memberQPts(m,qk);const maxR=Math.max(...pathTo(m).map(teamRate));const o=pts*Math.max(0,myRate-maxR);per[m.id]={pts,o,maxR};total+=o});return {total,per}}
+function teamOverride({qk,ym},myRate){let total=0;const per={};const q=qk||qOf(ym+"-01");team.forEach(m=>{const pts=ym?memberMPts(m,ym):memberQPts(m,qk);const maxR=Math.max(...pathTo(m).map(x=>teamRate(x,q)));const o=pts*Math.max(0,myRate-maxR);per[m.id]={pts,o,maxR};total+=o});return {total,per}}
 function renderTeam(cur){
   const qk=CURQ(), rate=cur.rate, ov=teamOverride({qk},rate);ov.calc=ov.total;ov.total=teamQuarter(qk);
   const node=(o)=>el("div",{class:"onode"+(o.me?" me":""),style:"--oc:"+o.col},
@@ -1779,31 +1790,54 @@ async function addMember(parent){
 }
 $("addMember").onclick=()=>addMember(null);
 function openMember(m0){
-  const m=team.find(x=>x.id===m0.id)||m0;
-  const upd=async patch=>{try{await db.doc("team/"+m.id).update(patch);Object.assign(m,patch);toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}};
+  const m=team.find(x=>x.id===m0.id)||m0, S=(typeof teamSnap!=="undefined"?teamSnap(m):null), synced=!!(S&&S.snap);
+  const upd=async patch=>{try{await db.doc("team/"+m.id).update(patch);Object.assign(m,patch);toast("Uloženo");refreshRate()}catch(e){toast("Nepodařilo se uložit")}};
   const nm=el("input",{"aria-label":"Jméno",placeholder:"Jméno a příjmení"});nm.value=m.name||"";nm.addEventListener("change",()=>{upd({name:nm.value.trim()});$("edTitle").textContent=nm.value.trim()||"Člen týmu"});
   const bad=new Set([m.id,...descendants(m).map(x=>x.id)]);
   const par=el("select",{"aria-label":"Pod kým"},el("option",{value:""},"Přímo pode mnou"),...team.filter(x=>!bad.has(x.id)).map(x=>el("option",{value:x.id},x.name||"Bez jména")));par.value=parentOf(m)||"";
   par.addEventListener("change",()=>upd({parent:par.value||null}));
-  const pos=el("select",{"aria-label":"Pozice"},STAT_POS.map(([k,r])=>el("option",{value:k},k+" · "+r+" Kč")));pos.value=m.pos||(STAT_POS.find(p=>p[1]===+m.rate)||["P1"])[0];
-  const rt=el("input",{type:"number",step:"0.5",inputmode:"decimal",class:"aumin",placeholder:String(statRate(pos.value))});rt.value=m.rate!=null&&m.rate!==""&&+m.rate!==statRate(pos.value)?m.rate:"";
-  pos.addEventListener("change",()=>{rt.placeholder=String(statRate(pos.value));upd({pos:pos.value,rate:rt.value===""?null:+rt.value})});
-  rt.addEventListener("change",()=>upd({pos:pos.value,rate:rt.value===""?null:+rt.value}));
+  const pos=el("select",{"aria-label":"Statická pozice"},STAT_POS.map(([k,r,f])=>el("option",{value:k},k+" · "+r+" Kč"+(f?" (od "+fmt0(f)+" b)":""))));pos.value=m.pos||(STAT_POS.find(p=>p[1]===+m.rate)||["P1"])[0];
+  pos.addEventListener("change",()=>upd({pos:pos.value}));
+  const ob=el("select",{"aria-label":"Obratová kariéra"},el("option",{value:"none"},"Nemá"),el("option",{value:"auto"},"Automaticky (z bodů za minulý kvartál)"),...PROFI.map(p=>el("option",{value:p.k},p.t+" · "+cz(p.r)+" Kč")));ob.value=m.obrat||"none";
+  ob.addEventListener("change",()=>upd({obrat:ob.value}));
+  const rt=el("input",{type:"number",step:"0.5",inputmode:"decimal",class:"aumin",placeholder:"auto"});rt.value=m.rate!=null&&m.rate!==""?m.rate:"";
+  rt.addEventListener("change",()=>upd({rate:rt.value===""?null:+rt.value}));
+  const rateLine=el("span",{class:"mrate"});
+  function refreshRate(){rateLine.textContent=cz(teamRate(m))+" Kč/b · "+teamRateSrc(m);pos.value=m.pos||"P1"}
+  refreshRate();
   const ph=el("input",{inputmode:"tel",placeholder:"telefon"});ph.value=m.phone||"";ph.addEventListener("change",()=>upd({phone:ph.value.trim()}));
-  const note=el("input",{placeholder:"např. os. č., kariérní body"});note.value=m.note||"";note.addEventListener("change",()=>upd({note:note.value.trim()}));
-  const cp=el("input",{type:"number",step:"1",inputmode:"numeric",class:"aumin",placeholder:"z výpisu"});cp.value=m.cpts??"";cp.addEventListener("change",()=>upd({cpts:cp.value===""?null:+cp.value}));
+  const gm=el("input",{type:"email",inputmode:"email",autocomplete:"off",placeholder:"jmeno@gmail.com"});gm.value=m.gmail||"";
+  gm.addEventListener("change",async()=>{const v=gm.value.trim().toLowerCase();if(v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){toast("Neplatný e-mail");return}await upd({gmail:v||null});if(typeof syncTeam==="function")syncTeam(true).then(()=>{if($("edDlg").open)openMember(m)})});
+  const note=el("input",{placeholder:"např. os. č."});note.value=m.note||"";note.addEventListener("change",()=>upd({note:note.value.trim()}));
+  const cp=el("input",{type:"number",step:"1",inputmode:"numeric",class:"aumin",placeholder:"z výpisu"});cp.value=m.cpts??"";if(synced)cp.disabled=true;
+  cp.addEventListener("change",()=>{if(cp.value===""){upd({cpts:null});return}const v=+cp.value, P=statFor(v);upd({cpts:v,pos:P[0]});toast("Pozice "+P[0]+" · "+P[1]+" Kč/b")});
+  const nxt=m.cpts!=null&&m.cpts!==""?STAT_POS.find(p=>p[2]>+m.cpts):null;
   const months=monthsBack(6).reverse();
-  const mrows=months.map(ym=>{const i=el("input",{type:"number",step:"0.01",inputmode:"decimal",class:"aumin",placeholder:"0"});const v=m.m?.[ym];i.value=v??"";
+  const mrows=months.map(ym=>{const i=el("input",{type:"number",step:"0.01",inputmode:"decimal",class:"aumin",placeholder:"0"});const v=m.m?.[ym];i.value=v??"";if(synced)i.disabled=true;
     const legacy=!(m.m&&Object.keys(m.m).some(k=>qOf(k+"-01")===qOf(ym+"-01")))&&+m.q?.[qOf(ym+"-01")];
     i.addEventListener("change",()=>{const mm={...(m.m||{})};if(i.value==="")delete mm[ym];else mm[ym]=+i.value;upd({m:mm})});
     return el("div",{class:"frow"},el("label",{},ymLabel(ym,1)),legacy?el("span",{style:"font-size:12px;color:var(--label2);flex:1;text-align:right"},"dosud za kvartál "+fmt1(+m.q[qOf(ym+"-01")])+" b"):null,i,el("span",{style:"color:var(--label2)"},"b"))});
   const delB=el("button",{type:"button",class:"danger-row"},"Odebrat z týmu");
   delB.onclick=async()=>{if(delB.dataset.sure!=="1"){delB.dataset.sure="1";delB.textContent="Opravdu odebrat? Jeho lidé se přesunou o úroveň výš";return}
-    try{for(const k of team.filter(x=>parentOf(x)===m.id))await db.doc("team/"+k.id).update({parent:parentOf(m)});await db.doc("team/"+m.id).delete();$("edDlg").close();toast("Odebráno")}catch(e){toast("Nepodařilo se uložit")}};
+    try{for(const k of team.filter(x=>parentOf(x)===m.id))await db.doc("team/"+k.id).update({parent:parentOf(m)});await db.doc("team/"+m.id).delete();$("edDlg").close();toast("Odebráno");if(typeof syncTeam==="function")syncTeam(true)}catch(e){toast("Nepodařilo se uložit")}};
   const p=teamOverride({qk:CURQ()},quarterRow(CURQ()).rate).per[m.id]||{pts:0,o:0};
+  const stTxt=!m.gmail?null:!S?"Propojuji…":S.status==="sdílí"?(S.snap?"✓ Propojeno – body, pozice a pipeline se propisují samy · aktualizováno "+ago(S.at):"✓ Souhlasil – čekám na první data z jeho aplikace"):S.status==="odmítnuto"?"Sdílení odmítl – můžeš ho požádat znovu (smaž a znovu zadej Gmail)":S.uses?"Čeká na jeho souhlas – žádost uvidí v aplikaci":"Zatím nepoužívá Pipeline – až se přihlásí tímto Gmailem, uvidí žádost";
   openSheet(m.name||"Člen týmu",[
     el("div",{class:"mhero"},el("span",{class:"oav big",style:"background:"+(POSCOL[m.pos]||POSCOL.P1)},initials(m.name)),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(p.o)),el("div",{class:"mh-s"},"tvoje meziprovize za "+qLabel(CURQ())+" · "+fmt1(p.pts)+" b"))),
-    el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Pod kým"),par),el("div",{class:"frow"},el("label",{},"Pozice"),pos),el("div",{class:"frow"},el("label",{},"Vlastní tarif"),rt,el("span",{style:"color:var(--label2)"},"Kč/b")),el("div",{class:"frow"},el("label",{},"Telefon"),ph),el("div",{class:"frow"},el("label",{},"Body celkem"),cp,el("span",{style:"color:var(--label2)"},"b")),el("div",{class:"frow"},el("label",{},"Poznámka"),note)),
+    synced?el("button",{type:"button",class:"chipbtn mpipe",onclick:()=>openMemberPipe(m,S)},"Otevřít jeho pipeline ›"):null,
+    el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Pod kým"),par),
+      el("div",{class:"frow"},el("label",{},"Gmail"),gm),
+      stTxt?el("div",{class:"frow"},el("span",{class:"mlink"+(S&&S.status==="sdílí"?" on":"")},stTxt)):null,
+      el("div",{class:"frow"},el("label",{},"Telefon"),ph)),
+    el("h3",{class:"sechead"},"Kariéra"),
+    el("div",{class:"group"},
+      el("div",{class:"frow"},el("label",{},"Body celkem"),cp,el("span",{style:"color:var(--label2)"},"b")),
+      el("div",{class:"frow"},el("label",{},"Statická pozice"),pos),
+      el("div",{class:"frow"},el("label",{},"Obratová kariéra"),ob),
+      el("div",{class:"frow"},el("label",{},"Vlastní tarif"),rt,el("span",{style:"color:var(--label2)"},"Kč/b")),
+      el("div",{class:"frow"},el("label",{},"Tarif teď"),rateLine),
+      el("div",{class:"frow"},el("label",{},"Poznámka"),note)),
+    el("p",{class:"hint"},(synced?"Body celkem a body po měsících se doplňují z jeho Pipeline. ":"Po zadání bodů celkem se pozice nastaví sama. ")+(nxt?"Do "+nxt[0]+" mu chybí "+fmt0(nxt[2]-m.cpts)+" b. ":"")+"Vlastní tarif vyplň, jen když se liší od pozice – přebije statickou i obratovou."),
     el("h3",{class:"sechead"},"Body po měsících"),
     el("div",{class:"group"},mrows),
     el("p",{class:"hint"},"Body z nepřímé produkce na výpisu. Meziprovize = body × (tvůj tarif − nejvyšší tarif v linii k němu)."),
@@ -2441,6 +2475,7 @@ const RS=k=>RST.find(x=>x.k===k)||RST[0];
 async function recUpd(r,patch){try{await db.doc("recruits/"+r.id).update({...patch,updatedAt:new Date().toISOString()})}catch(e){toast("Nepodařilo se uložit")}}
 async function recMove(r,k){const now=new Date().toISOString();const log=[...(r.log||[]),{d:now,t:"→ "+RS(k).t}].slice(-50);await recUpd(r,{stage:k,stageAt:now,log,[k+"At"]:now});toast(RS(k).t)}
 function renderNet(){
+  if(typeof renderShareBox==="function")renderShareBox();
   const t=todayStr(), act=recruits.filter(r=>r.stage!=="pryc"), cq=CURQ(), inQ=(r,k)=>r[k+"At"]&&qOf(r[k+"At"])===cq;
   $("sub").textContent=act.length+" "+plural(act.length,"kandidát","kandidáti","kandidátů")+" v náboru · "+team.length+" "+plural(team.length,"člen","členové","členů")+" týmu";
   const tile=(k,v,h,c,a)=>el("div",{class:"tile"+(a?" alert":"")},el("div",{class:"k"},el("i",{style:"background:"+c}),k),el("div",{class:"v"},String(v)),el("div",{class:"h"},h));
@@ -3148,6 +3183,106 @@ Acc.apply();
 if(Acc.me())Acc.check();
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Acc.me()&&Date.now()-(Acc.get().at||0)>10*60000)Acc.check()});
 if(Acc.me()===ADMIN){usersBadge(lsGet("adm_list"));if(GAuth.token())adminCall({op:"list"}).catch(()=>{})}
+/* ===== v25: propojení týmu – člen sdílí výsledky s nadřízeným (se souhlasem) ===== */
+function ago(iso){if(!iso)return"–";const s=(Date.now()-new Date(iso))/1000;if(s<90)return"právě teď";if(s<3600)return"před "+Math.round(s/60)+" min";if(s<86400)return"před "+Math.round(s/3600)+" h";return fmtDate(iso.slice(0,10))}
+let TS=lsGet("team_share")||{list:[],at:0};
+function teamSnap(m){if(!m.gmail)return null;return (TS.list||[]).find(x=>x.member===String(m.gmail).toLowerCase())||null}
+async function syncTeam(force){
+  const me=Acc.me(), tok=GAuth.token();if(!me||!tok||!Trk.on())return;
+  if(!force&&Date.now()-(TS.at||0)<10*60000)return;
+  const members=team.map(m=>m.gmail).filter(Boolean);
+  if(!members.length&&!(TS.list||[]).length)return;
+  let j;try{j=await Acc.post({t:"team",email:me,tok,members})}catch(e){return}
+  if(j.status!=="ok")return;
+  TS={list:j.list,at:Date.now()};lsSet("team_share",TS);
+  const cq=CURQ();
+  for(const x of j.list){if(x.status!=="sdílí"||!x.snap)continue;
+    const m=team.find(t=>String(t.gmail||"").toLowerCase()===x.member);if(!m)continue;
+    const s=x.snap, patch={}, mm={...(m.m||{})};let chg=false;
+    Object.entries(s.m||{}).forEach(([ym,v])=>{if(+mm[ym]!==+v){mm[ym]=+v;chg=true}});
+    if(chg)patch.m=mm;
+    if(s.cum!=null&&+m.cpts!==+s.cum){patch.cpts=+s.cum}
+    if(s.stat&&m.pos!==s.stat)patch.pos=s.stat;
+    if(s.q&&s.q.k===cq&&(+m.srate!==+s.q.rate||m.srateQ!==cq)){patch.srate=+s.q.rate;patch.srateQ=cq}
+    if(!m.name&&s.name)patch.name=s.name;
+    if(Object.keys(patch).length){try{await db.doc("team/"+m.id).update(patch);Object.assign(m,patch)}catch(e){}}
+  }
+  if(view==="money"||view==="net")render();
+}
+function openMemberPipe(m,S){
+  const s=S.snap, pend=[], cq=CURQ();
+  const tile=(k,v,h)=>el("div",{class:"tile"},el("div",{class:"k"},k),el("div",{class:"v"},v),h?el("div",{class:"h"},h):null);
+  const act=(s.deals||[]).filter(d=>ACTIVE(d.s)), sig=(s.deals||[]).filter(d=>SIGNED(d.s)), t=todayStr();
+  const late=act.filter(d=>!d.d||d.d<t).length;
+  const months=monthsBack(6), mx=Math.max(1,...months.map(ym=>+(s.m||{})[ym]||0));
+  const bars=el("div",{class:"mbars"},...months.map(ym=>{const v=+(s.m||{})[ym]||0;return el("div",{class:"mbar"},el("div",{class:"mbv"},v?fmt0(v):""),el("i",{style:"height:"+Math.max(3,v/mx*70)+"px"}),el("span",{},ymLabel(ym)))}));
+  const row=d=>{const lt=ACTIVE(d.s)&&(!d.d||d.d<t);return el("div",{class:"row pdeal"},el("span",{class:"main"},el("div",{class:"t"},d.n+(d.p?" · "+fmt1(d.p)+" b":"")),el("div",{class:"s"+(lt?" late":"")},SIGNED(d.s)?"podepsáno "+(d.g?fmtDate(d.g):""):(d.d?(d.d<t?"po termínu "+fmtDate(d.d):fmtDate(d.d)):"bez dalšího kroku")+(d.x?" · "+d.x:""))),el("span",{class:"end"},d.src||""))};
+  const groups=STAGES.filter(st=>ACTIVE(st.k)||SIGNED(st.k)).map(st=>{const L=(s.deals||[]).filter(d=>d.s===st.k);if(!L.length)return null;
+    return [el("h3",{class:"sechead"},el("i",{class:"sdot",style:"background:"+st.c}),st.t+" · "+L.length+(L.some(d=>d.p)?" · "+fmt1(L.reduce((a,d)=>a+(+d.p||0),0))+" b":"")),el("div",{class:"group"},L.map(row))]}).filter(Boolean);
+  openSheet((m.name||s.name||"Člen")+" – pipeline",[
+    el("div",{class:"tiles utiles"},tile("Body "+qLabel(s.q?.k||cq),fmt1(s.q?.pts||0),s.q?cz(s.q.rate)+" Kč/b":""),tile("Rozjednané",String(act.length),fmt1(act.reduce((a,d)=>a+(+d.p||0),0))+" b"),tile("Po termínu",String(late),late?"bez kroku / prošlé":"vše naplánováno"),tile("Tento týden",fmt1(s.wk?.pts||0)+" b",(s.wk?.n||0)+" podpisů · "+(s.wk?.meet||0)+" schůzek")),
+    el("div",{class:"group mstat"},el("div",{class:"frow"},el("label",{},"Kariéra"),el("span",{class:"mrate"},(s.stat||"P1")+(s.cum!=null?" · "+fmt0(s.cum)+" b celkem":"")+(s.q?.src?" · tarif: "+s.q.src:""))),
+      el("div",{class:"frow"},el("label",{},"Leady"),el("span",{class:"mrate"},(s.f?.l||0)+" nových za 90 dní · "+(s.f?.mt||0)+" dotaženo ke schůzce · "+(s.f?.sg||0)+" podepsáno"))),
+    el("h3",{class:"sechead"},"Body po měsících"),bars,
+    ...groups.flat(),
+    groups.length?null:el("p",{class:"hint"},"Zatím žádné rozjednané obchody."),
+    el("p",{class:"hint"},"Aktualizováno "+ago(S.at)+" (jeho aplikace posílá data při používání). Jména klientů jsou zkrácená na iniciály, kontakty se nesdílí.")]);
+}
+/* ---- strana člena: souhlas se sdílením + odesílání přehledu ---- */
+let SH=lsGet("share_mgr")||[];
+function ini(n){return String(n||"?").replace(/\b(Ing|Mgr|Bc|MUDr|JUDr|PhDr|RNDr|doc|prof|MBA|Ph\.D|DiS)\.?/g,"").trim().split(/\s+/).filter(Boolean).map(w=>w[0].toUpperCase()+".").join(" ")||"?"}
+function buildSnap(){
+  const cq=CURQ(), cur=quarterRow(cq), c=career(), t=todayStr(), wa=weekStart(t,0), W=weekStats(wa,t), since=addDays(-90);
+  const m={};monthsBack(12).forEach(ym=>{const v=monthPoints(ym).total;if(v)m[ym]=Math.round(v*10)/10});
+  const L=leads.filter(l=>!l.example);
+  const deals=L.filter(l=>ACTIVE(l.stage)||(SIGNED(l.stage)&&(l.signedAt||"")>=since)).sort((a,b)=>(a.nextDate||"9").localeCompare(b.nextDate||"9")).slice(0,160)
+    .map(l=>({n:ini(l.name),s:l.stage,p:Math.round((+l.points||0)*10)/10,d:l.nextDate||"",x:(l.nextStep||"").slice(0,40),g:(l.signedAt||"").slice(0,10),src:l.source||""}));
+  const nw=L.filter(l=>(l.createdAt||"")>=since);
+  return {v:1,at:new Date().toISOString(),name:(settings.sign||"").split(",")[0]||"",stat:c.stat,cum:cumPts(),
+    q:{k:cq,pts:Math.round(cur.total*10)/10,rate:cur.rate,src:cur.src},m,deals,
+    wk:{pts:Math.round(W.pts*10)/10,n:W.signed.length,meet:W.meets.length},
+    f:{l:nw.length,mt:nw.filter(l=>SIGNED(l.stage)||(l.meetings||[]).length||["schuzka","probehla","nabidka"].includes(l.stage)).length,sg:nw.filter(l=>SIGNED(l.stage)).length}};
+}
+async function pushSnap(force){
+  const me=Acc.me(), tok=GAuth.token();if(!me||!tok||!SH.some(x=>x.status==="sdílí"))return;
+  if(!force&&Date.now()-(lsGet("snap_at")||0)<15*60000)return;
+  try{const j=await Acc.post({t:"snap",email:me,tok,snap:buildSnap()});if(j.status==="ok")lsSet("snap_at",Date.now())}catch(e){}
+}
+async function checkInvites(){
+  const me=Acc.me();if(!me||!Trk.on()||!Acc.ok())return;
+  let j;try{j=await Acc.post({t:"inv",email:me})}catch(e){return}
+  if(j.status!=="ok")return;SH=j.list;lsSet("share_mgr",SH);if(view==="net")renderShareBox();
+  const ask=SH.find(x=>x.status==="žádost"&&lsGet("inv_skip_"+x.manager)!==todayStr());
+  if(ask&&!document.querySelector("dialog[open]"))askShare(ask);
+  pushSnap();
+}
+async function setShare(mgr,allow){
+  const tok=GAuth.token();if(!tok){toast("Nejdřív obnov přihlášení");GAuth.login(true);return false}
+  try{const j=await Acc.post({t:"share",email:Acc.me(),tok,manager:mgr,allow});if(j.status!=="ok")throw 0;
+    SH=SH.map(x=>x.manager===mgr?{...x,status:allow?"sdílí":"odmítnuto"}:x);lsSet("share_mgr",SH);if(allow)pushSnap(true);if(view==="net")renderShareBox();toast(allow?"Sdílení zapnuto":"Sdílení vypnuto");return true}
+  catch(e){toast("Nepodařilo se uložit");return false}
+}
+function askShare(x){
+  const who=x.name?x.name+" ("+x.manager+")":x.manager;
+  openSheet("Žádost o sdílení",[el("div",{class:"ucard pend"},
+    el("div",{class:"t",style:"font-weight:600;font-size:17px"},who+" tě má ve svém týmu"),
+    el("p",{style:"margin:0;color:var(--label2);line-height:1.45"},"Chce vidět tvoje výsledky, aby ti mohl počítat týmové body a pomáhat s obchody: body po měsících, kariérní pozici, tarif a přehled pipeline (fáze, body, další kroky)."),
+    el("p",{style:"margin:0;color:var(--label2);line-height:1.45"},"Jména klientů uvidí jen jako iniciály, telefony, e-maily ani poznámky se neposílají. Sdílení můžeš kdykoli vypnout v Rozvoji sítě."),
+    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:async()=>{if(await setShare(x.manager,true))$("edDlg").close()}},"Povolit"),
+      el("button",{type:"button",class:"chipbtn no",onclick:async()=>{if(await setShare(x.manager,false))$("edDlg").close()}},"Nepovolit"),
+      el("button",{type:"button",class:"chipbtn",onclick:()=>{lsSet("inv_skip_"+x.manager,todayStr());$("edDlg").close()}},"Později")))]);
+}
+function renderShareBox(){
+  const box=$("shareBox");if(!box)return;
+  if(!SH.length){box.replaceChildren();return}
+  box.replaceChildren(el("h3",{class:"sechead",style:"margin-top:18px"},"Sdílení mých výsledků"),
+    el("div",{class:"group"},...SH.map(x=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},x.name||x.manager),el("div",{class:"s"},x.status==="sdílí"?"vidí tvoje body a pipeline (bez kontaktů)":x.status==="odmítnuto"?"sdílení vypnuté":"žádá o sdílení")),
+      x.status==="sdílí"?el("button",{type:"button",class:"chipbtn no",onclick:()=>setShare(x.manager,false)},"Vypnout"):el("button",{type:"button",class:"chipbtn ok",onclick:()=>setShare(x.manager,true)},"Povolit")))),
+    el("p",{class:"secfoot"},"Nadřízený vidí jména klientů jen jako iniciály. Telefony, e-maily a poznámky se nikdy neposílají."));
+}
+setTimeout(()=>{checkInvites();syncTeam()},4000);
+setInterval(()=>{if(document.visibilityState==="visible"){pushSnap();syncTeam()}},5*60000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){checkInvites();syncTeam()}else pushSnap()});
 </script>
 <script src="wallpaper.js?v=4" defer></script>
 </body>
