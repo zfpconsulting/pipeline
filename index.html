@@ -3131,7 +3131,7 @@ function openUsers(){
     const wk=list.reduce((a,u)=>a+u.week,0);
     body.replaceChildren(
       el("div",{class:"tiles utiles"},tile("Uživatelů",list.length),tile("Čeká",pend.length),tile("Aktivních",list.filter(u=>ACC_OK.includes(u.status)).length),tile("Tento týden",mins(wk))),
-      pend.length?el("h3",{class:"sechead"},"Čeká na schválení"):null,
+      ...(pend.length?[el("h3",{class:"sechead"},"Čeká na schválení")]:[]),
       ...pend.map(u=>el("div",{class:"ucard pend"},el("div",{class:"uhead"},el("div",{},el("div",{class:"t"},u.name||u.email.split("@")[0]),el("div",{class:"s"},u.email+" · přihlášen "+fmtT(u.first)))),
         el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>act({op:"set",email:u.email,status:"aktivní"},"Schváleno")},"Schválit"),
           el("button",{type:"button",class:"chipbtn",onclick:()=>act({op:"set",email:u.email,status:"zkušební"},"Zkušební přístup")},"Na zkoušku"),
