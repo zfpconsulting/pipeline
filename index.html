@@ -1098,6 +1098,12 @@ html.locked body{overflow:hidden}
     <div class="sbar"><span></span><h2>Data a synchronizace</h2><button type="button" class="r" id="dataClose">Hotovo</button></div>
     <div class="dbody">
       <p id="dataInfo"></p>
+      <div class="dcfg" id="demoCfg" hidden>
+        <label>Prezentační režim</label>
+        <button type="button" class="dbtn" id="dDemo">Zapnout prezentační režim</button>
+        <button type="button" class="dbtn" id="dDemoNew" hidden>Vygenerovat jiného poradce</button>
+        <p class="hint" id="demoHint">Přepne appku na fiktivního poradce (kariéra, výdělek, tým, daně, cíle) s prázdnou pipeline – na předvádění. Tvoje data zůstanou beze změny a po vypnutí se vrátí. Vidíš jen ty.</p>
+      </div>
       <button type="button" class="dbtn" id="dSync">Synchronizovat teď</button>
       <button type="button" class="dbtn" id="dExport">Stáhnout zálohu (.json – pro obnovu)</button>
       <button type="button" class="dbtn" id="dCsvC">Excel – klienti a smlouvy (.csv)</button>
@@ -1148,8 +1154,12 @@ const GCFG={
   fileName:"Vojtova pipeline – data.json",
   scope:"https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email"
 };
-const lsGet=(k,d=null)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}};
-const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}};
+/* prezentační režim (jen admin): data fiktivního poradce v odděleném úložišti „demo:…“, bez synchronizace s Googlem;
+   přihlášení, schválení přístupu a kurzy/fondy se sdílí se skutečným režimem */
+const DEMO=(()=>{try{return localStorage.getItem("demo_mode")==="1"}catch(e){return false}})();
+const lsKey=k=>DEMO&&!/^(g_(?!fid$|synced$)|dev_id$|acc$|fx:|fund:)/.test(k)?"demo:"+k:k;
+const lsGet=(k,d=null)=>{try{const v=localStorage.getItem(lsKey(k));return v==null?d:JSON.parse(v)}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(lsKey(k),JSON.stringify(v));return true}catch(e){return false}};
 const newId=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 
 /* --- lokální dokumentové úložiště (stejné API, jaké používal claude db) --- */
@@ -1224,7 +1234,7 @@ const GAuth={
   },
   /* tiché obnovení tokenu: jen když je online, uživatel už byl přihlášený a zrovna nic nerozepisuje */
   maybeRefresh(){
-    if(GAuth.token()||!navigator.onLine||!lsGet("g_ok")||!GAuth.configured())return false;
+    if(DEMO||GAuth.token()||!navigator.onLine||!lsGet("g_ok")||!GAuth.configured())return false;
     if(Date.now()-(lsGet("g_last")||0)<5*60000)return false;
     if(document.querySelector("dialog[open]"))return false;
     GAuth.login(true);return true;
@@ -1253,6 +1263,7 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 addEventListener("pagehide",()=>Trk.flush(true));
 
 async function gfetch(url,opt={}){
+  if(DEMO&&!/\/oauth2\/v3\/userinfo/.test(url))throw Object.assign(new Error("prezentační režim"),{code:"demo"});
   const t=GAuth.token();if(!t)throw Object.assign(new Error("nepřihlášeno"),{code:401});
   const r=await fetch(url,{...opt,headers:{...(opt.headers||{}),Authorization:"Bearer "+t}});
   if(r.status===401){localStorage.removeItem("g_tok");throw Object.assign(new Error("přihlášení vypršelo"),{code:401})}
@@ -1291,6 +1302,7 @@ const GSync=(()=>{
   }
   async function run(){
     if(busy){again=true;return}
+    if(DEMO){status("demo");return}
     if(!GAuth.token()){status(lsGet("g_ok")?"expired":"out");return}
     if(!navigator.onLine){status("offline");return}
     busy=true;status("busy");
@@ -1320,6 +1332,7 @@ const GSync=(()=>{
       busy:["Synchronizuji…","Synchronizuji s Google Diskem"],
       ok:["✓ "+hm,"Synchronizováno s Google Diskem v "+hm],
       error:["Chyba","Synchronizace selhala: "+(msg||"")],
+      demo:["Prezentace","Prezentační režim – fiktivní data, nic se nesynchronizuje. Vypneš v tomto okně nahoře."],
       idle:["…",""]
     };
     const[t,title]=map[s]||map.idle;b.textContent=t;b.title=title;b.dataset.s=s;
@@ -1330,6 +1343,7 @@ const GSync=(()=>{
 
 /* --- Google Kalendář --- */
 async function fetchCalendarItems(calId){
+  if(DEMO)return [];
   const from=new Date(Date.now()-120*864e5),to=new Date(Date.now()+120*864e5);
   const pf=calCfg().prefix;const p=new URLSearchParams({timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:"true",orderBy:"startTime",maxResults:"250",timeZone:"Europe/Prague"});
   if(pf)p.set("q",pf);let items=[],page=null,guard=0;
@@ -2309,7 +2323,7 @@ let histBusy=false;
 async function fetchCalHistory(force){
   const cfg=calCfg(), c=lsGet("cal_hist");
   if(c&&c.id===cfg.id&&c.pf===cfg.prefix){calHist=c.items;if(!force&&Date.now()-c.at<6*3600e3)return}
-  if(histBusy||!cfg.prefix||!GAuth.token()||!navigator.onLine)return;histBusy=true;
+  if(DEMO||histBusy||!cfg.prefix||!GAuth.token()||!navigator.onLine)return;histBusy=true;
   try{
     const p=new URLSearchParams({q:cfg.prefix,timeMin:"2005-01-01T00:00:00Z",timeMax:new Date(Date.now()+400*864e5).toISOString(),singleEvents:"true",orderBy:"startTime",maxResults:"2500"});
     let items=[],page=null,g=0;
@@ -3304,7 +3318,7 @@ function exportPdf(){const esc=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp
   <h2>Klienti a smlouvy (${E.length})</h2><table><tr><th>Klient</th><th>Telefon</th><th>Produkty</th><th>Poslední schůzka</th></tr>${cl}</table>
   <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
 async function weeklyDriveBackup(){try{
-  if(!GAuth.token()||!navigator.onLine)return;const wk=weekStart(todayStr(),0);if(lsGet("bk_week")===wk)return;
+  if(DEMO||!GAuth.token()||!navigator.onLine)return;const wk=weekStart(todayStr(),0);if(lsGet("bk_week")===wk)return;
   const name="Vojtova pipeline – záloha "+todayStr()+".json",b="bk"+newId(),meta={name,mimeType:"application/json",description:"Týdenní záloha z Pipeline"};
   const body=JSON.stringify({app:"vojtova-pipeline",v:1,exportedAt:new Date().toISOString(),docs:LStore.docs()});
   await gfetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body:`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`});
@@ -3554,6 +3568,7 @@ function calFootText(){const c=calCfg();return c.prefix?"Schůzky „"+c.prefix+
 function applyCalItems(items){try{$("calFoot").textContent=calFootText()}catch(e){}if(!calCfg().prefix){calEvents=null;calState="error";calMsg="Nastav začátek názvu schůzek (např. VK:) v nastavení synchronizace – tlačítko ✓ vpravo nahoře.";render();return}calEvents=items.map(parseEvent).filter(Boolean);calState="ok";calMsg="";render();scheduleSync()}
 async function refreshCalendar(){
   if(!calCfg().prefix){calEvents=null;calState="error";calMsg="Nastav začátek názvu schůzek (např. VK:) v nastavení synchronizace – tlačítko ✓ vpravo nahoře.";try{$("calFoot").textContent=calFootText()}catch(e){}render();return}
+  if(DEMO){applyCalItems([]);return}
   if(!GAuth.token()||!navigator.onLine)return;
   try{const items=await fetchCalendarItems(calCfg().id);lsSet("cal_cache",{at:Date.now(),items});applyCalItems(items)}
   catch(e){console.warn(e);if(!calEvents){calState="error";calMsg=e.code===401?"Přihlášení ke Googlu vypršelo – klepni nahoře na Obnovit.":"Kalendář se nenačetl ("+e.message+").";render()}}
@@ -3614,6 +3629,7 @@ async function fetchCalTab(force){
   if(!ctViewYm)ctViewYm=ymOf(todayStr());
   if(!ctWeekA)ctWeekA=weekStart(todayStr(),0);
   if(!ctSel)ctSel=todayStr();
+  if(DEMO){ctEvents=[];ctState="ok";ctMsg="";render();return}
   if(!GAuth.token()||!navigator.onLine){if(!GAuth.token()){ctState="error";ctMsg="Přihlas se Googlem (tlačítko nahoře) a načtu vybrané kalendáře.";render()}return}
   const ids=ctIds();
   if(!ids.length){ctEvents=[];ctState="ok";ctMsg="";render();return}
@@ -3906,7 +3922,7 @@ let taskTimer=null, taskBusy=false;
 function scheduleTasks(){clearTimeout(taskTimer);taskTimer=setTimeout(()=>syncTasks().catch(e=>console.warn("tasks",e)),4000)}
 function taskTitle(){const p=calCfg().prefix;return (p?p+" ":"")+"Úkoly"}
 async function syncTasks(force){
-  if(taskBusy||!db||!GAuth.token()||!navigator.onLine||!GAuth.hasScope("calendar.events")||!calCfg().prefix)return;
+  if(DEMO||taskBusy||!db||!GAuth.token()||!navigator.onLine||!GAuth.hasScope("calendar.events")||!calCfg().prefix)return;
   taskBusy=true;
   try{
     const cfg=calCfg(), title=taskTitle(), t=todayStr(), horizon=addDays(365), want={};
@@ -5237,10 +5253,63 @@ function pfClientSection(e,rec){
 const TABS=[["pipe","Pipeline"],["money","Výdělek"],["cli","Klienti"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["pp","Sazebník"]];
 /* „Uživatelé“ je speciální záložka jen pro admina – vždy úplně na konci, nejde skrýt ani přeřadit
    (proto stojí mimo TABS/nastavení pořadí), zjišťuje se přímo z uloženého přihlášeného e-mailu. */
+/* ===== prezentační režim: fiktivní poradce (jen admin) ===== */
+function demoBuild(real){
+  const R=(a,b)=>a+Math.random()*(b-a), RI=(a,b)=>Math.round(R(a,b)), pick=a=>a[Math.floor(Math.random()*a.length)];
+  const now=new Date(), iso=now.toISOString(), today=iso.slice(0,10), Y=now.getFullYear();
+  const ym=k=>{const d=new Date(now.getFullYear(),now.getMonth()+k,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")};
+  const docs={}, put=(path,v)=>{docs[path]={...v,_u:Date.now()}};
+  /* katalog fondů a modelová portfolia jsou tržní data bez klientů – převezmou se ze skutečného režimu */
+  Object.entries(real||{}).forEach(([k,v])=>{if(!v._del&&/^(funds|pfmodels)\//.test(k))docs[k]=v});
+  const rs=(real||{})["settings/main"]||{};
+  const [fn,ln,fem]=pick([["Jan","Novotný"],["Tomáš","Dvořák"],["Martin","Procházka"],["Petra","Svobodová",1],["Lucie","Horáková",1],["Jakub","Kučera"],["Kateřina","Veselá",1],["Ondřej","Marek"]]);
+  const sj={};for(let k=-18;k<=0;k++){const g=.65+.5*(k+18)/18;if(k<0||now.getDate()>15)sj[ym(k)+"/1"]=RI(260*g,460*g);if(k<0||now.getDate()>=25)sj[ym(k)+"/2"]=RI(290*g,520*g)}
+  const exp=[{id:newId(),t:"Notebook a telefon",amt:RI(18,32)*1000},{id:newId(),t:"Semináře a vzdělávání",amt:RI(8,20)*1000},{id:newId(),t:"Reprezentace a dárky klientům",amt:RI(10,25)*1000}];
+  const tax={};tax[Y]={regime:"p40",pct:60,act:"main",proj:true,exp,pre:{},autoM:RI(8,11),autoP:"part",dps:1700,dpsM:12,zp:1500,zpM:12,dip:2000,dipM:12,kids:RI(1,2),man:false};
+  put("settings/main",{manual:{},appName:"Pipeline – "+fn+" "+ln,sign:fn+" "+ln+(fem?", finanční poradkyně":", finanční poradce"),calPrefix:(fn[0]+ln[0])+":",
+    career:{cpts:RI(24000,46000),cAsOf:today,cBase:0,stat:"P6",obrat:"auto",obratQ:null},sjetiny:sj,
+    otherIncomes:[{id:newId(),label:"Nájem z bytu",mode:"const",amount:RI(9,15)*1000,monthly:{}},
+      {id:newId(),label:"Dividendy a kupóny",mode:"var",amount:0,monthly:Object.fromEntries([...Array(15)].map((_,i)=>[ym(i-12),RI(2,7)*1000]))},
+      {id:newId(),label:"Lektorování ve struktuře",mode:"const",amount:RI(4,8)*1000,monthly:{}}],
+    passive:{aum:{ZFPI:RI(9,18)*1e6,UP:RI(2,6)*1e6,WI:RI(6,14)*1e6,CQ:RI(8,20)*1e6,PLAT:RI(2,5)*1e6,GEN:RI(1,4)*1e6},regular:RI(25,60),ostatni:RI(8,20)},
+    tax,goals:[{name:"Finanční rezerva (6 měsíců)",target:360000,saved:RI(200,330)*1000,horizon:1},{name:"Vlastní zdroje na byt",target:1500000,saved:RI(400,900)*1000,horizon:3},
+      {name:"Nové auto",target:700000,saved:RI(100,300)*1000,horizon:2},{name:"Finanční nezávislost",target:20000000,saved:RI(1500,3000)*1000,horizon:18}],
+    myCostsCat:{byd:RI(22,32)*1000,jidlo:RI(9,14)*1000,doprava:RI(5,9)*1000,pojisteni:RI(2,4)*1000,deti:RI(4,8)*1000,volny:RI(5,10)*1000,splatky:RI(0,6)*1000,ostatni:RI(3,6)*1000},
+    incomeGoal:{target:RI(28,34)*10000,prod:{zp:RI(6,10)*1000,inv:RI(5,10)*1e5,invFee:3,real:RI(1,3)*1e6,realPct:3,uver:RI(3,6)*1e6,uverType:"hypo",dpsN:RI(4,8),dpsPts:10.4},
+      pasTargets:{ZFPI:RI(8,15)*1000,ZFPWI:RI(5,10)*1000,Conseq:RI(10,20)*1000}},
+    ...(rs.tabOrder?{tabOrder:rs.tabOrder}:{}),tabHidden:[...new Set([...(rs.tabHidden||[]),"pp"])],...(rs.pfZfpiTiers?{pfZfpiTiers:rs.pfZfpiTiers}:{}),...(rs.pfFees?{pfFees:rs.pfFees}:{})});
+  /* obchodní síť: 3 přímí (do šířky) a větev do hloubky 4 úrovní – 8 lidí */
+  const names=["Adam Beneš","Eva Králová","Filip Černý","Veronika Pokorná","David Růžička","Tereza Zemanová","Lukáš Fiala","Barbora Šťastná","Michal Holub","Klára Doležalová"].sort(()=>Math.random()-.5);
+  const tree=[["P5",null,[700,1300]],["P4",0,[350,800]],["P3",1,[150,450]],["P2",2,[50,220]],["P4",null,[400,850]],["P3",4,[120,380]],["P2",4,[40,200]],["P3",null,[150,420]]], ids=[];
+  tree.forEach(([pos,par,[a,b]],i)=>{const id="demo"+i;ids.push(id);const m={};for(let k=-12;k<=0;k++)m[ym(k)]=Math.random()<.08?0:RI(a*(.8+.3*(k+12)/11),b*(.8+.3*(k+12)/11));
+    put("team/"+id,{name:names[i],pos,rate:null,parent:par==null?null:ids[par],m,obrat:"auto",createdAt:new Date(now-RI(90,900)*864e5).toISOString()})});
+  [["Jiří Malý","pohovor","doporučení od klienta"],["Simona Bartošová","osloven","LinkedIn"],["Radek Vlček","registrace","kamarád ze školy"]].forEach(([name,stage,source],i)=>
+    put("recruits/demor"+i,{name,phone:"",source,note:"",stage,stageAt:iso,oslovenAt:iso,next:stage==="registrace"?"Dokončit registraci":"Domluvit další schůzku",nextDate:new Date(+now+RI(1,6)*864e5).toISOString().slice(0,10),log:[],createdAt:iso}));
+  return docs;
+}
+function demoSwitch(on,regen){
+  try{
+    if(on){if(regen||!localStorage.getItem("demo:crm_store_v1")){const real=DEMO?JSON.parse(localStorage.getItem("crm_store_v1")||"{}").docs:LStore.docs();
+        Object.keys(localStorage).filter(k=>k.startsWith("demo:")).forEach(k=>localStorage.removeItem(k));
+        localStorage.setItem("demo:crm_store_v1",JSON.stringify({docs:demoBuild(real)}))}
+      localStorage.setItem("demo_mode","1")}
+    else localStorage.removeItem("demo_mode");
+  }catch(e){toast("Nepodařilo se přepnout ("+e.message+")");return}
+  try{localStorage.setItem("pipe_view","pipe")}catch(e){}
+  location.reload();
+}
+function initDemoCfg(){
+  const box=$("demoCfg");if(!box)return;box.hidden=!isAdminUser();
+  $("dDemo").textContent=DEMO?"Vypnout prezentační režim – zpět na moje data":"Zapnout prezentační režim";
+  $("dDemo").onclick=()=>demoSwitch(!DEMO);
+  $("dDemoNew").hidden=!DEMO;$("dDemoNew").onclick=()=>{if(confirm("Vygenerovat nového fiktivního poradce? Úpravy v prezentačním režimu se zahodí."))demoSwitch(true,true)};
+  if(DEMO){$("demoHint").textContent="Právě běží prezentační režim: fiktivní poradce, nic se nesynchronizuje s Google Diskem ani kalendářem. Tvoje data čekají beze změny – vrátíš se tlačítkem výše.";
+    ["dSync","dLogout"].forEach(id=>$(id).hidden=true)}
+}
 function isAdminUser(){try{return JSON.parse(localStorage.getItem("g_owner"))==="kudlicka.vojtech2002@gmail.com"}catch(e){return false}}
 function tabOrder(){const saved=(settings.tabOrder||[]).filter(k=>TABS.some(t=>t[0]===k));const rest=TABS.map(t=>t[0]).filter(k=>!saved.includes(k));return [...saved,...rest]}
 function tabHiddenSet(){return new Set(settings.tabHidden!==undefined?settings.tabHidden:["pp"])}
-function visibleTabs(){const hidden=tabHiddenSet();const vis0=tabOrder().filter(k=>!hidden.has(k));const vis=vis0.length?vis0:["pipe"];return isAdminUser()?[...vis,"users"]:vis}
+function visibleTabs(){const hidden=tabHiddenSet();const vis0=tabOrder().filter(k=>!hidden.has(k));const vis=vis0.length?vis0:["pipe"];return isAdminUser()&&!DEMO?[...vis,"users"]:vis}
 function renderTabBar(){
   const bar=$("tabBar");if(!bar)return;
   bar.replaceChildren(...visibleTabs().map(k=>{const t=TABS.find(x=>x[0]===k)||(k==="users"?["users","Uživatelé"]:null);if(!t)return null;
@@ -5366,10 +5435,11 @@ async function updateEurRate(){
   $("dImport").onclick=()=>$("dFile").click();
   $("dFile").onchange=e=>{const f=e.target.files[0];if(f)importBackup(f);e.target.value=""};
   $("dLogout").onclick=()=>{GAuth.logout()};
+  initDemoCfg();
   const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);lsSet("cal_hist",null);calHist=null;calEvents=null;calState="loading";render();refreshCalendar().then(()=>fetchCalHistory(true))}catch(e){toast("Nepodařilo se uložit")}};
   sb.addEventListener("click",async()=>{
     if(!dd.open)return;renderTpls();{const b=lsGet("bk_last");$("bkInfo").textContent="Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů)."+(b?" Poslední: "+fmtDate(b)+" "+b.slice(0,4)+".":"")}const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
-    const me=lsGet("g_owner");$("dataInfo").textContent=(me?"Účet "+me+" · ":"")+($("syncBtn").title||"");
+    const me=lsGet("g_owner");$("dataInfo").textContent=(me&&!DEMO?"Účet "+me+" · ":"")+($("syncBtn").title||"");
     if(!GAuth.token()){sel.replaceChildren(new Option(c.name,c.id));return}
     try{const cals=await listCalendars();sel.replaceChildren(...cals.map(k=>new Option((k.primary?"★ ":"")+(k.summary||k.id),k.id)));sel.value=cals.some(k=>k.id===c.id)?c.id:(cals.find(k=>k.primary)?.id||"primary")}catch(e){sel.replaceChildren(new Option(c.name,c.id))}
   });
@@ -5391,7 +5461,7 @@ async function updateEurRate(){
 const ADMIN="kudlicka.vojtech2002@gmail.com", ACC_OK=["aktivní","zkušební"], ACC_SHEET="https://docs.google.com/spreadsheets/d/1cjh0oymhNiPFNpRGuzCIZ1KnvcqiRTKTonyyPstbQyM/edit";
 const Acc={
   me:()=>lsGet("g_owner"), get:()=>lsGet("acc")||{},
-  async post(o){const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);try{const r=await fetch(Trk.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(o),signal:c.signal});return await r.json()}finally{clearTimeout(t)}},
+  async post(o){if(DEMO&&["snap","team","share","inv"].includes(o.t))throw new Error("prezentační režim");const c=new AbortController(),t=setTimeout(()=>c.abort(),20000);try{const r=await fetch(Trk.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(o),signal:c.signal});return await r.json()}finally{clearTimeout(t)}},
   ok(){const a=Acc.get();return !Trk.on()||(!!Acc.me()&&a.email===Acc.me()&&ACC_OK.includes(a.st))},
   set(st,email){if(!st||["bad","unverified","denied"].includes(st))return Acc.apply();lsSet("acc",{st,email,at:Date.now()});Acc.apply()},
   reg(email,name){const tok=GAuth.token();if(!tok)return Promise.resolve(null);return Acc.post({t:"login",email,name:name||"",dev:Trk.dev(),label:Trk.label(),ver:Trk.ver,tok}).then(j=>{Acc.set(j.status,email);return j.status})},
@@ -5400,7 +5470,7 @@ const Acc={
   timer:null,
   apply(){
     const ok=Acc.ok();let g=$("accGate");
-    $("usersBtn").hidden=Acc.me()!==ADMIN;
+    $("usersBtn").hidden=DEMO||Acc.me()!==ADMIN;
     if(ok){if(g)g.remove();document.documentElement.classList.remove("locked");clearInterval(Acc.timer);Acc.timer=null;return}
     document.documentElement.classList.add("locked");
     if(!g){g=el("div",{id:"accGate",role:"dialog","aria-modal":"true"});document.body.append(g)}
