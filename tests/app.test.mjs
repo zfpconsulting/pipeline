@@ -152,11 +152,11 @@ export default {
     await ctx.close();
   },
 
-  async "uzávěrky: přečtení výpisu ze souboru a přepočet"(env) {
+  async "výpisy za 3 měsíce: přečtení ze souboru a přepočet"(env) {
     const { ctx, page } = await openApp(env, { store: STORE });
     await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
     await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
-    const per = await page.evaluate(() => lastClosedPers(1)[0]);
+    const ym = await page.evaluate(() => lastMonths(1)[0]), per = ym + "/2";
     const end = await page.evaluate(p => perEnd(p), per);
     const d = end.split("-").reverse().map(Number).join(". ");
     const txt = `Provizní výpis\nUzávěrka do ${d}\nBody za uzávěrku 312,4\nZ toho udržovací provize 45,2\nZFP Investments udržovací 20,1\nConseq udržovací 25,1\nMeziprovize z týmu 1 250,00 Kč\nCena bodu 150 Kč\nCelkem k výplatě 48 110,00 Kč\nKariérní body celkem 9 890\nVlastní body 7 400`;
