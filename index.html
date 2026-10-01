@@ -1731,7 +1731,7 @@ function renderCalc(){
   if(calcUI||calcLoading)return;
   const go=()=>{calcLoading=false;if(!window.FinCalc){$("calcBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}calcUI=FinCalc.mount($("calcBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)}})};
   if(window.FinCalc)return go();
-  calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=1";sc.onload=go;sc.onerror=go;document.head.append(sc);
+  calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=2";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;

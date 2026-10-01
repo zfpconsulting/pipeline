@@ -129,6 +129,34 @@ const tests = {
     assert(!errors.length, "chyby v konzoli: " + errors.join(" | "));
     await ctx.close();
   },
+  async "UI: animace křivky při změně zadání, ne při překreslení"() {
+    const { ctx, page, errors } = await open();
+    const dNow = () => page.$eval("#fcChart .fc-la", p => p.getAttribute("d"));
+    await page.waitForTimeout(1100);
+    const final1 = await dNow();
+    await page.click('button[data-a="inc"][data-k="years"]');
+    await page.waitForTimeout(120);
+    const mid = await dNow();
+    if (SHOTS) await page.screenshot({ path: "/tmp/fc-anim.png" });
+    await page.waitForTimeout(1100);
+    const final2 = await dNow();
+    assert(mid !== final2, "uprostřed animace je křivka jinde než na konci");
+    // pravý konec investice roste zdola: uprostřed animace leží níž (větší y) než na konci
+    const lastY = d => +d.trim().split(/[ML]/).filter(Boolean).pop().split(" ")[1];
+    assert(lastY(mid) > lastY(final2) + 5, `pravý konec stoupá (${lastY(mid)} → ${lastY(final2)})`);
+    assert(final1 !== final2, "změna zadání změnila křivku");
+    // otevření nápovědy překreslí panel, ale křivka se znovu neanimuje
+    await page.click('button[data-a="help"][data-k="pv"]');
+    eq(await dNow(), final2, "bez animace při překreslení");
+    // úvěr: levý začátek klesající křivky stoupá zdola
+    await page.click('button[data-a="mode"][data-k="loan"]');
+    await page.waitForTimeout(120);
+    const firstY = d => +d.trim().slice(1).split("L")[0].split(" ")[1];
+    const lm = await dNow(); await page.waitForTimeout(1100); const lf = await dNow();
+    assert(firstY(lm) > firstY(lf) + 5, `levý začátek úvěru stoupá (${firstY(lm)} → ${firstY(lf)})`);
+    assert(!errors.length, "chyby: " + errors.join(" | "));
+    await ctx.close();
+  },
   async "UI: PDF má vodoznak a hodnoty"() {
     const { ctx, page, errors } = await open();
     const popP = ctx.waitForEvent("page");
@@ -146,7 +174,7 @@ const tests = {
       const { ctx, page, errors } = await open(o);
       const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       assert(over <= 0, "vodorovné přetečení o " + over + " px");
-      if (SHOTS) await page.screenshot({ path: `/tmp/fc-${o.width}${o.dark ? "-dark" : ""}.png`, fullPage: true });
+      if (SHOTS) { await page.waitForTimeout(1100); await page.screenshot({ path: `/tmp/fc-${o.width}${o.dark ? "-dark" : ""}.png`, fullPage: true }); }
       assert(!errors.length, "chyby: " + errors.join(" | "));
       await ctx.close();
     }
@@ -154,7 +182,7 @@ const tests = {
 };
 
 let ok = 0, bad = 0;
-if (SHOTS) { const { ctx, page } = await open(); await page.screenshot({ path: "/tmp/fc-1300.png", fullPage: true }); await ctx.close(); }
+if (SHOTS) { const { ctx, page } = await open(); await page.waitForTimeout(1100); await page.screenshot({ path: "/tmp/fc-1300.png", fullPage: true }); await ctx.close(); }
 for (const [name, fn] of Object.entries(tests)) {
   const t0 = Date.now();
   try { await fn(); ok++; console.log(`✓ ${name} (${Date.now() - t0} ms)`); }

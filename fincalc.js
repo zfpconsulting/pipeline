@@ -112,13 +112,14 @@ const ICON={
   dbl:'<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3 3 8l5 5M13 3 8 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   menu:'<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 6h16M3 11h16M3 16h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
 };
-/* logo ZFP Consulting (vodoznak i hlavička) */
-function zfpLogo({x=0,y=0,s=1,gray="#4d4d4f",orange="#ff6a13",op=1}={}){
+/* logo ZFP Consulting (vodoznak i hlavička) – proporce podle oficiálního loga: „ZFP“ tmavě šedé, vlajka s vykrojenou
+   špičkou vyšší než písmena, „CONSULTING“ světleji šedé přes celou šířku; textLength drží přesné šířky v každém písmu */
+function zfpLogo({x=0,y=0,s=1,gray="#4f5052",gray2="#7d8183",orange="#db6b33",op=1}={}){
   return `<g transform="translate(${x} ${y}) scale(${s})" opacity="${op}">
-  <text x="0" y="40" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="44" letter-spacing="1" style="fill:${gray}">ZFP</text>
-  <path d="M93 0h22v44l-11-9-11 9z" style="fill:${orange}"/>
-  <text x="1" y="62" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="14" letter-spacing="1.75" style="fill:${gray}">CONSULTING</text></g>`}
-const LOGO_W=127,LOGO_H=64;
+  <text x="0" y="79" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="80" textLength="152" lengthAdjust="spacingAndGlyphs" style="fill:${gray}">ZFP</text>
+  <path d="M165 0H222V94L193.5 64L165 94Z" style="fill:${orange}"/>
+  <text x="0" y="123" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="35" textLength="222" lengthAdjust="spacingAndGlyphs" style="fill:${gray2}">CONSULTING</text></g>`}
+const LOGO_W=222,LOGO_H=124;
 
 /* graf: a = hlavní křivka (zelená s výplní), b = šedá plocha */
 function chartSVG(pts,{w=900,h=440,c,labelA,labelB,wm=true}){
@@ -130,31 +131,32 @@ function chartSVG(pts,{w=900,h=440,c,labelA,labelB,wm=true}){
   const ticks=[0,1,2,3,4,5].map(k=>lo+(hi-lo)*k/5);
   const pxYear=W/X1,yearStep=[1,2,5,10,20,50].find(st=>st*pxYear>=28)||100;
   const xt=[];for(let yv=0;yv<=X1+1e-9;yv+=yearStep)xt.push(yv);
-  const path=key=>pts.map((p,k)=>(k?"L":"M")+sx(p.x).toFixed(2)+" "+sy(p[key]).toFixed(2)).join("");
-  const area=key=>path(key)+`L${sx(X1).toFixed(2)} ${(pt+H).toFixed(2)}L${pl} ${(pt+H).toFixed(2)}Z`;
+  /* e = průběh animace 0…1: body rostou od spodní osy na své místo */
+  const base=pt+H,path=(key,e=1)=>pts.map((p,k)=>(k?"L":"M")+sx(p.x).toFixed(2)+" "+(base+(sy(p[key])-base)*e).toFixed(2)).join("");
+  const area=(key,e=1)=>path(key,e)+`L${sx(X1).toFixed(2)} ${base.toFixed(2)}L${pl} ${base.toFixed(2)}Z`;
   const gid="fcg"+Math.random().toString(36).slice(2,8);
   let s=`<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(labelA)} a ${esc(labelB)} v čase" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;font-family:Arial,Helvetica,sans-serif">
   <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${c.a};stop-opacity:.22"/><stop offset="1" style="stop-color:${c.a};stop-opacity:.02"/></linearGradient></defs>`;
   ticks.forEach(t=>{const y=sy(t).toFixed(2);s+=`<line x1="${pl}" x2="${pl+W}" y1="${y}" y2="${y}" style="stroke:${c.grid};stroke-width:1"/><text x="${pl-12}" y="${(+y+4).toFixed(2)}" text-anchor="end" font-size="12" style="fill:${c.txt}">${fmtNum(t)}</text>`});
   xt.forEach(t=>{s+=`<text x="${sx(t).toFixed(2)}" y="${pt+H+22}" text-anchor="middle" font-size="12" style="fill:${c.txt}">${Math.round(t)}</text>`});
-  s+=`<path d="${area("a")}" fill="url(#${gid})"/>`;
-  s+=`<path d="${area("b")}" style="fill:${c.b};opacity:.9"/>`;
-  if(wm)s+=zfpLogo({x:pl+W/2-LOGO_W*1.05/2,y:pt+H/2-LOGO_H*1.05/2+8,s:1.05,gray:c.wmGray,orange:c.wmOrange,op:c.wmOp});
-  s+=`<path d="${path("a")}" style="fill:none;stroke:${c.a};stroke-width:3.2;stroke-linejoin:round;stroke-linecap:round"/>`;
+  s+=`<path class="fc-aa" d="${area("a")}" fill="url(#${gid})"/>`;
+  s+=`<path class="fc-ab" d="${area("b")}" style="fill:${c.b};opacity:.9"/>`;
+  if(wm){const ws=Math.min(170,Math.max(104,W*.17))/LOGO_W;s+=zfpLogo({x:pl+W/2-LOGO_W*ws/2,y:pt+H/2-LOGO_H*ws/2,s:ws,gray:c.wmGray,gray2:c.wmGray2,orange:c.wmOrange,op:c.wmOp})}
+  s+=`<path class="fc-la" d="${path("a")}" style="fill:none;stroke:${c.a};stroke-width:3.2;stroke-linejoin:round;stroke-linecap:round"/>`;
   s+=`<g class="fc-hover" style="display:none"><line class="fc-hx" y1="${pt}" y2="${pt+H}" style="stroke:${c.txt};stroke-width:1;stroke-dasharray:3 3"/><circle class="fc-ha" r="5.5" style="fill:${c.a};stroke:${c.ring};stroke-width:2"/></g>`;
   s+=`<rect class="fc-hit" x="${pl}" y="${pt}" width="${W}" height="${H}" fill="transparent"/></svg>`;
-  return {svg:s,sx,sy,pl,W,X1};
+  return {svg:s,sx,sy,pl,W,X1,frame:e=>({la:path("a",e),aa:area("a",e),ab:area("b",e)})};
 }
 
 /* ================= CSS ================= */
 const CSS=`
-.fc{--fc-navy:#0b2341;--fc-orange:#ff4f00;--fc-green:#5cb800;--fc-area:#e4e6e9;--fc-tile:#f0f2f5;--fc-line:#d5d9df;--fc-calc:#e3e8ef;--fc-flagc:#4a90e2;--fc-txt:#6b7280;--fc-grid:#e9ebee;
+.fc{--fc-navy:#0b2341;--fc-orange:#ff4f00;--fc-green:#5cb800;--fc-area:#e4e6e9;--fc-tile:#f0f2f5;--fc-line:#d5d9df;--fc-calc:#e3e8ef;--fc-flagc:#4a90e2;--fc-txt:#6b7280;--fc-grid:#e9ebee;--fc-logo1:#4f5052;--fc-logo2:#7d8183;
   font-family:Roboto,var(--font,-apple-system,system-ui,sans-serif);color:var(--fc-navy);background:var(--bg2,#fff);border-radius:16px;box-shadow:var(--card-shadow);overflow:hidden;margin-bottom:28px;letter-spacing:0}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f}}
-:root[data-theme="dark"] .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f;--fc-logo1:#e5e5e7;--fc-logo2:#a1a1a6}}
+:root[data-theme="dark"] .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f;--fc-logo1:#e5e5e7;--fc-logo2:#a1a1a6}
 :where(.fc) button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
 .fc-head{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--fc-line)}
-.fc-logo svg{display:block;height:34px;width:auto}
+.fc-logo svg{display:block;height:36px;width:auto}
 .fc-title{text-align:center;font-size:16px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fc-acts{display:flex;align-items:center;gap:10px}
 .fc-btn{height:36px;padding:0 12px;border-radius:8px;border:1.5px solid var(--fc-navy);font-size:14.5px;font-weight:500;white-space:nowrap}
@@ -263,7 +265,7 @@ function mount(root,opts={}){
     const res=compute(),M=MODES[st.mode],c=cur();persist();
     const title="Finanční matematika - "+(st.name||"Koncept");
     root.innerHTML=`<div class="fc"><div class="fc-wrapH">
-      <div class="fc-head"><div class="fc-logo"><svg viewBox="-2 -2 ${LOGO_W+4} ${LOGO_H+4}" role="img" aria-label="ZFP Consulting">${zfpLogo({gray:"var(--fc-navy)"})}</svg></div>
+      <div class="fc-head"><div class="fc-logo"><svg viewBox="0 0 ${LOGO_W} ${LOGO_H}" role="img" aria-label="ZFP Consulting">${zfpLogo({gray:"var(--fc-logo1)",gray2:"var(--fc-logo2)"})}</svg></div>
         <div class="fc-title" title="${esc(title)}">${esc(title)}</div>
         <div class="fc-acts"><button class="fc-btn" data-a="save" type="button">Uložit</button><button class="fc-btn" data-a="pdf" type="button">Stáhnout PDF</button><button class="fc-btn pri" data-a="new" type="button">Nová kalkulace</button>
           <button class="fc-ico" data-a="menu" type="button" aria-label="Uložené kalkulace" title="Uložené kalkulace">${ICON.menu}</button></div></div>
@@ -296,7 +298,8 @@ function mount(root,opts={}){
     const tl=root.querySelector(".fc-tiles");if(tl)tl.innerHTML=tilesHTML();
     drawChart();
   }
-  const scrColors=()=>({a:"var(--fc-green)",b:"var(--fc-area)",grid:"var(--fc-grid)",txt:"var(--fc-txt)",ring:"var(--bg2,#fff)",wmGray:"#9aa0a6",wmOrange:"#ff6a13",wmOp:.28});
+  const scrColors=()=>({a:"var(--fc-green)",b:"var(--fc-area)",grid:"var(--fc-grid)",txt:"var(--fc-txt)",ring:"var(--bg2,#fff)",wmGray:"var(--fc-logo1)",wmGray2:"var(--fc-logo2)",wmOrange:"#db6b33",wmOp:.3});
+  let anim=0,lastSig="";
   function drawChart(){
     const box=root.querySelector("#fcChart");if(!box)return;
     const {ok,v,M}=lastRes;
@@ -304,6 +307,14 @@ function mount(root,opts={}){
     const pts=series(st.mode,v),w=Math.max(320,Math.round(box.clientWidth||900)),h=Math.round(Math.min(480,Math.max(280,w*0.5)));
     const ch=chartSVG(pts,{w,h,c:scrColors(),labelA:M.sa,labelB:M.sb});
     box.innerHTML=ch.svg;
+    /* animace jen při změně zadání nebo režimu (ne při změně velikosti okna): křivky vyrostou od spodní osy */
+    const sig=st.mode+JSON.stringify(v);cancelAnimationFrame(anim);
+    if(sig!==lastSig&&!matchMedia("(prefers-reduced-motion: reduce)").matches){
+      const els={la:box.querySelector(".fc-la"),aa:box.querySelector(".fc-aa"),ab:box.querySelector(".fc-ab")},t0=performance.now(),D=900;
+      const step=now=>{const p=Math.min(1,(now-t0)/D),e=1-Math.pow(1-p,3),f=ch.frame(e);for(const k in els)els[k].setAttribute("d",f[k]);if(p<1)anim=requestAnimationFrame(step)};
+      step(t0);
+    }
+    lastSig=sig;
     const svg=box.querySelector("svg"),hit=svg.querySelector(".fc-hit"),hg=svg.querySelector(".fc-hover"),hx=svg.querySelector(".fc-hx"),ha=svg.querySelector(".fc-ha");
     let tip=null;
     const move=e=>{const r=svg.getBoundingClientRect(),px=(e.clientX-r.left)*w/r.width,x=Math.max(0,Math.min(ch.X1,(px-ch.pl)/ch.W*ch.X1));
@@ -366,7 +377,7 @@ function mount(root,opts={}){
     const res=lastRes;if(!res.ok){toast("Nejdřív oprav zadání – "+res.err);return}
     const M=MODES[st.mode],v=res.v,c=cur();
     const pts=series(st.mode,v);
-    const ch=chartSVG(pts,{w:900,h:430,c:{a:"#5cb800",b:"#e4e6e9",grid:"#e9ebee",txt:"#6b7280",ring:"#fff",wmGray:"#9aa0a6",wmOrange:"#ff6a13",wmOp:.28},labelA:M.sa,labelB:M.sb});
+    const ch=chartSVG(pts,{w:900,h:430,c:{a:"#5cb800",b:"#e4e6e9",grid:"#e9ebee",txt:"#6b7280",ring:"#fff",wmGray:"#4f5052",wmGray2:"#7d8183",wmOrange:"#db6b33",wmOp:.3},labelA:M.sa,labelB:M.sb});
     const params=FIELDS[st.mode].map(k=>[M.f[k].l.replace(/ \((CZK|%|počet let)\)/,""),k==="rate"?fmtPct(v[k]):k==="years"?yrsTxt(v[k]):fmtKc(v[k]),k===c.calc]);
     params.push(["Frekvence připisování úroku",(FREQ.find(f=>f[0]===v.freq)||FREQ[0])[1],false]);
     const d=new Date().toLocaleDateString("cs-CZ");
@@ -379,7 +390,7 @@ function mount(root,opts={}){
       h2{font-size:16px;margin:18px 0 8px}.leg{display:flex;gap:22px;font-size:12px;color:#6b7280;margin-top:6px}.leg i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
       .ft{margin-top:18px;font-size:11px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:8px}
       @media print{body{padding:0}}</style></head><body>
-      <div class="hd"><div><h1>Finanční matematika – ${esc(M.t)}</h1><small>${esc(st.name||"Koncept")} · ${d}</small></div><svg width="127" height="64" viewBox="-2 -2 131 68">${zfpLogo({gray:"#4d4d4f"})}</svg></div>
+      <div class="hd"><div><h1>Finanční matematika – ${esc(M.t)}</h1><small>${esc(st.name||"Koncept")} · ${d}</small></div><svg width="133" height="74" viewBox="0 0 ${LOGO_W} ${LOGO_H}">${zfpLogo()}</svg></div>
       <div class="tiles">${M.tiles(v).map(([k,x])=>`<div class="t"><div class="k">${esc(k)}</div><div class="v">${esc(x)}</div></div>`).join("")}</div>
       <h2>Parametry</h2><table>${params.map(([k,x,isC])=>`<tr${isC?' class="c"':""}><td>${esc(k)}${isC?" (dopočteno)":""}</td><td>${esc(x)}</td></tr>`).join("")}</table>
       <h2>${esc(st.titles[st.mode]||M.chart)}</h2>${ch.svg}
