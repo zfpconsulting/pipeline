@@ -1,2 +1,3 @@
 pp.plain.json
 .wrangler/
+node_modules/

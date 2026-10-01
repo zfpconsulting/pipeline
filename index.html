@@ -344,6 +344,17 @@ section[id^="view_"].vIn{animation:viewIn .3s cubic-bezier(.2,.9,.24,1)}
 @media (prefers-reduced-motion:reduce){button,.chipbtn,.row-btn,.ohit,.oadd,.card,summary{transition:none}section[id^="view_"].vIn{animation:none}}
 @media (prefers-reduced-motion:no-preference){.card:hover{transform:translateY(-1px)}}
 @media (max-width:640px){.large h1{font-size:30px}.big{font-size:38px}.search{width:100%;order:3}}
+#lockDlg{border:none;padding:0;margin:0;width:100vw;height:100vh;max-width:none;max-height:none;background:var(--bg,#f2f2f7);color:var(--label)}
+#lockDlg::backdrop{background:var(--bg,#f2f2f7)}
+.lockbox{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center}
+.lockbox h2{margin:4px 0 0;font-size:22px}.lockbox p{margin:0;color:var(--label2);max-width:320px;line-height:1.4}
+.lockico{width:64px;height:64px;border-radius:20px;background:var(--fill);display:flex;align-items:center;justify-content:center;color:var(--tint)}
+.lockbtn{margin-top:8px;min-width:220px;height:46px;border-radius:14px;background:var(--tint);color:#fff;font-size:17px;font-weight:600}
+#lockPin{width:220px;height:46px;border-radius:14px;border:none;background:var(--fill);text-align:center;font-size:22px;letter-spacing:6px}
+.lockforgot{margin-top:18px;color:var(--label2);font-size:14px;text-decoration:underline}
+html.applocked body>*:not(#lockDlg){visibility:hidden!important}
+.histbtn{padding:0 9px!important;display:inline-flex;align-items:center;justify-content:center}.histbtn:disabled{opacity:.3}
+@media (max-width:520px){.bar-in{gap:6px 6px}.bar .syncbtn{padding:0 10px}.bar .histbtn{padding:0 7px!important}}
 .syncbtn{height:34px;padding:0 13px;border-radius:999px;background:var(--fill);color:var(--label);font-size:14px;font-weight:500;white-space:nowrap;flex:none}
 .syncbtn[data-s="out"],.syncbtn[data-s="expired"]{background:var(--tint);color:#fff}
 .syncbtn[data-s="error"]{background:var(--red-soft);color:var(--red)}
@@ -790,6 +801,8 @@ html.locked body{overflow:hidden}
     <div class="spacer"></div>
     <label class="search" id="searchBox"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Hledat" aria-label="Hledat"></label>
     <button class="syncbtn" id="usersBtn" type="button" hidden title="Správa uživatelů">Uživatelé</button>
+    <button class="syncbtn histbtn" id="undoBtn" type="button" title="Krok zpět" aria-label="Krok zpět" disabled><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 2.5 7 6 10.5M3 7h6.5a4 4 0 0 1 0 8H7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button class="syncbtn histbtn" id="redoBtn" type="button" title="Krok vpřed" aria-label="Krok vpřed" disabled><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 13.5 7 10 10.5M13 7H6.5a4 4 0 0 0 0 8H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button class="syncbtn" id="todayBtn" type="button" title="Co tě dneska čeká">Dnes</button>
     <button class="syncbtn" id="syncBtn" type="button" data-s="idle">…</button>
     <button class="plus" id="addBtn" aria-label="Nový lead" title="Nový lead"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>
@@ -1099,6 +1112,10 @@ html.locked body{overflow:hidden}
     <div class="sbar"><span></span><h2>Data a synchronizace</h2><button type="button" class="r" id="dataClose">Hotovo</button></div>
     <div class="dbody">
       <p id="dataInfo"></p>
+      <div class="dcfg" id="lockCfg">
+        <label>Zámek aplikace <span class="hint" style="font-weight:400">· jen toto zařízení</span></label>
+        <div id="lockCfgBody"></div>
+      </div>
       <div class="dcfg" id="demoCfg" hidden>
         <label>Prezentační režim</label>
         <button type="button" class="dbtn" id="dDemo">Zapnout prezentační režim</button>
@@ -1144,6 +1161,13 @@ html.locked body{overflow:hidden}
     </div>
   </div>
 </dialog>
+<dialog id="lockDlg" aria-label="Aplikace je zamčená"><div class="lockbox">
+  <div class="lockico" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></div>
+  <h2>Pipeline je zamčená</h2><p id="lockMsg">Odemkni ji, ať vidíš data.</p>
+  <button type="button" class="lockbtn" id="lockBio">Odemknout</button>
+  <div id="lockPinBox" hidden><input id="lockPin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" maxlength="12"></div>
+  <button type="button" class="lockforgot" id="lockForgot">Nemůžu odemknout</button>
+</div></dialog>
 <dialog id="edDlg"><div class="sheet"><div class="sbar"><span></span><h2 id="edTitle"></h2><button type="button" class="r" id="edClose">Hotovo</button></div><div class="ebody" id="edBody"></div></div></dialog>
 <div class="toast" id="toast" hidden></div>
 <canvas id="fx" aria-hidden="true"></canvas>
@@ -1176,6 +1200,75 @@ const NumFmt=(()=>{
   scan(document.documentElement);
   return {show,raw,scan};
 })();
+/* ===== Zámek aplikace (jen toto zařízení): Face ID / Touch ID / heslo zařízení / mobil přes QR (WebAuthn), nebo PIN =====
+   Chrání před nahlédnutím do odemčeného zařízení; data samotná chrání šifrování telefonu/počítače. */
+const AppLock=(()=>{
+  const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const ub64=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+  const cfg=()=>{try{return JSON.parse(localStorage.getItem("lock")||"null")}catch(e){return null}};
+  const setCfg=c=>{try{c?localStorage.setItem("lock",JSON.stringify(c)):localStorage.removeItem("lock")}catch(e){}};
+  let locked=false,hiddenAt=0,lastAct=Date.now(),busy=false;
+  const sha=d=>crypto.subtle.digest("SHA-256",d);
+  async function pinHash(pin,salt){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pin),"PBKDF2",false,["deriveBits"]);
+    return b64(await crypto.subtle.deriveBits({name:"PBKDF2",salt:ub64(salt),iterations:150000,hash:"SHA-256"},km,256))}
+  function derToRaw(d){let i=2;if(d[1]&0x80)i+=d[1]&0x7f;const rd=()=>{i++;const n=d[i++];let v=d.slice(i,i+n);i+=n;while(v.length>32&&v[0]===0)v=v.slice(1);const o=new Uint8Array(32);o.set(v,32-v.length);return o};
+    const r=rd(),s=rd(),out=new Uint8Array(64);out.set(r,0);out.set(s,32);return out}
+  async function bioAvailable(){try{return !!(window.PublicKeyCredential&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())}catch(e){return false}}
+  async function bioCreate(){
+    const c=await navigator.credentials.create({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),rp:{name:"Pipeline"},
+      user:{id:crypto.getRandomValues(new Uint8Array(16)),name:(lsGet("g_owner")||"pipeline")+"",displayName:"Pipeline – zámek"},
+      pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],authenticatorSelection:{userVerification:"required",residentKey:"preferred"},timeout:120000,attestation:"none"}});
+    let pk=null,alg=-7;try{pk=c.response.getPublicKey?b64(c.response.getPublicKey()):null;alg=c.response.getPublicKeyAlgorithm?c.response.getPublicKeyAlgorithm():-7}catch(e){}
+    return {cid:b64(c.rawId),pk,alg};
+  }
+  async function bioCheck(c){
+    const ch=crypto.getRandomValues(new Uint8Array(32));
+    const a=await navigator.credentials.get({publicKey:{challenge:ch,allowCredentials:[{type:"public-key",id:ub64(c.cid)}],userVerification:"required",timeout:120000}});
+    const r=a.response,cd=JSON.parse(new TextDecoder().decode(r.clientDataJSON)),ad=new Uint8Array(r.authenticatorData);
+    if(cd.type!=="webauthn.get"||cd.challenge!==b64(ch)||!(ad[32]&4))return false;
+    if(!c.pk)return true;
+    const rsa=c.alg===-257,key=await crypto.subtle.importKey("spki",ub64(c.pk),rsa?{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"}:{name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
+    const h=new Uint8Array(await sha(r.clientDataJSON)),data=new Uint8Array(ad.length+h.length);data.set(ad);data.set(h,ad.length);
+    const sig=new Uint8Array(r.signature);
+    return crypto.subtle.verify(rsa?{name:"RSASSA-PKCS1-v1_5"}:{name:"ECDSA",hash:"SHA-256"},key,rsa?sig:derToRaw(sig),data);
+  }
+  const $=id=>document.getElementById(id);
+  function show(){const c=cfg();if(!c||locked)return;locked=true;document.documentElement.classList.add("applocked");
+    const d=$("lockDlg");if(d&&!d.open){try{d.showModal()}catch(e){d.setAttribute("open","")}}
+    $("lockBio").hidden=!c.bio;$("lockPinBox").hidden=!c.pin;$("lockMsg").textContent=c.bio?(c.pin?"Odemkni biometrikou, nebo zadej PIN.":"Odemkni ji, ať vidíš data."):"Zadej PIN.";
+    if(c.pin&&!c.bio)setTimeout(()=>$("lockPin").focus(),60)}
+  function unlock(){locked=false;lastAct=Date.now();document.documentElement.classList.remove("applocked");const d=$("lockDlg");if(d&&d.open)d.close()}
+  async function tryBio(){const c=cfg();if(!c||!c.bio||busy)return;busy=true;
+    try{if(await bioCheck(c.bio))unlock();else $("lockMsg").textContent="Ověření se nepovedlo – zkus to znovu."}
+    catch(e){$("lockMsg").textContent=e&&e.name==="NotAllowedError"?"Zrušeno. Klepni na Odemknout znovu.":"Ověření se nepovedlo ("+(e&&e.name||"chyba")+")."}
+    finally{busy=false}}
+  async function tryPin(v){const c=cfg();if(!c||!c.pin)return;const now=Date.now();
+    if(c.pin.until&&now<c.pin.until){$("lockMsg").textContent="Moc pokusů – zkus to za "+Math.ceil((c.pin.until-now)/1000)+" s.";return}
+    if(await pinHash(v,c.pin.salt)===c.pin.hash){c.pin.fails=0;c.pin.until=0;setCfg(c);$("lockPin").value="";unlock();return}
+    c.pin.fails=(c.pin.fails||0)+1;if(c.pin.fails>=5)c.pin.until=now+30000*Math.pow(2,c.pin.fails-5);setCfg(c);$("lockPin").value="";
+    $("lockMsg").textContent="Špatný PIN"+(c.pin.until>now?" – další pokus za "+Math.ceil((c.pin.until-now)/1000)+" s.":".")}
+  function init(){
+    const d=$("lockDlg");if(!d)return;
+    d.addEventListener("cancel",e=>e.preventDefault());
+    $("lockBio").onclick=tryBio;
+    $("lockPin").addEventListener("keydown",e=>{if(e.key==="Enter")tryPin($("lockPin").value)});
+    $("lockPin").addEventListener("input",()=>{const v=$("lockPin").value,c=cfg();if(c&&c.pin&&v.length>=(c.pin.len||4))tryPin(v)});
+    $("lockForgot").onclick=()=>{if(!confirm("Odemknout nejde? Data z tohoto zařízení se smažou a zámek se vypne. Na Google Disku zůstanou – po přihlášení Googlem se stáhnou zpět."))return;
+      setCfg(null);try{LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","g_tok","g_ok"].forEach(k=>localStorage.removeItem(k))}catch(e){}location.reload()};
+    ["pointerdown","keydown","touchstart","wheel"].forEach(ev=>addEventListener(ev,()=>{if(!locked)lastAct=Date.now()},{capture:true,passive:true}));
+    document.addEventListener("visibilitychange",()=>{const c=cfg();if(!c)return;
+      if(document.visibilityState==="hidden"){hiddenAt=Date.now();if(!(+c.min))show()}
+      else if(hiddenAt&&Date.now()-hiddenAt>=(+c.min||0)*60000)show()});
+    setInterval(()=>{const c=cfg();if(c&&+c.min&&!locked&&document.visibilityState==="visible"&&Date.now()-lastAct>=c.min*60000)show()},15000);
+    if(cfg())show();
+  }
+  return {cfg,setCfg,bioAvailable,bioCreate,pinHash,init,show,unlock,isLocked:()=>locked,
+    async enableBio(){const c=cfg()||{min:5};c.bio=await bioCreate();setCfg(c)},
+    async enablePin(pin){const c=cfg()||{min:5},salt=b64(crypto.getRandomValues(new Uint8Array(16)));c.pin={salt,hash:await pinHash(pin,salt),len:pin.length,fails:0};setCfg(c)},
+    disableBio(){const c=cfg();if(!c)return;delete c.bio;setCfg(c.pin?c:null)},
+    disablePin(){const c=cfg();if(!c)return;delete c.pin;setCfg(c.bio?c:null)},
+    setMin(m){const c=cfg();if(c){c.min=+m;setCfg(c)}}};
+})();
 /* ===== Offline úložiště + Google (Disk, Kalendář) ===== */
 const GCFG={
   clientId:"1020263773048-8cq5kp6cbmhgssmusfe7m7vno0f0s61l.apps.googleusercontent.com",
@@ -1185,11 +1278,35 @@ const GCFG={
 /* prezentační režim (jen admin): data fiktivního poradce v odděleném úložišti „demo:…“, bez synchronizace s Googlem;
    přihlášení, schválení přístupu a kurzy/fondy se sdílí se skutečným režimem */
 const DEMO=(()=>{try{return localStorage.getItem("demo_mode")==="1"}catch(e){return false}})();
-const lsKey=k=>DEMO&&!/^(g_(?!fid$|synced$)|dev_id$|acc$|fx:|fund:)/.test(k)?"demo:"+k:k;
+const lsKey=k=>DEMO&&!/^(g_(?!fid$|synced$)|dev_id$|acc$|lock$|fx:|fund:)/.test(k)?"demo:"+k:k;
 const lsGet=(k,d=null)=>{try{const v=localStorage.getItem(lsKey(k));return v==null?d:JSON.parse(v)}catch(e){return d}};
 const lsSet=(k,v)=>{try{localStorage.setItem(lsKey(k),JSON.stringify(v));return true}catch(e){return false}};
 const newId=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 
+/* --- slučování po položkách: každý záznam si pamatuje, kdy se změnila která položka (_f; u objektů i jejich klíče,
+   např. jednotlivé sjetiny nebo roky daní). Při synchronizaci dvou zařízení se tak spojí změny z obou,
+   místo aby novější záznam celý přepsal starší. --- */
+const FSEP="\u0001", isObj=v=>!!v&&typeof v==="object"&&!Array.isArray(v), jeq=(a,b)=>JSON.stringify(a)===JSON.stringify(b), dclone=v=>v===undefined?undefined:JSON.parse(JSON.stringify(v));
+function stampDoc(old,nw,now){
+  const f={...((old&&!old._del&&old._f)||{})};
+  if(!old||old._del){Object.keys(nw).forEach(k=>{if(k[0]!=="_")f[k]=now});return f}
+  new Set([...Object.keys(old),...Object.keys(nw)].filter(k=>k[0]!=="_")).forEach(k=>{const a=old[k],b=nw[k];if(jeq(a,b))return;
+    if(isObj(a)&&isObj(b))new Set([...Object.keys(a),...Object.keys(b)]).forEach(x=>{if(!jeq(a[x],b[x]))f[k+FSEP+x]=now});
+    else f[k]=now});
+  return f;
+}
+function mergeDoc(a,b){
+  if(!a)return b;if(!b)return a;
+  const ua=+a._u||0, ub=+b._u||0;
+  if(a._del||b._del||!a._f||!b._f)return ub>ua?b:a;
+  const base=ub>=ua?b:a, other=base===a?b:a, out=dclone(base), f={}, win=[];
+  new Set([...Object.keys(base._f),...Object.keys(other._f)]).forEach(pth=>{const tb=+base._f[pth]||0, to=+other._f[pth]||0;
+    f[pth]=Math.max(tb,to);win.push([pth,to>tb?other:base,Math.max(tb,to)])});
+  win.sort((x,y)=>x[2]-y[2]).forEach(([pth,src])=>{const [k,x]=pth.split(FSEP);
+    if(x===undefined){if(k in src)out[k]=dclone(src[k]);else delete out[k]}
+    else{const sv=src[k];if(!isObj(out[k]))out[k]={};if(isObj(sv)&&x in sv)out[k][x]=dclone(sv[x]);else delete out[k][x]}});
+  out._f=f;out._u=Math.max(ua,ub);return out;
+}
 /* --- lokální dokumentové úložiště (stejné API, jaké používal claude db) --- */
 const LStore=(()=>{
   let s=lsGet("crm_store_v1");
@@ -1197,9 +1314,24 @@ const LStore=(()=>{
   const subs=new Set();
   const save=()=>{if(!lsSet("crm_store_v1",s))console.warn("Uložení do zařízení selhalo")};
   const emit=()=>subs.forEach(f=>{try{f()}catch(e){console.error(e)}});
-  const clean=v=>{const o={...v};delete o._u;return o};
+  const clean=v=>{const o={...v};delete o._u;delete o._f;return o};
   const plain=d=>JSON.parse(JSON.stringify(d));
-  const put=(path,val)=>{s.docs[path]=val;save();emit();GSync.soon()};
+  /* krok zpět / vpřed: zapisují se jen změny, které udělal uživatel (do 3 s po kliknutí nebo psaní),
+     ne automatické synchronizace; všechny zápisy z jedné akce (bez dalšího kliknutí mezi nimi) tvoří jeden krok */
+  let undoSt=[], redoSt=[], lastAct=0, replaying=false;const hsubs=new Set();
+  ["pointerdown","keydown","change","input"].forEach(ev=>addEventListener(ev,()=>{lastAct=Date.now()},{capture:true,passive:true}));
+  const hemit=()=>hsubs.forEach(f=>{try{f()}catch(e){}});
+  const record=(path,before,after)=>{if(replaying||Date.now()-lastAct>3000)return;const now=Date.now(),g=undoSt[undoSt.length-1];
+    if(g&&g.act===lastAct){const o=g.ops.find(x=>x.path===path);if(o)o.after=after;else g.ops.push({path,before,after});g.t=now}
+    else{undoSt.push({t:now,act:lastAct,ops:[{path,before,after}]});if(undoSt.length>60)undoSt.shift()}
+    redoSt=[];hemit()};
+  const put=(path,val)=>{const old=s.docs[path];if(!val._del)val._f=stampDoc(old,val,val._u);record(path,dclone(old),dclone(val));s.docs[path]=val;save();emit();GSync.soon()};
+  const apply=(g,dir)=>{replaying=true;try{(dir==="undo"?[...g.ops].reverse():g.ops).forEach(o=>{const tgt=dir==="undo"?o.before:o.after;
+      put(o.path,!tgt||tgt._del?{_del:true,_u:Date.now()}:{...clean(tgt),_u:Date.now()})})}finally{replaying=false}};
+  const label=g=>{const o=g.ops[0],d=(o.after&&!o.after._del?o.after:o.before)||{},col=o.path.split("/")[0],
+      what={leads:"lead",clients:"klient",team:"člen týmu",recruits:"kandidát",pfinv:"investice",funds:"fond",pfmodels:"model portfolia",settings:"nastavení"}[col]||"záznam";
+    const act=!o.before||o.before._del?"přidání":!o.after||o.after._del?"smazání":"úprava";
+    return act+" – "+what+(d.name&&col!=="settings"?" „"+d.name+"“":"")+(g.ops.length>1?" (+"+(g.ops.length-1)+")":"")};
   const inCol=(name)=>Object.entries(s.docs).filter(([k,v])=>k.startsWith(name+"/")&&k.indexOf("/",name.length+1)<0&&!v._del);
   const api={
     collection(name){return{
@@ -1215,6 +1347,10 @@ const LStore=(()=>{
   };
   return{
     api,
+    undo(){const g=undoSt.pop();if(!g)return null;apply(g,"undo");redoSt.push(g);hemit();return label(g)},
+    redo(){const g=redoSt.pop();if(!g)return null;apply(g,"redo");undoSt.push(g);hemit();return label(g)},
+    canUndo:()=>undoSt.length>0, canRedo:()=>redoSt.length>0, onHist(f){hsubs.add(f)},
+    peek:()=>({u:undoSt.length?label(undoSt[undoSt.length-1]):"",r:redoSt.length?label(redoSt[redoSt.length-1]):""}),
     docs:()=>s.docs,
     replace(docs){s.docs=docs;save();emit()},
     count:()=>Object.values(s.docs).filter(v=>!v._del).length
@@ -1222,7 +1358,7 @@ const LStore=(()=>{
 })();
 function mergeDocs(a,b){
   const out={...a};
-  for(const[k,v]of Object.entries(b||{})){if(!out[k]||(+v._u||0)>(+out[k]._u||0))out[k]=v}
+  for(const[k,v]of Object.entries(b||{}))out[k]=mergeDoc(out[k],v);
   const old=Date.now()-120*864e5;
   for(const[k,v]of Object.entries(out))if(v._del&&(+v._u||0)<old)delete out[k];
   return out;
@@ -1408,6 +1544,7 @@ async function importBackup(file){
 
 /* --- service worker (offline) --- */
 if("serviceWorker"in navigator&&location.protocol==="https:")addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+AppLock.init();
 
 </script>
 <script type="text/plain" id="appMain">
@@ -5484,6 +5621,27 @@ function demoSwitch(on,regen){
   try{localStorage.setItem("pipe_view","pipe")}catch(e){}
   location.reload();
 }
+/* nastavení zámku v okně Data a synchronizace */
+async function initLockCfg(){
+  const box=$("lockCfgBody");if(!box)return;
+  const c=AppLock.cfg(), bioOk=await AppLock.bioAvailable(), webauthn=!!window.PublicKeyCredential;
+  const bioName=/iPhone|iPad/.test(navigator.userAgent)?"Face ID / Touch ID":/Mac/.test(navigator.userAgent)?(bioOk?"Touch ID nebo heslo Macu":"mobil (QR kód) nebo heslo Macu"):"otisk / obličej / heslo zařízení";
+  const btn=(t,f,cls)=>el("button",{type:"button",class:"dbtn"+(cls?" "+cls:""),onclick:f},t);
+  const redo=()=>initLockCfg();
+  const rows=[];
+  if(!webauthn)rows.push(el("p",{class:"hint"},"Tento prohlížeč biometrické odemykání nepodporuje – použij PIN."));
+  else if(c&&c.bio)rows.push(btn("Vypnout odemykání: "+bioName,()=>{AppLock.disableBio();toast("Vypnuto");redo()},"red"));
+  else rows.push(btn("Odemykat: "+bioName,async()=>{try{await AppLock.enableBio();toast("Zámek zapnutý");redo()}catch(e){toast(e&&e.name==="NotAllowedError"?"Zrušeno":"Nepodařilo se ("+(e&&e.name||"chyba")+")")}}));
+  if(c&&c.pin)rows.push(btn("Vypnout PIN",()=>{AppLock.disablePin();toast("PIN vypnutý");redo()},"red"));
+  else{const pi=el("input",{type:"password",inputmode:"numeric",autocomplete:"new-password",placeholder:"nový PIN (4–8 číslic)",maxlength:"8",style:"text-align:left"});
+    rows.push(el("div",{class:"frow"},pi,el("button",{type:"button",class:"chipbtn",onclick:async()=>{const v=pi.value.trim();if(!/^\d{4,8}$/.test(v)){toast("PIN musí mít 4–8 číslic");return}await AppLock.enablePin(v);toast("PIN nastaven");redo()}},"Nastavit PIN")))}
+  if(c){const sel=el("select",{},[["0","hned po odchodu z appky"],["1","po 1 minutě"],["5","po 5 minutách"],["15","po 15 minutách"],["60","po hodině"]].map(([v,t])=>el("option",{value:v},t)));
+    sel.value=String(c.min??5);sel.onchange=()=>{AppLock.setMin(sel.value);toast("Uloženo")};
+    rows.push(el("label",{},"Zamknout",sel),btn("Zamknout teď",()=>{$("dataDlg").close();AppLock.show()}))}
+  rows.push(el("p",{class:"hint"},c?"Zámek je zapnutý. Platí jen pro toto zařízení – na ostatních si ho zapni zvlášť. Kdyby odemknutí nešlo, data se dají smazat ze zařízení a znovu stáhnout z Google Disku.":
+    "Při otevření appky (a po nečinnosti) bude potřeba se ověřit. "+(/Mac/.test(navigator.userAgent)&&!bioOk?"Tvůj Mac nemá Touch ID: prohlížeč nabídne ověření mobilem (naskenuješ QR kód a potvrdíš Face ID na iPhonu, Mac i iPhone potřebují zapnutý Bluetooth) nebo heslem Macu. Jako záloha se hodí i PIN.":"Jako záloha se hodí i PIN.")));
+  box.replaceChildren(...rows);
+}
 function initDemoCfg(){
   const box=$("demoCfg");if(!box)return;box.hidden=!isAdminUser();
   $("dDemo").textContent=DEMO?"Vypnout prezentační režim – zpět na moje data":"Zapnout prezentační režim";
@@ -5621,7 +5779,14 @@ async function updateEurRate(){
   $("dImport").onclick=()=>$("dFile").click();
   $("dFile").onchange=e=>{const f=e.target.files[0];if(f)importBackup(f);e.target.value=""};
   $("dLogout").onclick=()=>{GAuth.logout()};
-  initDemoCfg();
+  initDemoCfg();initLockCfg();
+  /* krok zpět / vpřed – platí pro všechny záložky (pracuje nad úložištěm); ⌘Z / ⌘⇧Z mimo textová pole */
+  {const ub=$("undoBtn"),rb=$("redoBtn");
+    const upd=()=>{ub.disabled=!LStore.canUndo();rb.disabled=!LStore.canRedo();const pk=LStore.peek();ub.title=pk.u?"Zpět: "+pk.u:"Krok zpět";rb.title=pk.r?"Znovu: "+pk.r:"Krok vpřed"};
+    const go=d=>{const l=d<0?LStore.undo():LStore.redo();if(l)toast((d<0?"↶ Vráceno: ":"↷ Znovu: ")+l)};
+    ub.onclick=()=>go(-1);rb.onclick=()=>go(1);LStore.onHist(upd);upd();
+    addEventListener("keydown",e=>{if(!(e.metaKey||e.ctrlKey)||e.altKey)return;const k=e.key.toLowerCase();if(k!=="z"&&k!=="y")return;
+      const a=document.activeElement;if(a&&(/INPUT|TEXTAREA|SELECT/.test(a.tagName)||a.isContentEditable))return;e.preventDefault();go(k==="y"||e.shiftKey?1:-1)})}
   const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);lsSet("cal_hist",null);calHist=null;calEvents=null;calState="loading";render();refreshCalendar().then(()=>fetchCalHistory(true))}catch(e){toast("Nepodařilo se uložit")}};
   sb.addEventListener("click",async()=>{
     if(!dd.open)return;renderTpls();{const b=lsGet("bk_last");$("bkInfo").textContent="Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů)."+(b?" Poslední: "+fmtDate(b)+" "+b.slice(0,4)+".":"")}const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
