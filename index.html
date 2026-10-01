@@ -1021,6 +1021,10 @@ html.locked body{overflow:hidden}
     <div id="ppList"></div>
     <p class="secfoot">Zdroj: Provizní příloha PP/2026/09/01, účinná od 1. 9. 2026. Počítá se jen získatelská provize u nových smluv (ne navýšení). Pečovatelské a následné provize sem zapiš ručně ve Výdělku.</p>
   </section>
+  <section id="view_calc" hidden>
+    <div id="calcBox"></div>
+    <p class="secfoot">Vlajkou u parametru zvolíš, kterou hodnotu kalkulačka dopočítá. Vklady, splátky a výplaty se počítají na konci každého měsíce; výpočet je orientační.</p>
+  </section>
   <section id="view_pf" hidden>
     <div class="pfadd pfsearch"><input id="pfSearchI" type="search" placeholder="Hledat klienta, fond, model…" autocomplete="off" aria-label="Hledat v Portfoliích"></div>
     <div id="pfBox"></div>
@@ -1338,7 +1342,7 @@ const LStore=(()=>{
   const apply=(g,dir)=>{replaying=true;try{(dir==="undo"?[...g.ops].reverse():g.ops).forEach(o=>{const tgt=dir==="undo"?o.before:o.after;
       put(o.path,!tgt||tgt._del?{_del:true,_u:Date.now()}:{...clean(tgt),_u:Date.now()})})}finally{replaying=false}};
   const label=g=>{const o=g.ops[0],d=(o.after&&!o.after._del?o.after:o.before)||{},col=o.path.split("/")[0],
-      what={leads:"lead",clients:"klient",team:"člen týmu",recruits:"kandidát",pfinv:"investice",funds:"fond",pfmodels:"model portfolia",settings:"nastavení"}[col]||"záznam";
+      what={leads:"lead",clients:"klient",team:"člen týmu",recruits:"kandidát",pfinv:"investice",funds:"fond",pfmodels:"model portfolia",fincalc:"kalkulace",settings:"nastavení"}[col]||"záznam";
     const act=!o.before||o.before._del?"přidání":!o.after||o.after._del?"smazání":"úprava";
     return act+" – "+what+(d.name&&col!=="settings"?" „"+d.name+"“":"")+(g.ops.length>1?" (+"+(g.ops.length-1)+")":"")};
   const inCol=(name)=>Object.entries(s.docs).filter(([k,v])=>k.startsWith(name+"/")&&k.indexOf("/",name.length+1)<0&&!v._del);
@@ -1456,7 +1460,7 @@ async function gfetch(url,opt={}){
   return r;
 }
 
-function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist"].forEach(k=>localStorage.removeItem(k))}
+function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","fc_draft_v1"].forEach(k=>localStorage.removeItem(k))}
 /* --- nastavení kalendáře (per uživatel, ukládá se do settings/main) --- */
 function calCfg(){const s=(typeof settings!=="undefined"&&settings)||{};return{id:s.calId||"primary",name:s.calName||"Hlavní kalendář",prefix:(s.calPrefix??"").trim()}}
 function prefixRe(){const p=calCfg().prefix;if(!p)return null;return new RegExp("^"+p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s*:$/,"\\s*:")+"\\s*","i")}
@@ -1717,8 +1721,17 @@ function render(){
   else if(view==="tax"){$("bigTitle").textContent="Daně";renderTax()}
   else if(view==="goals"){$("bigTitle").textContent="Moje cíle";$("sub").textContent="Rozpočet a investiční cíle podle finančního plánu";renderGoals()}
   else if(view==="pf"){$("bigTitle").textContent="Portfolia";$("sub").textContent="Fondy, portfolia ZFP a tvoje modelová portfolia";renderPf()}
+  else if(view==="calc"){$("bigTitle").textContent="Kalkulačka";$("sub").textContent="Finanční matematika – úvěr, investice, renta";renderCalc()}
   else if(view==="users"){$("bigTitle").textContent="Uživatelé";$("sub").textContent="Kdo appku používá a kalkulačka příjmu";if(typeof renderUsersTab==="function")renderUsersTab()}
   else{$("bigTitle").textContent="Sazebník";$("sub").textContent="Jak se počítají body u tvých produktů";renderPP()}
+}
+/* záložka Kalkulačka – modul fincalc.js se načte až při prvním otevření */
+let calcUI=null,calcLoading=false;
+function renderCalc(){
+  if(calcUI||calcLoading)return;
+  const go=()=>{calcLoading=false;if(!window.FinCalc){$("calcBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}calcUI=FinCalc.mount($("calcBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)}})};
+  if(window.FinCalc)return go();
+  calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=1";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;
@@ -5853,7 +5866,7 @@ function pfClientSection(e,rec){
   return [el("h3",{class:"sechead"},"Portfolio"),has?pfClientCard(rec.id,{back}):el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>pfInvEdit(null,rec?{client:rec.id}:{cid:e.id},back)},"+ Sledovat investici v Portfoliích"))];
 }
 
-const TABS=[["pipe","Pipeline"],["money","Výdělek"],["cli","Klienti"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["pp","Sazebník"]];
+const TABS=[["pipe","Pipeline"],["money","Výdělek"],["cli","Klienti"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["calc","Kalkulačka"],["pp","Sazebník"]];
 /* „Uživatelé“ je speciální záložka jen pro admina – vždy úplně na konci, nejde skrýt ani přeřadit
    (proto stojí mimo TABS/nastavení pořadí), zjišťuje se přímo z uloženého přihlášeného e-mailu. */
 /* ===== prezentační režim: fiktivní poradce (jen admin) ===== */
