@@ -32,7 +32,8 @@ export function startServer() {
 
 export class AssertionError extends Error {}
 export function assert(cond, msg) { if (!cond) throw new AssertionError(msg); }
-export function eq(a, b, msg) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new AssertionError(`${msg}: čekáno ${JSON.stringify(b)}, je ${JSON.stringify(a)}`); }
+const canon = v => JSON.stringify(v, (k, x) => x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a < b ? -1 : a > b)) : x);
+export function eq(a, b, msg) { if (canon(a) !== canon(b)) throw new AssertionError(`${msg}: čekáno ${canon(b)}, je ${canon(a)}`); }
 
 /* nová stránka s přihlášeným (fiktivně) adminem, bez sítě ke Googlu; store = počáteční data appky */
 export async function openApp(env, { store = null, width = 430, height = 900, extra = null } = {}) {

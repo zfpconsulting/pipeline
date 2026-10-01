@@ -162,7 +162,8 @@ export default {
     const raw2 = raw.replace("2026/08/1", yp + "/2").replaceAll(yp + "/1", yp + "/2").replace("Tyrkysová Jana   ZFP realitní fond   PZ1   1112223340   17,98   150,00   2 696,84", "Tyrkysová Jana   Hypotéka ČS   PZ1   234   336,90   150,00   50 535,00")
       .replace("Tarif / statická kariéra:   Body:   35,77", "Tarif / statická kariéra:   Body:   354,69").replace("Celkem provize [Kč]:   6 222,20", "Celkem provize [Kč]:   54 060,36");
     const r2 = await page.evaluate(t => parseClosingText(t, "x.pdf"), raw2);
-    eq([r2.per, r2.pts, r2.chk.rows, r2.chk.bad], [ym + "/2", 354.69, 354.69, 0], "číslo smlouvy se neslije s body");
+    const pm = await page.evaluate(ym => clShiftPer(ym + "/1", -1).slice(0, 7), ym);
+    eq([r2.stmtPer, r2.per, r2.pts, r2.chk.rows, r2.chk.bad], [ym + "/2", pm + "/2", 354.69, 354.69, 0], "výpis = výplata, produkce o měsíc dřív; číslo smlouvy se neslije s body");
     await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
     await page.click("#mClosingsBtn"); await page.waitForTimeout(300);
     await page.locator("#edBody input[type=file]").setInputFiles([
@@ -176,7 +177,7 @@ export default {
     await page.click("#edBody >> text=Uložit do výsledků"); await page.waitForTimeout(900);
     const r = await page.evaluate(ym => ({ sj1: settings.sjetiny[ym + "/1"], sj2: settings.sjetiny[ym + "/2"], bonus: settings.monthlyBonus?.[ym], kcTeam: settings.monthlyTeam?.[ym] ?? null,
       udr: settings.monthlyUdr?.[ym], rate: settings.monthlyRate?.[ym], k1: team.find(m => m.name === "Jeden Podřízený")?.m?.[ym], k2: team.find(m => m.name === "Podřízený Druhý")?.m?.[ym],
-      pos2: team.find(m => m.name === "Podřízený Druhý")?.pos, cum: settings.career.cpts }), ym);
+      pos2: team.find(m => m.name === "Podřízený Druhý")?.pos, cum: settings.career.cpts }), pm);
     eq(r, { sj1: 35.77, sj2: 354.69, bonus: 4000, kcTeam: null, udr: 24.56, rate: 150, k1: 0.08, k2: 27.44, pos2: "P3", cum: 9081.02 }, "uloženo do výsledků");
     const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) s += localStorage.getItem(localStorage.key(i)); return s });
     for (const x of ["Nováková", "Dvořák", "Tyrkysová", "7712345678", "ZW998877", "Fiktivní", "Příkop", "12.03.1990"]) assert(!dump.includes(x), "uloženo: " + x);
@@ -186,7 +187,8 @@ export default {
   async "import: body kolegy už zadané za měsíc se nepřepíšou, nečitelný soubor se nahlásí"(env) {
     const ymP = new Date(); ymP.setDate(1); ymP.setMonth(ymP.getMonth() - 2);
     const ym = ymP.getFullYear() + "-" + String(ymP.getMonth() + 1).padStart(2, "0");
-    const store = { ...STORE, "team/k2": { name: "Podřízený Druhý", pos: "P3", parent: null, m: { [ym]: 99 }, _u: 1 } };
+    const pmD = new Date(ymP.getFullYear(), ymP.getMonth() - 1, 1), pm = pmD.getFullYear() + "-" + String(pmD.getMonth() + 1).padStart(2, "0");
+    const store = { ...STORE, "team/k2": { name: "Podřízený Druhý", pos: "P3", parent: null, m: { [pm]: 99 }, _u: 1 } };
     const { ctx, page } = await openApp(env, { store });
     const raw = readFileSync(new URL("./fixtures/zfp-vypis.txt", import.meta.url), "utf8").replaceAll("2026/08", ym.replace("-", "/"));
     await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
@@ -201,7 +203,24 @@ export default {
     assert(!/7712345678/.test(sk), "kostra bez čísel smluv");
     await page.evaluate(() => document.querySelectorAll(".skeldlg").forEach(d => { d.close(); d.remove() }));
     await page.click("#edBody >> text=Uložit do výsledků"); await page.waitForTimeout(800);
-    eq(await page.evaluate(ym => team.find(m => m.name === "Podřízený Druhý").m[ym], ym), 99, "nepřepsáno");
+    eq(await page.evaluate(ym => team.find(m => m.name === "Podřízený Druhý").m[ym], pm), 99, "nepřepsáno");
+    await ctx.close();
+  },
+
+  async "oprava dřívějšího importu zapsaného o měsíc vedle"(env) {
+    const store = { ...STORE, "team/k2": { name: "Kolega", pos: "P3", parent: null, m: { "2026-08": 13.72, "2026-07": 5 }, _u: 1 },
+      "settings/main": { manual: {}, tabHidden: [], sjetiny: { "2026-07/1": 35.8, "2026-08/1": 35.77, "2026-08/2": 100, "2026-09/1": 50 }, monthlyRate: { "2026-08": 150, "2026-09": 160 }, monthlyUdr: { "2026-08": 12.28, "2026-09": 3 },
+        monthlyBonus: { "2026-08": 2000, "2026-09": 0 },
+        closings: { "2026-08/1": { pts: 35.77, udr: 12.28, rate: 150, bonus: 2000, team: { k2: 13.72 } }, "2026-09/1": { pts: 50, udr: 3, rate: 160, bonus: 0, team: {} } }, _u: 1 } };
+    const { ctx, page } = await openApp(env, { store });
+    await page.waitForTimeout(800);
+    const r = await page.evaluate(() => ({ sj: settings.sjetiny, mr: settings.monthlyRate, mu: settings.monthlyUdr, mb: settings.monthlyBonus || {}, k: team.find(m => m.name === "Kolega").m, v: settings.closingsV, keys: Object.keys(settings.closings).sort() }));
+    eq(r.sj, { "2026-07/1": 35.77, "2026-08/1": 50, "2026-08/2": 100 }, "body přesunuté o měsíc dřív (ruční 8/2 zůstala)");
+    eq(r.mr, { "2026-07": 150, "2026-08": 160 }, "tarif");
+    eq(r.mu, { "2026-07": 12.28, "2026-08": 3 }, "udržovačky");
+    eq(r.mb, { "2026-07": 2000 }, "mimořádné provize");
+    eq(r.k, { "2026-07": 13.72 }, "body kolegy přesunuté");
+    eq([r.v, r.keys], [2, ["2026-07/1", "2026-08/1"]], "záznamy importu");
     await ctx.close();
   },
 };

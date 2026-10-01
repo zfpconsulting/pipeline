@@ -1985,6 +1985,9 @@ function clSkeleton(txt){
    (vlastní produkce; řádky končí body, tarifem a částkou), tabulka týmu s hlavičkou „… Body celkem Body Tarif Částka [Kč]“
    (meziprovize), mezisoučty „… [Kč]: X“ a „… v … období [Kč]: X“ (k výplatě), „… kariera ZFP: X“ (kariérní body).
    Z řádků smluv se bere jen druh produktu a čísla – jméno klienta ani číslo smlouvy se nikam nedostanou. */
+/* ZFP značí výpis obdobím VÝPLATY („2026/08/1“ = 1. výplata v srpnu); obsahuje produkci o měsíc dřív (1.–15. 7.).
+   V appce jsou uzávěrky podle měsíce produkce (výplata v M+1), proto se období posouvá o měsíc zpět. */
+function clShiftPer(per,d){const [y,m]=per.slice(0,7).split("-").map(Number),x=new Date(y,m-1+d,1);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+per.slice(7)}
 function parseZfpStatement(raw){
   const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
   const lines=String(raw||"").split(/\r?\n/).map(l=>l.replace(/[\s ]+/g," ").trim()).filter(Boolean);
@@ -2002,7 +2005,7 @@ function parseZfpStatement(raw){
   const R2=v=>Math.round(v*100)/100;
   const r={own:0,udr:0,bonus:0,ownKc:0,teamKc:0,grp:0,split:{},cat:{},teamRows:[],bad:0}, tarifs={};let sec=null,anyRow=false;
   const pm=String(raw).match(/za\s*obdob\S*\s*:?\s*(20\d\d)\s*\/\s*(\d{1,2})\s*\/\s*([12])(?!\d)/i);
-  if(pm)r.per=pm[1]+"-"+pm[2].padStart(2,"0")+"/"+pm[3];
+  if(pm)r.stmtPer=pm[1]+"-"+pm[2].padStart(2,"0")+"/"+pm[3];
   const comp=L=>/zfp\s*realitni\s*fond|zfp\s*investments|\bzfpi\b/.test(L)?"ZFPI":/zfp\s*wi\b|world\s*index/.test(L)?"WI":/conseq/.test(L)?"CQ":"OST";
   const catOf=L=>/penzij|\bdps\b|\bdip\b|doplnkove/.test(L)?"DPS":/hypote|\buver|stavebni\s*sporeni|\bbanka\b/.test(L)?"UVER":/realit(?!ni\s*fond)|zfp\s*reality/.test(L)?"REAL":
     /nezivot|majet|domacnost|odpovednost|\bpov\b|\bhav\b|cestovni/.test(L)?"NEZ":/fond|invest|\bwi\b|conseq|amundi|sicav|gold|auvesta|platiniq/.test(L)?"INV":
@@ -2031,12 +2034,12 @@ function parseZfpStatement(raw){
   /* body: přednost má hlavička výpisu (přesně podle ZFP); součet řádků slouží jako kontrola */
   const pts=r.hdrOwn??R2(r.own), grp=r.hdrGrp??R2(r.grp);
   const chk={rows:R2(r.own),hdr:r.hdrOwn??null,bad:r.bad,teamRows:R2(r.grp),hdrGrp:r.hdrGrp??null,ownKc:R2(r.ownKc)};
-  return {per:r.per,pts,udr:R2(r.udr),grp,bonus:R2(r.bonus),teamKc:R2(r.teamKc),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,chk,
+  return {stmtPer:r.stmtPer,per:r.stmtPer?clShiftPer(r.stmtPer,-1):undefined,pts,udr:R2(r.udr),grp,bonus:R2(r.bonus),teamKc:R2(r.teamKc),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,chk,
     teamRows:r.teamRows.map(x=>({...x,pts:R2(x.pts),kc:R2(x.kc)})),
     split:Object.fromEntries(Object.entries(r.split).map(([k,v])=>[k,R2(v)])),cat:Object.fromEntries(Object.entries(r.cat).map(([k,v])=>[k,R2(v)]))};
 }
 function parseClosingText(txt,fname){
-  {const z=parseZfpStatement(txt);if(z){if(!z.per)z.per=clDetectPer(String(txt||""),fname||"");return clSanitize(z)}}
+  {const z=parseZfpStatement(txt);if(z){if(!z.stmtPer){const sp=clDetectPer(String(txt||""),fname||"");if(sp){z.stmtPer=sp;z.per=clShiftPer(sp,-1)}}return clSanitize(z)}}
   const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
   /* vymazání identifikátorů: čísla smluv a účtů (6+ číslic), rodná čísla a čísla s lomítkem, e-maily, telefony, IBAN */
   const scrub=l=>l.replace(/\S+@\S+/g," ").replace(/\bCZ\d{2}[ \d]{10,}\b/gi," ").replace(/\+\d{3}[  ]?\d{3}[  ]?\d{3}[  ]?\d{3}/g," ")
@@ -2070,6 +2073,7 @@ function parseClosingText(txt,fname){
 function clSanitize(r){
   const out={}, ok=(v,[a,b])=>typeof v==="number"&&isFinite(v)&&v>=a&&v<=b;
   if(typeof r.per==="string"&&/^\d{4}-\d{2}\/[12]$/.test(r.per))out.per=r.per;
+  if(typeof r.stmtPer==="string"&&/^\d{4}-\d{2}\/[12]$/.test(r.stmtPer))out.stmtPer=r.stmtPer;
   Object.entries(CL_RANGE).forEach(([k,rg])=>{if(ok(r[k],rg))out[k]=Math.round(r[k]*100)/100});
   ["split","cat"].forEach(g=>{const allowed=g==="split"?CL_SPLIT.map(x=>x[0]):CL_CAT.map(x=>x[0]);const o={};
     allowed.forEach(k=>{if(r[g]&&ok(r[g][k],[-1e6,1e7]))o[k]=Math.round(r[g][k]*100)/100});if(Object.keys(o).length)out[g]=o});
@@ -2087,11 +2091,47 @@ function teamMatch(name){const W=s=>(s||"").normalize("NFD").replace(/[\u0300-\u
 /* ===== Import provizních výpisů (sjetin): období (rok / měsíc / 1. nebo 2. uzávěrka) se zjistí z výpisu
    a údaje se doplní do celkových výsledků. Soubory se čtou jen v tomto zařízení, ukládají se jen čísla
    (a u meziprovize jména kolegů z týmu – ne klientů). Meziprovize se ukládá jako body kolegů, ne v Kč. ===== */
+/* Jednorázová oprava dřívějších importů, které výpis „RRRR/MM/h“ (období výplaty) zapsaly do stejného měsíce
+   místo do měsíce produkce (o měsíc dřív). Hodnoty, které tehdy import zapsal, se ze špatného měsíce odeberou
+   a zapíšou do správného; nic jiného se nemění. */
+const clLoaded={settings:false,team:false};let clMigrating=false;
+async function clMigrate(){
+  if(clMigrating||!clLoaded.settings||!clLoaded.team||!db)return;
+  const S=settings,C=S.closings;if(!C||S.closingsV===2)return;
+  /* posouvají se jen záznamy z importu souborů (klíč RRRR-MM/h); měsíční záznamy z dřívějšího ručního formuláře
+     byly zadané podle měsíce produkce, ty zůstanou, jak jsou */
+  const stale=Object.entries(C).filter(([k,v])=>v&&v.v!==2&&/\/[12]$/.test(k));
+  clMigrating=true;
+  try{
+    const sj={...(S.sjetiny||{})},mr={...(S.monthlyRate||{})},mu={...(S.monthlyUdr||{})},mb={...(S.monthlyBonus||{})},mt={...(S.monthlyTeam||{})},C2={};
+    Object.entries(C).forEach(([k,v])=>{if(v&&v.v===2)C2[k]=v});
+    /* co tehdy import zapsal, po měsících (špatný měsíc) */
+    const W={};stale.forEach(([k,v])=>{const per=/\/[12]$/.test(k);const ym=per?k.slice(0,7):k;const w=W[ym]=W[ym]||{h:{},rate:null,udr:null,bonus:null,teamKc:null,team:{},C:[]};
+      if(per){w.h[k.slice(-1)]=v.pts;if(v.rate)w.rate=v.rate;w.udr=Math.round(((w.udr||0)+(+v.udr||0))*100)/100;w.bonus=Math.round(((w.bonus||0)+(+v.bonus||0))*100)/100;
+        Object.entries(v.team||{}).forEach(([id,p])=>w.team[id]=Math.round(((w.team[id]||0)+p)*100)/100);w.C.push([k.slice(-1),v])}
+      else{if(v.p1!=null)w.h["1"]=v.p1;if(v.p2!=null)w.h["2"]=v.p2;if(v.rate)w.rate=v.rate;if(v.udr!=null)w.udr=v.udr;if(v.bonus!=null)w.bonus=v.bonus;if(v.team!=null)w.teamKc=v.team}});
+    const near=(a,b)=>a!=null&&b!=null&&Math.abs(+a-+b)<0.006;
+    /* 1) odebrat ze špatných měsíců jen to, co tam import zapsal */
+    const teamPatch={};
+    Object.entries(W).forEach(([ym,w])=>{Object.entries(w.h).forEach(([h,p])=>{if(near(sj[ym+"/"+h],p))delete sj[ym+"/"+h]});
+      if(near(mr[ym],w.rate))delete mr[ym];if(near(mu[ym],w.udr))delete mu[ym];if(near(mb[ym],w.bonus)||(!w.bonus&&!mb[ym]))delete mb[ym];if(near(mt[ym],w.teamKc))delete mt[ym];
+      Object.entries(w.team).forEach(([id,p])=>{const m=team.find(x=>x.id===id);if(m&&near(m.m?.[ym],p)){(teamPatch[id]=teamPatch[id]||{...(m.m||{})});delete teamPatch[id][ym]}})});
+    /* 2) zapsat do správného měsíce (produkce = o měsíc dřív) */
+    Object.entries(W).forEach(([ym,w])=>{const ry=clShiftPer(ym+"/1",-1).slice(0,7);
+      Object.entries(w.h).forEach(([h,p])=>{if(p!=null)sj[ry+"/"+h]=p});if(w.rate)mr[ry]=w.rate;if(w.udr!=null)mu[ry]=w.udr;if(w.bonus)mb[ry]=w.bonus;if(w.teamKc!=null)mt[ry]=w.teamKc;
+      Object.entries(w.team).forEach(([id,p])=>{const m=team.find(x=>x.id===id);if(!m)return;(teamPatch[id]=teamPatch[id]||{...(m.m||{})})[ry]=p});
+      w.C.forEach(([h,v])=>{C2[ry+"/"+h]={...v,v:2,stmt:ym+"/"+h}})});
+    await db.doc("settings/main").set({...S,closingsV:2,closings:C2,sjetiny:sj,monthlyRate:mr,monthlyUdr:mu,monthlyBonus:mb,monthlyTeam:mt});
+    for(const [id,m] of Object.entries(teamPatch))await db.doc("team/"+id).update({m});
+    if(stale.length)toast("Opraveno: dřívější import výpisů přesunut do správných měsíců (výpis = výplata, produkce je o měsíc dřív)");
+  }catch(e){console.error(e)}finally{clMigrating=false}
+}
 function openImport(){
   /* přesně jako ve výpisu – body i koruny na 2 desetinná místa */
   const fmt1=n=>(+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:0,maximumFractionDigits:2}), fmt0=fmt1, kc=n=>(+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2})+" Kč";
   const items=[], diag=[], body=el("div",{class:"clgrid"});
   const perTxt=per=>(per.endsWith("/1")?"1. uzávěrka ":"2. uzávěrka ")+ymLabel(perMonth(per),1);
+  const stmtTxt=r=>r.stmtPer?"výpis "+r.stmtPer.replace("-","/")+" (výplata "+ymLabelLoc(perMonth(r.stmtPer)).replace(/^v /,"v ")+") → produkce "+clPerRange(r.per):"";
   const file=el("input",{type:"file",multiple:"",accept:".pdf,.xlsx,.xlsm,.xls,.ods,.csv,.txt,.htm,.html,image/*",hidden:""});
   /* zrušený výběr souborů posílá „cancel“, který by jinak zavřel celé okno */
   file.addEventListener("cancel",e=>e.stopPropagation());
@@ -2108,6 +2148,7 @@ function openImport(){
     const tm=(r.teamRows||[]).map(t=>{const m=teamMatch(t.name),had=m&&hasV(m.m?.[ym])&&!clTeamOurs(m.id,ym);
       return line(t.name,fmt1(t.pts)+" b",m?(had?"v týmu už zadáno "+fmt1(+m.m[ym])+" b za "+ymLabel(ym,1)+" – nepřepíšu":"→ zapíše se k členovi "+m.name):"nový člen týmu"+(t.total!=null?" · "+statFor(t.total)[0]+" ("+fmt0(t.total)+" b celkem)":""))});
     return el("div",{class:"group clcard"},
+      el("div",{class:"clnote",style:"margin-top:10px"},stmtTxt(r)),
       el("div",{class:"frow"},el("h3",{},perTxt(r.per)),el("span",{class:"xu",style:"flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},it.name),
         it.skel?el("button",{type:"button",class:"chipbtn",style:"margin-left:8px",onclick:()=>showSkel(it)},"Struktura"):null),
       line("Body vlastní",fmt1(r.pts)+" b",(hasV(now)&&Math.abs(+now-r.pts)>0.005?"teď v appce "+fmt1(+now)+" b → přepíše se":hasV(now)?"v appce stejně":"")+(r.udr?(hasV(now)?" · ":"")+"z toho udržovací "+fmt1(r.udr)+" b"+(sp?" ("+sp+")":""):"")),
@@ -2140,10 +2181,10 @@ function openImport(){
       if(r.chk){if(r.chk.hdr!=null&&Math.abs(r.chk.hdr-r.chk.rows)>0.05)warn.push("součet řádků "+fmt1(r.chk.rows)+" b nesedí s hlavičkou výpisu "+fmt1(r.chk.hdr)+" b – beru hlavičku");
         if(r.chk.bad)warn.push(r.chk.bad+" "+plural(r.chk.bad,"řádek","řádky","řádků")+" nešlo ověřit (body × tarif ≠ částka) – nejsou v rozpadu")}
       const i=items.findIndex(x=>x.r.per===r.per);const it={name:f.name,r,warn,skel};if(i>=0)items[i]=it;else items.push(it)}
-    items.sort((a,b)=>b.r.per.localeCompare(a.r.per));const maxPer=items[0]?.r.per;items.forEach(x=>x.latest=x.r.per===maxPer&&(!settings.career?.cAsOf||perEnd(maxPer)>=settings.career.cAsOf.slice(0,10)));
+    items.sort((a,b)=>b.r.per.localeCompare(a.r.per));const maxPer=items[0]?.r.per;items.forEach(x=>x.latest=x.r.per===maxPer&&(!settings.career?.cAsOf||perEnd(x.r.stmtPer||maxPer)>=settings.career.cAsOf.slice(0,10)));
     draw();toast(items.length?"Přečteno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+" – zkontroluj a ulož":"Žádný výpis se nepodařilo přečíst – podrobnosti v okně")};
   async function save(){
-    const prevC=settings.closings||{}, C={};Object.entries(prevC).forEach(([k,v])=>{if(/\/[12]$/.test(k))C[k]=v});
+    const prevC=settings.closings||{}, C={};Object.entries(prevC).forEach(([k,v])=>{if(/\/[12]$/.test(k)&&v&&v.v===2)C[k]=v});
     const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})}, mt={...(S.monthlyTeam||{})};
     /* kolegové: najít v týmu, jinak založit (jen jednou na jméno) */
     const made={}, memberOf=async t=>{const m=teamMatch(t.name);if(m)return m;if(!t.name)return null;if(made[t.name])return made[t.name];
@@ -2154,7 +2195,7 @@ function openImport(){
       for(const {r} of items){const ym=perMonth(r.per);yms.add(ym);const tm={};
         for(const t of r.teamRows||[]){const m=await memberOf(t);if(!m)continue;
           if(hasV(m.m?.[ym])&&!clTeamOurs(m.id,ym,prevC))continue;tm[m.id]=Math.round(((tm[m.id]||0)+t.pts)*100)/100}
-        C[r.per]={pts:r.pts,udr:r.udr??null,split:r.split||{},cat:r.cat||{},bonus:r.bonus||0,rate:r.rate??null,pay:r.pay??null,grp:r.grp??null,team:tm,at:new Date().toISOString()};
+        C[r.per]={v:2,stmt:r.stmtPer||null,pts:r.pts,udr:r.udr??null,split:r.split||{},cat:r.cat||{},bonus:r.bonus||0,rate:r.rate??null,pay:r.pay??null,grp:r.grp??null,team:tm,at:new Date().toISOString()};
         sj[r.per]=r.pts;if(r.rate)mr[ym]=r.rate}
       /* měsíční souhrny z uzávěrek: udržovačky, mimořádné provize, body kolegů */
       const teamUpd={};
@@ -2171,8 +2212,8 @@ function openImport(){
       if(aumSet){P.aum=aum;P.source="AUM dopočítané z výpisů "+ymLabel(recent[0],1)+" – "+ymLabel(recent[recent.length-1],1)}
       /* body celkem z nejnovějšího výpisu (vlastní zůstanou, skupinové = rozdíl) */
       const car={...(S.career||{})}, lat=items.find(x=>x.latest&&x.r.cum!=null);
-      if(lat){const d=perEnd(lat.r.per),o=ownPts();Object.assign(car,{cpts:Math.round(lat.r.cum*100)/100,cOwn:o!=null?Math.round(Math.min(o,lat.r.cum)):(car.cOwn??null),cAsOf:d,cBase:sinceTotal(d),stat:statFor(lat.r.cum)[0]})}
-      await db.doc("settings/main").set({...S,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyRate:mr,monthlyBonus:mb,monthlyTeam:mt,passive:P,career:car});
+      if(lat){const d=perEnd(lat.r.stmtPer||lat.r.per),o=ownPts();Object.assign(car,{cpts:Math.round(lat.r.cum*100)/100,cOwn:o!=null?Math.round(Math.min(o,lat.r.cum)):(car.cOwn??null),cAsOf:d,cBase:sinceTotal(d),stat:statFor(lat.r.cum)[0]})}
+      await db.doc("settings/main").set({...S,closingsV:2,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyRate:mr,monthlyBonus:mb,monthlyTeam:mt,passive:P,career:car});
       for(const [id,ms] of Object.entries(teamUpd)){const m=team.find(x=>x.id===id)||Object.values(made).find(x=>x.id===id);if(!m)continue;
         await db.doc("team/"+id).update({m:{...(team.find(x=>x.id===id)?.m||m.m||{}),...ms}})}
       $("edDlg").close();toast("Importováno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+(Object.keys(made).length?" · "+Object.keys(made).length+" "+plural(Object.keys(made).length,"nový člen","noví členové","nových členů")+" týmu":""));
@@ -2181,6 +2222,7 @@ function openImport(){
   openSheet("Importovat data",[body]);draw();file.click();
 }
 /* hodnota člena za měsíc pochází z dřívějšího importu výpisu (pak ji smíme aktualizovat) */
+function clPerRange(per){const [y,m]=per.slice(0,7).split("-").map(Number);return (per.endsWith("/1")?"1.–15. ":"16.–"+new Date(y,m,0).getDate()+". ")+m+". "+y}
 function clTeamOurs(id,ym,C){C=C||settings.closings||{};return [1,2].some(h=>C[ym+"/"+h]?.team&&id in C[ym+"/"+h].team)}
 /* poměr zdrojů příjmu za aktuální měsíc – vlastní produkce / tým / udržovačky / ostatní */
 let mixSpinPending=false;
@@ -6033,12 +6075,12 @@ async function updateEurRate(){
   updateEurRate();
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));render();scheduleSync();scheduleTasks()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="cli")render()});
-  db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));if(view==="money"||view==="net")render()});
+  db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
   db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
   db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf()});
   db.collection("pfinv").onSnapshot(snap=>{pfInv=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf()});
   db.collection("recruits").onSnapshot(snap=>{recruits=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="net")render()});
-  db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};applyAppName();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks()});
+  db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};clLoaded.settings=true;setTimeout(clMigrate,0);applyAppName();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks()});
   $("todayBtn").onclick=openToday;maybeOpenToday();
   $("addRecruit").onclick=addRecruit;$("addMember2").onclick=()=>addMember(null);$("addMember3").onclick=()=>addMember(null);
   $("cbBtn").onclick=()=>{const ids=todayData().calls.filter(l=>!todoState("call:"+l.id,true)).map(l=>l.id);openCallBlock(ids)};
