@@ -879,6 +879,7 @@ html.locked body{overflow:hidden}
           <div class="mslide"><div class="mhead" id="mHead_own"></div><div class="group" id="mBenchRow_own" style="margin:8px 0 4px"></div><div class="chartwrap mchart" id="mChart_own"></div></div>
           <div class="mslide"><div class="mhead" id="mHead_team"></div><div class="group" id="mBenchRow_team" style="margin:8px 0 4px"></div><div class="chartwrap mchart" id="mChart_team"></div></div>
           <div class="mslide"><div class="mhead" id="mHead_udr"></div><div class="group" id="mBenchRow_udr" style="margin:8px 0 4px"></div><div class="chartwrap mchart" id="mChart_udr"></div></div>
+          <div class="mslide"><div class="mhead" id="mHead_reg"></div><div class="chartwrap mchart" id="mChart_reg"></div></div>
           <div class="mslide"><div class="mhead" id="mHead_ost"></div><div class="group" id="mBenchRow_ost" style="margin:8px 0 4px"></div><div class="chartwrap mchart" id="mChart_ost"></div></div>
         </div>
         <div class="mdots" id="mDots"></div>
@@ -1891,7 +1892,7 @@ let moneyYm=null;
 function moneyMinYm(){const ks=[...Object.keys(settings.sjetiny||{}).map(perMonth),...Object.keys(settings.monthlyTeam||{})].sort();return ks[0]||ymOf(todayStr())}
 function renderMoney(cq,cur){
   const s0m=passiveNow(), nowYm=ymOf(todayStr()), curYm=moneyYm&&moneyYm<nowYm?moneyYm:nowYm, past=curYm<nowYm;
-  const curMr=monthRow(curYm,{tot:s0m.tot,udr:s0m.udr}), ownActiveNow=Math.max(0,curMr.ownKc-curMr.udrKc);
+  const curMr=monthRow(curYm,{tot:s0m.tot,udr:s0m.udr,reg:s0m.reg}), ownActiveNow=Math.max(0,curMr.ownKc-curMr.udrKc-curMr.regKc);
   const mq=qOf(curYm+"-01"), mcur=mq===cq?cur:quarterRow(mq);
   $("m_qlabel").textContent="Vyprodukováno za "+ymLabel(curYm,1)+" · "+(curMr.pay<=nowYm&&past?"vyplaceno ":"vyplatí se ")+ymLabelLoc(curMr.pay);
   $("mPrevM").disabled=curYm<=moneyMinYm();$("mNextM").disabled=!past;
@@ -1960,7 +1961,7 @@ async function closingFileText(f){
    a výsledek projde pevným seznamem povolených polí (jen čísla v rozumném rozsahu). */
 const CL_CAT=[["ZP","Životní pojištění",/zivotni\s*poj|\bzp\b/],["INV","Investice",/investic|podilov|fond/],["DPS","Penzijní spoření (DPS)",/penzij|\bdps\b|\bdip\b/],
   ["UVER","Úvěry a hypotéky",/hypote|uver/],["NEZ","Neživotní pojištění",/nezivot|majet|odpovednost|auto\s*poj|pov\b/],["REAL","Reality",/realit/],["OST","Ostatní",/ostatni|jine\b/]];
-const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],teamKc:[-1e7,1e7],bonus:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[-1e5,1e7]};
+const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],reg:[-1e5,1e6],regN:[0,1e5],team:[-1e7,1e7],teamKc:[-1e7,1e7],bonus:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[-1e5,1e7]};
 /* období výpisu: „2026/09/2“ (značení sjetin v ZFP) v textu nebo názvu souboru, jinak poslední datum ve výpisu */
 const CL_MON=["leden|ledna","unor|unora","brezen|brezna","duben|dubna","kveten|kvetna","cerven(?!ec)|cervna","cervenec|cervence","srpen|srpna","zari","rijen|rijna","listopad|listopadu","prosinec|prosince"];
 function clDetectPer(txt,fname){
@@ -1991,6 +1992,8 @@ function clSkeleton(txt){
 /* ZFP značí výpis obdobím VÝPLATY („2026/08/1“ = 1. výplata v srpnu); obsahuje produkci o měsíc dřív (1.–15. 7.).
    V appce jsou uzávěrky podle měsíce produkce (výplata v M+1), proto se období posouvá o měsíc zpět. */
 function clShiftPer(per,d){const [y,m]=per.slice(0,7).split("-").map(Number),x=new Date(y,m-1+d,1);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+per.slice(7)}
+/* hranice jednorázového vkladu: menší vklady do investic jsou pravidelné (měsíční) vklady */
+const REG_DEP_MAX=50000;
 function parseZfpStatement(raw){
   const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
   const lines=String(raw||"").split(/\r?\n/).map(l=>l.replace(/[\s ]+/g," ").trim()).filter(Boolean);
@@ -2006,10 +2009,14 @@ function parseZfpStatement(raw){
     return {v:out,rest:tk.slice(0,k+1)}};
   const okRow=(b,t,a)=>Math.abs(a-b*t)<=Math.abs(t)*0.006+0.03;
   const R2=v=>Math.round(v*100)/100;
-  const r={own:0,udr:0,bonus:0,ownKc:0,teamKc:0,grp:0,split:{},cat:{},teamRows:[],bad:0}, tarifs={};let sec=null,anyRow=false;
+  const r={own:0,udr:0,reg:0,regN:0,bonus:0,ownKc:0,teamKc:0,grp:0,split:{},cat:{},teamRows:[],bad:0}, tarifs={};let sec=null,anyRow=false;
   const pm=String(raw).match(/za\s*obdob\S*\s*:?\s*(20\d\d)\s*\/\s*(\d{1,2})\s*\/\s*([12])(?!\d)/i);
   if(pm)r.stmtPer=pm[1]+"-"+pm[2].padStart(2,"0")+"/"+pm[3];
-  const comp=L=>/zfp\s*realitni\s*fond|zfp\s*investments|\bzfpi\b/.test(L)?"ZFPI":/zfp\s*wi\b|world\s*index/.test(L)?"WI":/conseq/.test(L)?"CQ":"OST";
+  const comp=L=>/zfp\s*realitni\s*fond|zfp\s*investments|\bzfpi\b/.test(L)?"ZFPI":/zfp\s*wi\b|world\s*index/.test(L)?"WI":/conseq/.test(L)?"CQ":/up\s*premium/.test(L)?"UP":"OST";
+  /* vklad do investice z bodů za vstupní poplatek (provizní příloha, standardní poplatek 3 %, UP Premium 2 %):
+     ZFPI vklad × 3 % ÷ 1,03 ÷ 324, WI × 3 % × 98 % ÷ 324, Conseq × 3 % ÷ 330,61, UP × 2 % ÷ 324, ostatní ≈ × 3 % ÷ 324
+     → Kč vkladu na 1 bod; vklad pod 50 000 Kč se bere jako pravidelný (měsíční) vklad, ne aktivní produkce */
+  const DEP_PER_PT={ZFPI:324*1.03/.03,WI:324/(.03*.98),CQ:330.61/.03,UP:324/.02,OST:324/.03};
   const catOf=L=>/penzij|\bdps\b|\bdip\b|doplnkove/.test(L)?"DPS":/hypote|\buver|stavebni\s*sporeni|\bbanka\b/.test(L)?"UVER":/realit(?!ni\s*fond)|zfp\s*reality/.test(L)?"REAL":
     /nezivot|majet|domacnost|odpovednost|\bpov\b|\bhav\b|cestovni/.test(L)?"NEZ":/fond|invest|\bwi\b|conseq|amundi|sicav|gold|auvesta|platiniq/.test(L)?"INV":
     /\bnn\b|allianz|kooperativ|\bcpp\b|generali|uniqa|metlife|maxima|pojist|zivot|\bcsob\b/.test(L)?"ZP":"OST";
@@ -2031,13 +2038,14 @@ function parseZfpStatement(raw){
     r.own+=b;r.ownKc+=a;if(t)tarifs[t]=(tarifs[t]||0)+Math.abs(b);
     const c=comp(L), isNew=/\bpz\d\b/.test(L)||/vstupn/.test(L), cat=catOf(L);
     r.cat[cat]=(r.cat[cat]||0)+b;
+    if(isNew&&cat==="INV"&&Math.abs(b)*DEP_PER_PT[c]<REG_DEP_MAX){r.reg+=b;r.regN++}
     if(!isNew&&(c!=="OST"||cat==="INV")){r.udr+=b;r.split[c]=(r.split[c]||0)+b}}
   if(!anyRow&&r.pay==null&&r.hdrOwn==null)return null;
   const best=Object.entries(tarifs).sort((a,b)=>b[1]-a[1])[0];
   /* body: přednost má hlavička výpisu (přesně podle ZFP); součet řádků slouží jako kontrola */
   const pts=r.hdrOwn??R2(r.own), grp=r.hdrGrp??R2(r.grp);
   const chk={rows:R2(r.own),hdr:r.hdrOwn??null,bad:r.bad,teamRows:R2(r.grp),hdrGrp:r.hdrGrp??null,ownKc:R2(r.ownKc)};
-  return {stmtPer:r.stmtPer,per:r.stmtPer?clShiftPer(r.stmtPer,-1):undefined,pts,udr:R2(r.udr),grp,bonus:R2(r.bonus),teamKc:R2(r.teamKc),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,chk,
+  return {stmtPer:r.stmtPer,per:r.stmtPer?clShiftPer(r.stmtPer,-1):undefined,pts,udr:R2(r.udr),reg:R2(r.reg),regN:r.regN,grp,bonus:R2(r.bonus),teamKc:R2(r.teamKc),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,chk,
     teamRows:r.teamRows.map(x=>({...x,pts:R2(x.pts),kc:R2(x.kc)})),
     split:Object.fromEntries(Object.entries(r.split).map(([k,v])=>[k,R2(v)])),cat:Object.fromEntries(Object.entries(r.cat).map(([k,v])=>[k,R2(v)]))};
 }
@@ -2154,7 +2162,10 @@ function openImport(){
       el("div",{class:"clnote",style:"margin-top:10px"},stmtTxt(r)),
       el("div",{class:"frow"},el("h3",{},perTxt(r.per)),el("span",{class:"xu",style:"flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},it.name),
         it.skel?el("button",{type:"button",class:"chipbtn",style:"margin-left:8px",onclick:()=>showSkel(it)},"Struktura"):null),
-      line("Body vlastní",fmt1(r.pts)+" b",(hasV(now)&&Math.abs(+now-r.pts)>0.005?"teď v appce "+fmt1(+now)+" b → přepíše se":hasV(now)?"v appce stejně":"")+(r.udr?(hasV(now)?" · ":"")+"z toho udržovací "+fmt1(r.udr)+" b"+(sp?" ("+sp+")":""):"")),
+      line("Body vlastní",fmt1(r.pts)+" b",hasV(now)&&Math.abs(+now-r.pts)>0.005?"teď v appce "+fmt1(+now)+" b → přepíše se":hasV(now)?"v appce stejně":""),
+      line("z toho aktivní produkce",fmt1(r.pts-(r.udr||0)-(r.reg||0))+" b",(r.reg?"bez pravidelných vkladů a udržovaček":"")),
+      r.reg?line("z toho pravidelné vklady",fmt1(r.reg)+" b",(r.regN||0)+" "+plural(r.regN||0,"vklad","vklady","vkladů")+" do investic pod "+fmt0(REG_DEP_MAX)+" Kč (odhad vkladu z bodů za vstupní poplatek)"):null,
+      r.udr?line("z toho udržovací",fmt1(r.udr)+" b",sp):null,
       cs?line("Z čeho je příjem","",ct.sort((a,b)=>b[1]-a[1]).map(([t,v])=>t+" "+Math.round(Math.abs(v)/cs*100)+" %").join(" · ")):null,
       ...(tm.length?[el("div",{class:"clnote"},"Body z týmu podle kolegů ("+fmt1(r.grp||0)+" b):"),...tm]:[]),
       r.bonus?line("Mimořádné provize / srážky",kc(r.bonus),"v Kč bez bodů"):null,
@@ -2188,7 +2199,7 @@ function openImport(){
     draw();toast(items.length?"Přečteno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+" – zkontroluj a ulož":"Žádný výpis se nepodařilo přečíst – podrobnosti v okně")};
   async function save(){
     const prevC=settings.closings||{}, C={};Object.entries(prevC).forEach(([k,v])=>{if(/\/[12]$/.test(k)&&v&&v.v===2)C[k]=v});
-    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})}, mt={...(S.monthlyTeam||{})};
+    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mreg={...(S.monthlyReg||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})}, mt={...(S.monthlyTeam||{})};
     /* kolegové: najít v týmu, jinak založit (jen jednou na jméno) */
     const made={}, memberOf=async t=>{const m=teamMatch(t.name);if(m)return m;if(!t.name)return null;if(made[t.name])return made[t.name];
       const doc={name:t.name,pos:t.total!=null?statFor(t.total)[0]:"P1",rate:null,parent:null,m:{},createdAt:new Date().toISOString(),...(t.total!=null?{cpts:Math.round(t.total*100)/100}:{})};
@@ -2198,13 +2209,14 @@ function openImport(){
       for(const {r} of items){const ym=perMonth(r.per);yms.add(ym);const tm={};
         for(const t of r.teamRows||[]){const m=await memberOf(t);if(!m)continue;
           if(hasV(m.m?.[ym])&&!clTeamOurs(m.id,ym,prevC))continue;tm[m.id]=Math.round(((tm[m.id]||0)+t.pts)*100)/100}
-        C[r.per]={v:2,stmt:r.stmtPer||null,pts:r.pts,udr:r.udr??null,split:r.split||{},cat:r.cat||{},bonus:r.bonus||0,rate:r.rate??null,pay:r.pay??null,grp:r.grp??null,team:tm,at:new Date().toISOString()};
+        C[r.per]={v:2,stmt:r.stmtPer||null,pts:r.pts,udr:r.udr??null,reg:r.reg??null,split:r.split||{},cat:r.cat||{},bonus:r.bonus||0,rate:r.rate??null,pay:r.pay??null,grp:r.grp??null,team:tm,at:new Date().toISOString()};
         sj[r.per]=r.pts;if(r.rate)mr[ym]=r.rate}
       /* měsíční souhrny z uzávěrek: udržovačky, mimořádné provize, body kolegů */
       const teamUpd={};
       yms.forEach(ym=>{const h=[C[ym+"/1"],C[ym+"/2"]].filter(Boolean),both=h.length===2,hadPrev=!!(prevC[ym+"/1"]||prevC[ym+"/2"]);
         const sum=k=>Math.round(h.reduce((a,c)=>a+(+c[k]||0),0)*100)/100;
         if(both||!hasV(mu[ym])||hadPrev)mu[ym]=sum("udr");
+        if(h.some(c=>c.reg!=null))mreg[ym]=sum("reg");
         mb[ym]=sum("bonus");if(!mb[ym])delete mb[ym];
         if(h.some(c=>Object.keys(c.team||{}).length))delete mt[ym]; /* meziprovize se počítá z bodů kolegů, ne z Kč */
         h.forEach(c=>Object.entries(c.team||{}).forEach(([id,p])=>{(teamUpd[id]=teamUpd[id]||{})[ym]=Math.round(((teamUpd[id][ym]||0)+p)*100)/100}))});
@@ -2213,10 +2225,15 @@ function openImport(){
       [["ZFPI","ZFPI"],["WI","WI"],["CQ","CQ"]].forEach(([sk,ak])=>{const tot=recent.reduce((a,ym)=>a+[1,2].reduce((b,h)=>b+(+C[ym+"/"+h]?.split?.[sk]||0),0),0);if(!tot||!co[ak])return;
         aum[ak]=Math.round(tot/(sk==="CQ"?3:recent.length)/(co[ak].coefY/12)/1000)*1000;aumSet=true});
       if(aumSet){P.aum=aum;P.source="AUM dopočítané z výpisů "+ymLabel(recent[0],1)+" – "+ymLabel(recent[recent.length-1],1)}
+      /* pravidelné vklady celkově: průměr za poslední (až) 3 celé měsíce z výpisů; měsíční investice zapsané v pipeline se odečtou, ať se nepočítají dvakrát */
+      {const full=[...new Set(Object.keys(C).map(perMonth))].sort().filter(ym=>[1,2].every(h=>C[ym+"/"+h]?.reg!=null)).slice(-3);
+        if(full.length){const avg=full.reduce((a,ym)=>a+C[ym+"/1"].reg+C[ym+"/2"].reg,0)/full.length;
+          let pipe=0;try{pipe=passiveModel(0).deals.filter(d=>d.monthly).reduce((a,d)=>a+d.regPts*d.sh,0)}catch(e){}
+          P.regular=Math.max(0,Math.round((avg-pipe)*10)/10);P.regSource="z výpisů "+ymLabel(full[0],1)+" – "+ymLabel(full[full.length-1],1)+" (průměr "+fmt1(avg)+" b měsíčně"+(pipe>0.05?", z toho "+fmt1(pipe)+" b z pipeline":"")+")"}}
       /* body celkem z nejnovějšího výpisu (vlastní zůstanou, skupinové = rozdíl) */
       const car={...(S.career||{})}, lat=items.find(x=>x.latest&&x.r.cum!=null);
       if(lat){const d=perEnd(lat.r.stmtPer||lat.r.per),o=ownPts();Object.assign(car,{cpts:Math.round(lat.r.cum*100)/100,cOwn:o!=null?Math.round(Math.min(o,lat.r.cum)):(car.cOwn??null),cAsOf:d,cBase:sinceTotal(d),stat:statFor(lat.r.cum)[0]})}
-      await db.doc("settings/main").set({...S,closingsV:2,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyRate:mr,monthlyBonus:mb,monthlyTeam:mt,passive:P,career:car});
+      await db.doc("settings/main").set({...S,closingsV:2,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyReg:mreg,monthlyRate:mr,monthlyBonus:mb,monthlyTeam:mt,passive:P,career:car});
       for(const [id,ms] of Object.entries(teamUpd)){const m=team.find(x=>x.id===id)||Object.values(made).find(x=>x.id===id);if(!m)continue;
         await db.doc("team/"+id).update({m:{...(team.find(x=>x.id===id)?.m||m.m||{}),...ms}})}
       $("edDlg").close();toast("Importováno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+(Object.keys(made).length?" · "+Object.keys(made).length+" "+plural(Object.keys(made).length,"nový člen","noví členové","nových členů")+" týmu":""));
@@ -2230,7 +2247,7 @@ function clTeamOurs(id,ym,C){C=C||settings.closings||{};return [1,2].some(h=>C[y
 /* poměr zdrojů příjmu za aktuální měsíc – vlastní produkce / tým / udržovačky / ostatní */
 let mixSpinPending=false;
 /* skutečné iOS systémové barvy jako základ, prstenec pak dostane skutečný 3D nádech (viz shade()) */
-const MIX_HEX={own:"#0A84FF",team:"#FF9F0A",udr:"#30D158",ost:"#BF5AF2"};
+const MIX_HEX={own:"#0A84FF",team:"#FF9F0A",udr:"#30D158",reg:"#40C8E0",ost:"#BF5AF2"};
 /* zesvětlí (amt>0) nebo ztmaví (amt<0) hex barvu o podíl amt (0..1) směrem k bílé/černé */
 function shade(hex,amt){
   const n=parseInt(hex.slice(1),16), r=n>>16&255, g=n>>8&255, b=n&255;
@@ -2240,11 +2257,11 @@ function shade(hex,amt){
 }
 function drawQuarterMix(cq,cur,ymSel){
   const box=$("m_mix");if(!box)return;
-  const ym=ymSel||ymOf(todayStr()), s0=passiveNow(), mr=monthRow(ym,{tot:s0.tot,udr:s0.udr});
-  /* udržovačky nejsou aktivní produkce – odečítají se od bodů ze sjetiny, aby se nepočítaly dvakrát */
-  const ownActive=Math.max(0,mr.ownKc-mr.udrKc);
+  const ym=ymSel||ymOf(todayStr()), s0=passiveNow(), mr=monthRow(ym,{tot:s0.tot,udr:s0.udr,reg:s0.reg});
+  /* udržovačky a pravidelné vklady nejsou aktivní produkce – odečítají se od bodů ze sjetiny, aby se nepočítaly dvakrát */
+  const ownActive=Math.max(0,mr.ownKc-mr.udrKc-mr.regKc);
   const parts=[["own","Vlastní aktivní produkce",ownActive],["team","Tým",Math.max(0,mr.team)],
-    ["udr","Udržovačky",Math.max(0,mr.udrKc)],["ost","Ostatní",Math.max(0,mr.ost)]]
+    ["udr","Udržovačky",Math.max(0,mr.udrKc)],["reg","Pravidelné vklady",Math.max(0,mr.regKc)],["ost","Ostatní",Math.max(0,mr.ost)]]
     .sort((a,b)=>b[2]-a[2]);
   const total=parts.reduce((s,p)=>s+p[2],0);
   if(total<=0){box.replaceChildren();return}
@@ -2289,7 +2306,7 @@ const MON=["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj",
 const MONL=["leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
 const MONL_LOC=["lednu","únoru","březnu","dubnu","květnu","červnu","červenci","srpnu","září","říjnu","listopadu","prosinci"];
 function ymLabelLoc(ym){const[y,m]=ym.split("-");return "v "+MONL_LOC[+m-1]+" "+y}
-const MSER=[["tot","Celkem"],["own","Vlastní aktivní produkce"],["team","Tým"],["udr","Udržovačky"],["ost","Ostatní"]];
+const MSER=[["tot","Celkem"],["own","Vlastní aktivní produkce"],["team","Tým"],["udr","Udržovačky"],["reg","Pravidelné vklady"],["ost","Ostatní"]];
 let mRange=6, mSlide=0;
 function monthsBack(n){const d=new Date();const out=[];for(let i=n-1;i>=0;i--){const x=new Date(d.getFullYear(),d.getMonth()-i,1);out.push(x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0"))}return out}
 function ymLabel(ym,long){const[y,m]=ym.split("-");return (long?MONL:MON)[+m-1]+(long?" "+y:"")}
@@ -2303,10 +2320,12 @@ function monthRow(ym,P){
   const uO=settings.monthlyUdr?.[ym], udr=hasV(uO)?+uO:(live||has?P.udr:0);
   /* mimořádné provize / storna v Kč bez bodů (z výpisu) – patří k vlastní produkci, ale nepočítají se do bodů */
   const bonus=+(settings.monthlyBonus?.[ym])||0;
+  /* pravidelné vklady (vklady do investic pod 50 000 Kč) – z výpisu, jinak odhad z pasivního příjmu; nejsou aktivní produkce */
+  const gO=settings.monthlyReg?.[ym], reg=hasV(gO)?+gO:(live||has?(P.reg||0):0);
   return {ym,pay:ymNext(ym),rate,rateCalc:quarterRate(qOf(ym+"-01")),a,b,ea:pa.v,eb:pb.v,has,full:pa.act&&pb.act,est:!has&&!hasV(legacy),
-    pts,own:mp.total,team,teamCalc,udr,bonus,tot:pts*rate+team+bonus,ownKc:pts*rate+bonus,udrKc:udr*rate,ost:otherIncomeMonthly(ym)};
+    pts,own:mp.total,team,teamCalc,udr,reg,bonus,tot:pts*rate+team+bonus,ownKc:pts*rate+bonus,udrKc:udr*rate,regKc:reg*rate,ost:otherIncomeMonthly(ym)};
 }
-function mVal(r,k){return k==="tot"?r.tot:k==="own"?Math.max(0,r.ownKc-r.udrKc):k==="team"?r.team:k==="ost"?r.ost:r.udrKc}
+function mVal(r,k){return k==="tot"?r.tot:k==="own"?Math.max(0,r.ownKc-r.udrKc-r.regKc):k==="team"?r.team:k==="ost"?r.ost:k==="reg"?r.regKc:r.udrKc}
 /* benchmarky výdělku podle série grafu – jen tam, kde dává smysl srovnávat s cílovou částkou */
 const MBENCH={tot:{key:"earnBenchmark",def:50000,max:500000,label:"Benchmark celkového výdělku"},
   own:{key:"ownBenchmark",def:30000,max:300000,label:"Benchmark vlastní aktivní produkce"},
@@ -2319,7 +2338,7 @@ function syncSlideUI(){[$("mTabs"),$("mDots")].forEach(g=>[...g.children].forEac
 $("mSlides").addEventListener("scroll",()=>{const s=$("mSlides"),i=Math.round(s.scrollLeft/Math.max(1,s.clientWidth));if(i!==mSlide){mSlide=i;syncSlideUI()}},{passive:true});
 $("mTable").addEventListener("focusout",e=>{if(!$("mTable").contains(e.relatedTarget))setTimeout(()=>{if(view==="money"&&!$("mTable").contains(document.activeElement))render()},0)});
 function renderMonthly(cur){
-  const s0=passiveNow(), P={tot:s0.tot,udr:s0.udr}, curYm=ymOf(todayStr());
+  const s0=passiveNow(), P={tot:s0.tot,udr:s0.udr,reg:s0.reg}, curYm=ymOf(todayStr());
   const rows=monthsBack(mRange).map(ym=>monthRow(ym,P));
   $("mRange").replaceChildren(...[[6,"6M"],[12,"1R"],[24,"2R"]].map(([n,t])=>el("button",{type:"button","aria-selected":String(mRange===n),onclick:()=>{mRange=n;renderMonthly(cur)}},t)));
   $("mTabs").replaceChildren(...MSER.map(([k,t],i)=>el("button",{type:"button","aria-selected":String(mSlide===i),onclick:()=>goSlide(i)},t)));
@@ -2416,7 +2435,7 @@ function drawMonthly(rows,k,label){
      prohlížeč bral 3D stín z koláče místo fade přechodu, takže u všech sérií kromě "tot" (ten
      v koláči žádné ID nemá) fade nefungoval */
   const P=rows.map((r,i)=>[x(i),y(vals[i])]), line=smoothPath(P), up=k!=="udr"||vals[vals.length-1]>=vals[0], gid="mfade_"+k;
-  const SERIES_COLOR={own:["var(--tint)","#007AFF"],team:["var(--orange)","#FF9500"],udr:["var(--green)","#34C759"],ost:["var(--purple)","#AF52DE"]};
+  const SERIES_COLOR={own:["var(--tint)","#007AFF"],team:["var(--orange)","#FF9500"],udr:["var(--green)","#34C759"],reg:["var(--teal)","#30B0C7"],ost:["var(--purple)","#AF52DE"]};
   const col=SERIES_COLOR[k]?SERIES_COLOR[k][0]:(up?"var(--green)":"var(--red)"), hex=SERIES_COLOR[k]?SERIES_COLOR[k][1]:(up?"#34C759":"#FF3B30");
   let g="";for(let j=1;j<=3;j++){const v=maxV/1.12*j/3;g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--sep)" stroke-width=".5" stroke-dasharray="2 4"/><text x="${L-8}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(v)}</text>`}
   if(minV<0)g+=`<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--label3)" stroke-width="1"/><text x="${L-8}" y="${y(0)+3}" text-anchor="end" font-size="10" fill="var(--label2)">0</text><text x="${L-8}" y="${y(minV/1.12)+3}" text-anchor="end" font-size="10" fill="var(--label2)">${shortKc(minV/1.12)}</text>`;
@@ -2432,7 +2451,7 @@ function drawMonthly(rows,k,label){
   const tip=el("div",{class:"tip mtip",hidden:""});wrap.append(tip);
   const svg=wrap.querySelector("svg"), xh=svg.querySelector(".xh"), xl2=svg.querySelector(".xl"), xd=svg.querySelector(".xd");
   const head=(i)=>{const r=rows[i], prev=rows[i-1], v=vals[i], ch=prev?v-vals[i-1]:0, pc=prev&&vals[i-1]?ch/Math.abs(vals[i-1])*100:0;
-    const sub=k==="tot"?fmt1(r.pts)+" b × "+cz(r.rate)+" Kč"+(r.team>0.5?" + tým "+kc(r.team):r.team<-0.5?" − tým "+kc(-r.team):""):k==="own"?fmt1(r.pts)+" b × "+cz(r.rate)+" Kč (bez týmu)":k==="team"?"meziprovize za "+ymLabel(r.ym,1):k==="ost"?"mimo poradenskou činnost · "+otherIncomesList().length+" "+plural(otherIncomesList().length,"položka","položky","položek"):fmt1(r.udr)+" b × "+cz(r.rate)+" Kč";
+    const sub=k==="tot"?fmt1(r.pts)+" b × "+cz(r.rate)+" Kč"+(r.team>0.5?" + tým "+kc(r.team):r.team<-0.5?" − tým "+kc(-r.team):""):k==="own"?fmt1(r.pts)+" b × "+cz(r.rate)+" Kč (bez týmu)":k==="team"?"meziprovize za "+ymLabel(r.ym,1):k==="ost"?"mimo poradenskou činnost · "+otherIncomesList().length+" "+plural(otherIncomesList().length,"položka","položky","položek"):k==="reg"?fmt1(r.reg)+" b × "+cz(r.rate)+" Kč · vklady do investic pod "+fmt0(REG_DEP_MAX)+" Kč":fmt1(r.udr)+" b × "+cz(r.rate)+" Kč";
     let badge=null;
     if(BC){const bpc=bench?(v-bench)/bench*100:0;badge=el("b",{style:"color:"+(v>=bench?"var(--green)":"var(--red)")},"  "+(bpc>=0?"▲ +":"▼ ")+fmt1(Math.abs(bpc))+" % vs. benchmark")}
     else if(prev)badge=el("b",{style:"color:"+(ch>=0?"var(--green)":"var(--red)")},"  "+(ch>=0?"▲ +":"▼ ")+kc(ch)+(vals[i-1]?" ("+(pc>=0?"+":"")+fmt1(pc)+" %)":""));
@@ -2523,10 +2542,10 @@ function openAumSheet(){
 function openRegSheet(){
   const P=settings.passive||{}, rate=quarterRow(CURQ()).rate, M=passiveModel(0);
   const inp=el("input",{type:"number",step:"0.1",inputmode:"decimal",class:"aumin",placeholder:"0"});inp.value=P.regular??"";
-  inp.addEventListener("change",()=>savePassive(p=>({...p,regular:inp.value===""?0:+inp.value})));
+  inp.addEventListener("change",()=>savePassive(p=>({...p,regular:inp.value===""?0:+inp.value,regSource:null})));
   const deals=M.deals.filter(d=>d.monthly);
   openSheet("Pravidelné vklady",[
-    el("p",{class:"hint"},"Provize z poplatků pravidelných investic (u ZFPI/Conseq „rez.“ ve sloupci TP). Zadej, kolik bodů měsíčně ti chodí ze smluv, které nemáš v pipeline."),
+    el("p",{class:"hint"},"Provize z poplatků pravidelných investic – každý vklad do investice pod "+fmt0(REG_DEP_MAX)+" Kč. Zadej, kolik bodů měsíčně ti chodí ze smluv, které nemáš v pipeline – nebo to appka nastaví sama z výpisů (Výdělek → Importovat data)."+(P.regSource?" Naposledy nastaveno "+P.regSource+".":"")),
     el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},"Mimo pipeline"),el("div",{class:"s"},"body měsíčně")),el("span",{class:"end"},inp," b/měs"))),
     deals.length?el("h3",{class:"sechead"},"Z pipeline (měsíční investice)"):null,
     deals.length?el("div",{class:"group"},deals.map(d=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},d.name),el("div",{class:"s"},itemLabel(d.it)+" · "+kc(d.it.amt)+"/měs")),el("span",{class:"end"},fmt1(d.regPts*d.sh)+" b ≈ "+kc(d.regPts*d.sh*rate))))):null
