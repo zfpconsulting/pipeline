@@ -1,0 +1,99 @@
+01.10.26 12:36   Provizní výpis
+ ZFP Consulting
+Výpis: Registrační číslo: 2026/08/1 - Fiktivní Poradce
+ ZFP Consulting, a.s.
+ Příkop 3048/10a
+ Brno
+ 690 02 Brno
+ Účet: 35-1234567890/0100
+ Poradce: Fiktivní Poradce, Ing. Bc.
+ IČ: 263 04 805
+ Telefon: 777888999
+ Nadřízený na P7: Tomáš Vymyšlený, Ing. Mgr. MBA
+ Nadřízený na P5: Petr Smyšlený, Bc.  Adresa:
+ Ulice Testovací
+ Náměstí 437/2
+ Obec:
+ 679 04 Adamov
+ 10.08.2026
+ Provizní výpis za období 2026/08/1
+Body vlastní   Body skupinové
+ Pozice:   4 (50 000,00)   Výplata:   7 640,42 Kč
+150,00 Kč / 150,00
+ Tarif / statická kariéra:   Body:   35,77   13,76   Provize:   7 846,90 Kč
+Kč
+1 465 568,97
+ Datum narození:   12.03.1990   Nástup:   Registrace PPZ:
+Kč
+1 415 568,97
+Obrat celkem:
+ Průměrná měsíční provize za 12 měsíců:   3 781,52
+Kč
+ Průměrná provize za 12 měsíců ZFP Consulting, a.s.
+3 924,16   7 939,17   1 141,85   Limit:   50 000,00 Kč
+Obrat:   Stav:
+ Obrat za 12 měsíců celkem:   675 935,93 Kč   9 081,02   Zádržné:   0,00 Kč
+Body
+ Postup kariera ZFP:   9 081,02
+Vývoj
+ Přehled k výplatě
+ Období
+Výplata   Provize   Storno   Záloha   Srážka   Převod   Jiné
+období
+ 2026/08/1   7 640,42   7 846,90   0,00   0,00   0,00   0,00   0,00
+ 2026/07/2   206,48   0,00   0,00   0,00   0,00   0,00   0,00
+ 2026/07/1   37 758,20   37 758,20   0,00   0,00   0,00   0,00   0,00
+ 2025/10/2   - 15 457,74   0,00   0,00   0,00   0,00   0,00   0,00
+ Vlastní produkce
+ Registrační číslo   Klient   Produkt   Typ   Číslo smlouvy   Body   Tarif   Částka [Kč]
+ Mimořádná provize / storno odměna   0,00   0,00   2 000,00
+ Nováková Jana   ZFP realitní fond následná   NP   7712345678   0,06   150,00   8,59
+ Dvořák Petr   Partners & Investika - ZFP WI   NP   ZW998877   0,52   150,00   77,65
+ Šťastný Jan   NN Orange Život - Smart   PZ3   9988776655   1,83   150,00   274,29
+ Nováková Jana   ZFP realitní fond následná   NP   7712345678   0,01   150,00   1,11
+ Strana:1   1/2
+ 01.10.26 12:36   Provizní výpis
+Černá Eva   ZFP realitní fond následná   NP   1112223334   0,02   150,00   3,71
+ Bílý Ota   ZFP realitní fond následná   NP   1112223335   0,11   150,00   17,06
+ Dvořák Petr   Partners & Investika - ZFP WI   NP   ZW998877   0,24   150,00   35,80
+ Zelená Ida   ZFP realitní fond následná   NP   1112223336   0,04   150,00   6,64
+ Zelený Jiří   ZFP realitní fond následná   NP   1112223337   0,04   150,00   6,64
+ Hnědý Karel   ZFP realitní fond následná   NP   1112223338   0,32   150,00   47,50
+ Modrá Věra   Partners & Investika - ZFP WI   NP   ZW112233   0,95   150,00   142,27
+ Modrá Věra   Partners & Investika - ZFP WI vstupní poplatek   PZ1   ZW112233   2,27   150,00   340,28
+ Šedý Lukáš   Partners & Investika - ZFP WI   NP   ZW445566   0,05   150,00   8,16
+ Šťastný Jan   NN Orange Život   PZ3   9988776655   0,73   150,00   109,14
+ Růžová Ema   ZFP realitní fond následná   NP   1112223339   0,06   150,00   9,05
+ Fialový Ivo   Partners & Investika - ZFP WI   NP   ZW778899   0,08   150,00   12,22
+ Fialová Ivana   Partners & Investika - ZFP WI   NP   ZW778890   0,21   150,00   31,58
+ Oranžový Bob   Partners & Investika - ZFP WI   NP   ZW778891   0,60   150,00   90,17
+ Oranžový Bob   Partners & Investika - ZFP WI vstupní poplatek   PZ1   ZW778891   0,33   150,00   49,45
+ Žlutý Petr   Partners & Investika - ZFP WI   NP   ZW778892   0,38   150,00   57,70
+ Žlutá Pavla   Partners & Investika - ZFP WI   NP   ZW778893   0,00   150,00   0,37
+ Tyrkysová Jana   ZFP realitní fond   PZ1   1112223340   17,98   150,00   2 696,84
+ Okrová Lída   ZFP realitní fond následná   NP   1112223341   0,02   150,00   2,51
+ Hrubý Adam   CONSEQ - Classic Invest   NP   C123456789   0,09   150,00   13,12
+ Jemný Tomáš   ZFP realitní fond následná   NP   1112223342   0,70   150,00   104,41
+ Krátký Ota   ZFP realitní fond následná   NP   1112223343   0,07   150,00   11,11
+ Dlouhý Jan   Partners & Investika - ZFP WI   NP   ZW778894   0,22   150,00   32,51
+ Hrubá Alena   CONSEQ - Classic Invest   NP   C123456780   0,09   150,00   13,10
+ Malý Jakub   ZFP realitní fond následná   NP   1112223344   0,13   150,00   19,24
+ Celkem provize [Kč]:   6 222,20
+ Provize z převzatých smluv
+ Registrační číslo   Klient   Produkt   Typ   Číslo smlouvy   Body   Tarif   Částka [Kč]
+ Velký Jan   Partners & Investika - ZFP WI (K)   NP   ZW000001   0,01   150,00   1,48
+ Velká Eva   ZFP realitní fond (K)   PZ1   1112220001   0,04   150,00   6,73
+ Velký Ota   ZFP realitní fond následná (K)   NP   1112220002   0,02   150,00   3,32
+ Velký Bob   Partners & Investika - ZFP WI (K)   NP   ZW000002   7,24   150,00   1 085,48
+ Velká Ida   Partners & Investika - ZFP WI vstupní poplatek (K)   PZ1   ZW000003   0,31   150,00   45,94
+ Celkem provize z převzatých smluv [Kč]:   1 142,95
+ Provize z týmu
+ Registrační číslo   Jméno   Body celkem   Body   Tarif   Částka [Kč]
+ 123456   Podřízený Jeden   832,84   0,04   20,00   0,90
+ 123457   Podřízený Druhý   834,84   13,72   20,00   274,37
+ Celkem z týmu [Kč]:   275,27
+ Celkem provize z převzatých smluv [Kč]:   1 142,95
+ Výplata v tomto období [Kč]:   7 640,42
+ Fiktivní Poradce, provizní stav:
+ Brno, Příkop
+ Strana:2   2/2

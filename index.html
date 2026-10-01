@@ -1957,11 +1957,12 @@ async function closingFileText(f){
    a výsledek projde pevným seznamem povolených polí (jen čísla v rozumném rozsahu). */
 const CL_CAT=[["ZP","Životní pojištění",/zivotni\s*poj|\bzp\b/],["INV","Investice",/investic|podilov|fond/],["DPS","Penzijní spoření (DPS)",/penzij|\bdps\b|\bdip\b/],
   ["UVER","Úvěry a hypotéky",/hypote|uver/],["NEZ","Neživotní pojištění",/nezivot|majet|odpovednost|auto\s*poj|pov\b/],["REAL","Reality",/realit/],["OST","Ostatní",/ostatni|jine\b/]];
-const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[0,1e7]};
+const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],bonus:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[-1e5,1e7]};
 /* období výpisu: „2026/09/2“ (značení sjetin v ZFP) v textu nebo názvu souboru, jinak poslední datum ve výpisu */
 const CL_MON=["leden|ledna","unor|unora","brezen|brezna","duben|dubna","kveten|kvetna","cerven(?!ec)|cervna","cervenec|cervence","srpen|srpna","zari","rijen|rijna","listopad|listopadu","prosinec|prosince"];
 function clDetectPer(txt,fname){
   const nn=x=>(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  {const m=String(txt).match(/za\s*obdob\S*\s*:?\s*(20\d\d)\s*\/\s*(\d{1,2})\s*\/\s*([12])(?!\d)/i);if(m)return m[1]+"-"+m[2].padStart(2,"0")+"/"+m[3]}
   for(const src of [fname,txt]){const m=String(src).match(/(20\d\d)\s*[\/_.-]\s*(\d{1,2})\s*[\/_.-]\s*([12])(?!\d)/);if(m&&+m[2]>=1&&+m[2]<=12)return m[1]+"-"+m[2].padStart(2,"0")+"/"+m[3]}
   const t=todayStr(),ds=[...txt.matchAll(/(\d{1,2})\.\s?(\d{1,2})\.\s?(20\d\d)/g),...txt.matchAll(/(20\d\d)-(\d{2})-(\d{2})/g)].map(m=>m[1].length===4?m[1]+"-"+m[2]+"-"+m[3]:m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")).filter(d=>d<=t&&d>="2015").sort();
   if(ds.length)return periodOf(ds[ds.length-1]);
@@ -1980,7 +1981,43 @@ function clSkeleton(txt){
     .split(/(\s+|;|,(?!\d)|:|\(|\))/).map(tok=>{if(!tok||/^\s+$|^[;,:()]$/.test(tok))return tok;if(/\d/.test(tok))return tok;const w=nn(tok);if(!w)return tok;return CL_VOCAB.has(w)?tok:"×××"}).join(""))
     .filter(l=>l.trim()).slice(0,400).join("\n");
 }
+/* Provizní výpis ZFP (PDF): hlavička s obdobím „za období RRRR/MM/1|2“, tabulky s hlavičkou „… Číslo smlouvy Body Tarif Částka [Kč]“
+   (vlastní produkce; řádky končí body, tarifem a částkou), tabulka týmu s hlavičkou „… Body celkem Body Tarif Částka [Kč]“
+   (meziprovize), mezisoučty „… [Kč]: X“ a „… v … období [Kč]: X“ (k výplatě), „… kariera ZFP: X“ (kariérní body).
+   Z řádků smluv se bere jen druh produktu a čísla – jméno klienta ani číslo smlouvy se nikam nedostanou. */
+function parseZfpStatement(raw){
+  const nn=x=>(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  const lines=String(raw||"").split(/\r?\n/).map(l=>l.replace(/[\s\u00a0]+/g," ").trim()).filter(Boolean);
+  if(!lines.some(l=>/cislo\s*smlouvy/.test(nn(l)))||!lines.some(l=>/\[kc\]\s*:/.test(nn(l))))return null;
+  const NUM=/-\s?\d{1,3}(?: \d{3})*,\d{2}(?!\d)|\d{1,3}(?: \d{3})*,\d{2}(?!\d)/g, nums=l=>[...l.matchAll(NUM)].map(m=>+m[0].replace(/\s/g,"").replace(",","."));
+  const r={own:0,udr:0,team:0,grp:0,bonus:0,split:{},cat:{}}, tarifs={};let sec=null,anyRow=false;
+  const pm=String(raw).match(/za\s*obdob\S*\s*:?\s*(20\d\d)\s*\/\s*(\d{1,2})\s*\/\s*([12])(?!\d)/i);
+  if(pm)r.per=pm[1]+"-"+pm[2].padStart(2,"0")+"/"+pm[3];
+  const comp=L=>/zfp\s*realitni\s*fond|zfp\s*investments|\bzfpi\b/.test(L)?"ZFPI":/zfp\s*wi\b|world\s*index/.test(L)?"WI":/conseq/.test(L)?"CQ":"OST";
+  const catOf=L=>/penzij|\bdps\b|\bdip\b|doplnkove/.test(L)?"DPS":/hypote|\buver|stavebni\s*sporeni|\bbanka\b/.test(L)?"UVER":/realit(?!ni\s*fond)|zfp\s*reality/.test(L)?"REAL":
+    /nezivot|majet|domacnost|odpovednost|\bpov\b|\bhav\b|cestovni/.test(L)?"NEZ":/fond|invest|\bwi\b|conseq|amundi|sicav|gold|auvesta|platiniq/.test(L)?"INV":
+    /\bnn\b|allianz|kooperativ|\bcpp\b|generali|uniqa|metlife|maxima|pojist|zivot|\bcsob\b/.test(L)?"ZP":"OST";
+  for(const line of lines){const L=nn(line);
+    if(/cislo\s*smlouvy/.test(L)){sec="own";continue}
+    if(/body\s*celkem/.test(L)&&/tarif/.test(L)){sec="team";continue}
+    if(/\[kc\]\s*:/.test(L)){const v=nums(line).pop();if(v!=null&&/obdob/.test(L))r.pay=v;if(/obdob|celkem/.test(L))sec=sec;continue}
+    const kar=L.match(/kariera\s*zfp\s*:?/);if(kar){const v=nums(line.slice(kar.index)).shift();if(v!=null)r.cum=v;continue}
+    if(!sec)continue;const ns=nums(line);
+    if(sec==="team"&&ns.length>=4){const [,b,,a]=ns.slice(-4);r.grp+=b;r.team+=a;anyRow=true;continue}
+    if(sec==="own"&&ns.length>=3){const [b,t,a]=ns.slice(-3);anyRow=true;
+      if(!b&&!t&&a){r.bonus+=a;continue}
+      r.own+=b;if(t)tarifs[t]=(tarifs[t]||0)+b;
+      const c=comp(L), isNew=/\bpz\d\b/.test(L)||/vstupn/.test(L), cat=catOf(L);
+      r.cat[cat]=(r.cat[cat]||0)+b;
+      if(!isNew&&(c!=="OST"||cat==="INV")){r.udr+=b;r.split[c]=(r.split[c]||0)+b}}}
+  if(!anyRow&&r.pay==null)return null;
+  const best=Object.entries(tarifs).sort((a,b)=>b[1]-a[1])[0];
+  const R2=v=>Math.round(v*100)/100;
+  return {per:r.per,pts:R2(r.own),udr:R2(r.udr),team:R2(r.team),grp:R2(r.grp),bonus:R2(r.bonus),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,
+    split:Object.fromEntries(Object.entries(r.split).map(([k,v])=>[k,R2(v)])),cat:Object.fromEntries(Object.entries(r.cat).map(([k,v])=>[k,R2(v)]))};
+}
 function parseClosingText(txt,fname){
+  {const z=parseZfpStatement(txt);if(z){if(!z.per)z.per=clDetectPer(String(txt||""),fname||"");return clSanitize(z)}}
   const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
   /* vymazání identifikátorů: čísla smluv a účtů (6+ číslic), rodná čísla a čísla s lomítkem, e-maily, telefony, IBAN */
   const scrub=l=>l.replace(/\S+@\S+/g," ").replace(/\bCZ\d{2}[ \d]{10,}\b/gi," ").replace(/\+\d{3}[  ]?\d{3}[  ]?\d{3}[  ]?\d{3}/g," ")
@@ -2021,7 +2058,7 @@ function clSanitize(r){
 }
 /* ukládá se jen tohle – čísla, nic jiného */
 function clStore(x){const n=v=>typeof v==="number"&&isFinite(v)?Math.round(v*100)/100:null,o={at:new Date().toISOString()};
-  ["p1","p2","udr","team","rate","pay"].forEach(k=>o[k]=n(x[k]));
+  ["p1","p2","udr","team","bonus","rate","pay"].forEach(k=>o[k]=n(x[k]));
   o.split=Object.fromEntries(CL_SPLIT.map(([k])=>[k,n(x.split?.[k])]).filter(e=>e[1]!=null));
   o.cat=Object.fromEntries(CL_CAT.map(([k])=>[k,n(x.cat?.[k])]).filter(e=>e[1]!=null));return o}
 function lastMonths(n){const [y,m]=todayStr().slice(0,7).split("-").map(Number),out=[];for(let i=1;i<=n;i++){const d=new Date(y,m-1-i,1);out.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"))}return out}
@@ -2030,7 +2067,7 @@ function openClosings(){
   const C={...(settings.closings||{})};
   const load=ym=>{const c=C[ym]&&!("pts" in C[ym])?C[ym]:{},sj=settings.sjetiny||{},v=x=>hasV(x)?+x:null;
     return {ym,p1:c.p1??v(sj[ym+"/1"]),p2:c.p2??v(sj[ym+"/2"]),udr:c.udr??v(settings.monthlyUdr?.[ym]),split:{...(c.split||{})},
-      team:c.team??v(settings.monthlyTeam?.[ym]),rate:c.rate??v(settings.monthlyRate?.[ym]),pay:c.pay??null,cat:{...(c.cat||{})},src:{}}};
+      team:c.team??v(settings.monthlyTeam?.[ym]),bonus:c.bonus??v(settings.monthlyBonus?.[ym]),rate:c.rate??v(settings.monthlyRate?.[ym]),pay:c.pay??null,cat:{...(c.cat||{})},src:{}}};
   const st=lastMonths(3).map(load), cs={cum:cumPts(),own:ownPts(),src:{}};
   const body=el("div",{class:"clgrid"}), checks=[], check=()=>checks.forEach(f=>f()), diag=[];
   const diagBox=()=>{if(!diag.length)return null;
@@ -2052,7 +2089,7 @@ function openClosings(){
     const cards=st.map((x,i)=>{
       const sel=el("select",{},lastMonths(12).map(m=>el("option",{value:m},ymLabel(m,1))));sel.value=x.ym;sel.onchange=()=>{Object.assign(x,load(sel.value));draw()};
       const res=el("div",{class:"clnote"});
-      checks.push(()=>{const u=udrOf(x),pts=(x.p1??0)+(x.p2??0),has=x.p1!=null||x.p2!=null,calc=has&&x.rate?pts*x.rate+(+x.team||0):null;
+      checks.push(()=>{const u=udrOf(x),pts=(x.p1??0)+(x.p2??0),has=x.p1!=null||x.p2!=null,calc=has&&x.rate?pts*x.rate+(+x.team||0)+(+x.bonus||0):null;
         const ct=CL_CAT.filter(([k])=>x.cat[k]).map(([k,t])=>[t,+x.cat[k]]),cs2=ct.reduce((a,c)=>a+c[1],0);
         res.textContent=(has?"Body za měsíc "+fmt1(pts)+" b"+(u!=null?" (aktivní "+fmt1(pts-u)+" + udržovací "+fmt1(u)+")":"")+". ":"")
           +(cs2?"Struktura: "+ct.sort((a,b)=>b[1]-a[1]).map(([t,v])=>t.split(" (")[0]+" "+Math.round(v/cs2*100)+" %").join(" · ")+". ":"")+(calc!=null?"Spočítaná provize "+kc(calc)+(x.pay!=null?(Math.abs(calc-x.pay)<Math.max(50,x.pay*.01)?" ✓ sedí s výpisem.":" – výpis "+kc(x.pay)+" (rozdíl "+kc(x.pay-calc)+": storna, zálohy, odměny…)."):"."):"")});
@@ -2064,6 +2101,7 @@ function openClosings(){
         el("div",{class:"clnote"},"Udržovací body podle společnosti (nepovinné – z nich se dopočítá AUM a pasivní příjem):"),
         ...CL_SPLIT.map(([k,t])=>fr("  "+t,numIn(x.split[k],v=>{if(v==null)delete x.split[k];else x.split[k]=v},x.src["s"+k]),"b")),
         fr("Meziprovize z týmu",numIn(x.team,v=>x.team=v,x.src.team),"Kč"),
+        fr("Mimořádné provize / storna",numIn(x.bonus,v=>x.bonus=v,x.src.bonus),"Kč"),
         fr("Cena bodu",numIn(x.rate,v=>x.rate=v,x.src.rate),"Kč/b"),
         fr("K výplatě (kontrola)",numIn(x.pay,v=>x.pay=v,x.src.pay),"Kč"),
         el("details",{class:"clcat",...(Object.keys(x.cat).length?{open:""}:{})},el("summary",{},"Z čeho je příjem (body podle druhu produktu)"),
@@ -2084,7 +2122,7 @@ function openClosings(){
         const add=x.src.halves&&!x.src.halves.includes(half);x.src.used=1;x.src.halves=[...(x.src.halves||[]),half];
         const put=(k,v,sk)=>{if(v==null)return;x[k]=add&&x[k]!=null&&x.src[sk||k]?Math.round((x[k]+v)*100)/100:v;x.src[sk||k]=1;got++};
         if(r.pts!=null){x[half===1?"p1":"p2"]=r.pts;x.src[half===1?"p1":"p2"]=1;got++}
-        ["udr","team","pay"].forEach(k=>put(k,r[k]));if(r.rate!=null){x.rate=r.rate;x.src.rate=1;got++}
+        ["udr","team","bonus","pay"].forEach(k=>put(k,r[k]));if(r.rate!=null){x.rate=r.rate;x.src.rate=1;got++}
         [["split","s"],["cat","c"]].forEach(([g,pre])=>{if(r[g])Object.entries(r[g]).forEach(([k,v])=>{x[g][k]=add&&x[g][k]!=null&&x.src[pre+k]?Math.round((x[g][k]+v)*100)/100:v;x.src[pre+k]=1;got++})});
         if((r.per||"")>=lastPer){lastPer=r.per||lastPer;["cum","own"].forEach(k=>{if(r[k]!=null){cs[k]=r[k];cs.src[k]=1;got++}})}}
       st.sort((a,b)=>b.ym.localeCompare(a.ym));draw();toast(diag.some(d=>d.err||!d.lines||!d.per)?"Některé výpisy se nepodařilo přečíst – podrobnosti nahoře v okně":got?"Přečteno "+got+" údajů – zkontroluj zvýrazněná pole":"Ve výpisu jsem čísla nepoznal – vyplň je prosím ručně")};
@@ -2096,8 +2134,8 @@ function openClosings(){
     check()};
   async function saveAll(){
     if(new Set(st.map(x=>x.ym)).size<st.length){toast("Dva měsíce jsou stejné");return}
-    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mt={...(S.monthlyTeam||{})}, mr={...(S.monthlyRate||{})};
-    st.forEach(x=>{const udr=udrOf(x);C[x.ym]=clStore({p1:x.p1,p2:x.p2,udr,split:x.split,cat:x.cat,team:x.team,rate:x.rate,pay:x.pay});
+    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mt={...(S.monthlyTeam||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})};
+    st.forEach(x=>{const udr=udrOf(x);C[x.ym]=clStore({p1:x.p1,p2:x.p2,udr,split:x.split,cat:x.cat,team:x.team,bonus:x.bonus,rate:x.rate,pay:x.pay});if(x.bonus!=null)mb[x.ym]=x.bonus;
       if(x.p1!=null)sj[x.ym+"/1"]=x.p1;if(x.p2!=null)sj[x.ym+"/2"]=x.p2;if(udr!=null)mu[x.ym]=Math.round(udr*100)/100;if(x.team!=null)mt[x.ym]=x.team;if(x.rate)mr[x.ym]=x.rate});
     /* AUM z udržovaček za 3 měsíce: měsíční průměr (Conseq vyplácí čtvrtletně – za 3 měsíce právě jedna výplata) */
     const n=st.length, P={...(S.passive||{})}, aum={...(P.aum||{})}, co=Object.fromEntries((typeof AUM_CO!=="undefined"?AUM_CO:[]).map(c=>[c.k,c]));let aumSet=false;
@@ -2106,8 +2144,8 @@ function openClosings(){
     const ost=st.map(x=>x.split.OST).filter(v=>v!=null);if(ost.length)P.ostatni=Math.round(ost.reduce((a,v)=>a+v,0)/n*10)/10;
     const ms=st.map(x=>x.ym).sort();if(aumSet){P.aum=aum;P.source="AUM dopočítané z výpisů "+ymLabel(ms[0],1)+" – "+ymLabel(ms[ms.length-1],1)}
     const car={...(S.career||{})};
-    if(cs.cum!=null){const d=perEnd(ms[ms.length-1]+"/2");Object.assign(car,{cpts:Math.round(cs.cum),cOwn:cs.own!=null?Math.round(cs.own):null,cAsOf:d,cBase:sinceTotal(d),stat:statFor(cs.cum)[0]})}
-    try{await db.doc("settings/main").set({...S,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyTeam:mt,monthlyRate:mr,passive:P,career:car});
+    if(cs.cum!=null){const d=perEnd(ms[ms.length-1]+"/2"),o=cs.own!=null?cs.own:ownPts();Object.assign(car,{cpts:Math.round(cs.cum),cOwn:o!=null?Math.round(Math.min(o,cs.cum)):null,cAsOf:d,cBase:sinceTotal(d),stat:statFor(cs.cum)[0]})}
+    try{await db.doc("settings/main").set({...S,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyTeam:mt,monthlyRate:mr,monthlyBonus:mb,passive:P,career:car});
       $("edDlg").close();toast("Výpisy uloženy – výdělek přepočítán")}catch(e){toast("Nepodařilo se uložit")}
   }
   openSheet("Poslední 3 měsíce",[body]);draw();
@@ -2186,8 +2224,10 @@ function monthRow(ym,P){
   const pts=!has&&hasV(legacy)?+legacy:pa.v+pb.v;
   const tO=settings.monthlyTeam?.[ym], teamCalc=teamOverride({ym},rate).total, team=hasV(tO)?+tO:teamCalc;
   const uO=settings.monthlyUdr?.[ym], udr=hasV(uO)?+uO:(live||has?P.udr:0);
+  /* mimořádné provize / storna v Kč bez bodů (z výpisu) – patří k vlastní produkci, ale nepočítají se do bodů */
+  const bonus=+(settings.monthlyBonus?.[ym])||0;
   return {ym,pay:ymNext(ym),rate,rateCalc:quarterRate(qOf(ym+"-01")),a,b,ea:pa.v,eb:pb.v,has,full:pa.act&&pb.act,est:!has&&!hasV(legacy),
-    pts,own:mp.total,team,teamCalc,udr,tot:pts*rate+team,ownKc:pts*rate,udrKc:udr*rate,ost:otherIncomeMonthly(ym)};
+    pts,own:mp.total,team,teamCalc,udr,bonus,tot:pts*rate+team+bonus,ownKc:pts*rate+bonus,udrKc:udr*rate,ost:otherIncomeMonthly(ym)};
 }
 function mVal(r,k){return k==="tot"?r.tot:k==="own"?Math.max(0,r.ownKc-r.udrKc):k==="team"?r.team:k==="ost"?r.ost:r.udrKc}
 /* benchmarky výdělku podle série grafu – jen tam, kde dává smysl srovnávat s cílovou částkou */

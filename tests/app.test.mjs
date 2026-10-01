@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // Testy appky Pipeline – každý test dostane env {browser,url,key} a otevře si vlastní stránku.
 import { openApp, assert, eq } from "./helpers.mjs";
 
@@ -224,6 +225,27 @@ export default {
     await page.locator("#edBody >> text=Struktura").first().click(); await page.waitForTimeout(300);
     const sk = await page.evaluate(() => document.querySelector(".skeldlg textarea").value);
     assert(!/Novák|7712345678/.test(sk) && /Body za uzávěrku/.test(sk) && /×××/.test(sk), "kostra bez jmen a čísel smluv: " + sk);
+    await ctx.close();
+  },
+
+  async "provizní výpis ZFP: přesné čtení a žádné osobní údaje"(env) {
+    const { ctx, page } = await openApp(env, { store: STORE });
+    const ym = await page.evaluate(() => lastMonths(2)[1]);
+    const raw = readFileSync(new URL("./fixtures/zfp-vypis.txt", import.meta.url), "utf8").replaceAll("2026/08", ym.replace("-", "/"));
+    const r = await page.evaluate(t => parseClosingText(t, "vypis.pdf"), raw);
+    eq([r.per, r.pts, r.udr, r.team, r.grp, r.bonus, r.rate, r.pay, r.cum], [ym + "/1", 35.77, 12.28, 275.27, 13.76, 2000, 150, 7640.42, 9081.02], "hodnoty z výpisu");
+    eq(r.split, { ZFPI: 1.6, WI: 10.5, CQ: 0.18 }, "udržovací podle společností");
+    eq(r.cat, { ZP: 2.56, INV: 33.21 }, "z čeho je příjem");
+    const json = JSON.stringify(r);
+    for (const x of ["Nováková", "Dvořák", "Podřízený", "7712345678", "ZW998877", "Fiktivní", "Příkop", "12.03.1990", "123456"]) assert(!json.includes(x), "ve výsledku je " + x);
+    /* uložení přes okno: nic z výpisu kromě čísel */
+    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
+    await page.locator("#edBody input[type=file]").setInputFiles({ name: "vypis.txt", mimeType: "text/plain", buffer: Buffer.from(raw) }); await page.waitForTimeout(700);
+    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(600);
+    const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) s += localStorage.getItem(localStorage.key(i)); return s });
+    for (const x of ["Nováková", "Dvořák", "Podřízený", "7712345678", "ZW998877", "Fiktivní", "Příkop", "Tyrkysová"]) assert(!dump.includes(x), "uloženo: " + x);
+    eq(await page.evaluate(ym => [settings.sjetiny[ym + "/1"], settings.monthlyBonus?.[ym], settings.monthlyTeam?.[ym]], ym), [35.77, 2000, 275.27], "uloženo do výdělku");
     await ctx.close();
   },
 };
