@@ -1451,7 +1451,13 @@ function sinceTotal(d){if(!d)return 0;
   const s=leads.filter(l=>l.stage==="vyplaceno"&&(l.paidAt||l.signedAt||"")>=d).reduce((a,l)=>a+(+l.points||0),0);
   const st=allStornos().filter(x=>x.l.stage==="vyplaceno"&&(x.d||"")>=d).reduce((a,x)=>a+x.pts,0);
   return s-st}
-function cumPts(){const c=settings.career||{};if(!hasV(c.cpts)||!c.cAsOf)return null;return +c.cpts+sinceTotal(c.cAsOf)-(+c.cBase||0)}
+/* skupinové body: body členů týmu (celá struktura pod tebou) za uzavřené měsíce po datu zadání – doplňují se z jejich Pipeline */
+function groupSince(d){if(!d)return 0;const from=ymOf(d),to=ymOf(todayStr());let s=0,ym=ymNext(from),g=0;
+  while(ym<to&&g++<240){s+=team.reduce((a,m)=>a+memberMPts(m,ym),0);ym=ymNext(ym)}return s}
+function cumPts(){const c=settings.career||{};if(!hasV(c.cpts)||!c.cAsOf)return null;return +c.cpts+sinceTotal(c.cAsOf)-(+c.cBase||0)+groupSince(c.cAsOf)}
+/* vlastní = zadaný stav + tvoje vyplacené provize od data zadání; skupinové = celkem − vlastní */
+function ownPts(){const c=settings.career||{};if(!hasV(c.cOwn)||!c.cAsOf)return null;return +c.cOwn+sinceTotal(c.cAsOf)-(+c.cBase||0)}
+function groupPts(){const t=cumPts(),o=ownPts();return t==null||o==null?null:Math.max(0,t-o)}
 
 /* ================= state ================= */
 let db=null, leads=[], settings={manual:{}}, editing=null, q="", view="pipe";
@@ -1551,13 +1557,23 @@ function renderCareer(cur){
   const save=async patch=>{try{await db.doc("settings/main").set({...settings,career:{...(settings.career||{}),...patch}});toast("Kariéra uložena")}catch(e){toast("Nepodařilo se uložit")}};
   s1.onchange=()=>{s1.blur();save({stat:s1.value})};
   s2.onchange=()=>{s2.blur();save({obrat:s2.value,obratQ:cur.qk})};
-  cp.onchange=()=>{cp.blur();if(cp.value===""){save({cpts:null,cAsOf:null,cBase:0});return}
-    const v=Math.max(0,Math.round(+cp.value)), d=todayStr();save({cpts:v,cAsOf:d,cBase:sinceTotal(d),stat:statFor(v)[0]})};
+  const own=ownPts(), grp=groupPts();
+  const mk=(id,val,lab)=>{const i=el("input",{id,type:"number",min:"0",step:"1",inputmode:"numeric",placeholder:"zadej",class:"cpts","aria-label":lab});i.value=val!=null?Math.round(val):"";
+    i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();i.blur()}});return i};
+  const op=mk("c_own",own,"Body vlastní"), gp=mk("c_grp",grp,"Body skupinové");
+  /* každá úprava uloží aktuální stav k dnešku; další růst se pak přičítá sám (vlastní z vyplacených obchodů, skupinové z bodů týmu) */
+  const setPts=(total,ownV)=>{const d=todayStr(),t=Math.max(0,Math.round(total));save({cpts:t,cOwn:ownV==null?null:Math.min(t,Math.max(0,Math.round(ownV))),cAsOf:d,cBase:sinceTotal(d),stat:statFor(t)[0]})};
+  cp.onchange=()=>{cp.blur();if(cp.value===""){save({cpts:null,cOwn:null,cAsOf:null,cBase:0});return}setPts(+cp.value,own)};
+  op.onchange=()=>{op.blur();if(op.value===""){save({cOwn:null});return}const v=+op.value;setPts(cum==null?v:v+(grp??Math.max(0,cum-v)),v)};
+  gp.onchange=()=>{gp.blur();if(gp.value==="")return;const v=+gp.value,o=own??(cum!=null?Math.max(0,cum-v):0);setPts(o+v,o)};
   cp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();cp.blur()}});
+  const c0=settings.career||{}, since=c0.cAsOf?fmtDate(c0.cAsOf):"", oAdd=own!=null?sinceTotal(c0.cAsOf)-(+c0.cBase||0):0, gAdd=c0.cAsOf?groupSince(c0.cAsOf):0;
   const nxt=cum!=null?STAT_POS.find(p=>p[2]>cum):null, pq=qShift(cur.qk,-1);
   $("careerBar").replaceChildren(
     el("label",{},"Statická kariéra",c.auto?el("span",{class:"statchip",title:"Podle bodů celkem"},c.stat+" · "+statRate(c.stat)+" Kč"):s1),
-    el("label",{title:"Body celkem podle výpisu. Přičítají se až vyplacené provize (fáze Provize vyplacena)."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
+    el("label",{title:"Body celkem podle výpisu = vlastní + skupinové. Přičítají se vyplacené provize a body týmu za uzavřené měsíce."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
+    el("label",{title:"Tvoje vlastní body podle výpisu. Přičítají se samy z obchodů ve fázi Provize vyplacena."},"Body vlastní",op,el("span",{class:"cnext"},own==null?"zadej podle výpisu":oAdd?"+"+fmt1(oAdd)+" b od "+since:"přičítá se z vyplacených obchodů")),
+    el("label",{title:"Body tvé struktury podle výpisu. Přičítají se samy z bodů členů týmu (u propojených členů z jejich Pipeline)."},"Body skupinové",gp,el("span",{class:"cnext"},grp==null?(cum!=null?"= celkem − vlastní":"zadej podle výpisu"):gAdd?"+"+fmt1(gAdd)+" b od "+since:"přičítá se z bodů týmu")),
     el("label",{title:"Zvol úroveň, na které jsi teď. Další kvartál se určí automaticky podle bodů za tento kvartál."},"Obratová v "+qLabel(cur.qk),s2,el("span",{class:"cnext"},"→ "+qLabel(nQ)+": "+(nL&&nL.r>statRate(c.stat)?nL.t+" · "+cz(nL.r)+" Kč":"statická "+c.stat+" (zatím "+fmt0(cur.total)+" b z 1 000)"))),
     el("span",{class:"rate"},"Tarif "+qLabel(cur.qk)+" ",el("b",{},cz(cur.rate)+" Kč/b"),el("small",{},cur.src+" · v "+qLabel(pq)+" "+fmt1(cur.prev)+" b")));
 }
@@ -5349,7 +5365,7 @@ function demoBuild(real){
   const tax={};tax[Y]={regime:"p40",pct:60,act:"main",proj:true,exp,pre:{},autoM:RI(8,11),autoP:"part",dps:1700,dpsM:12,zp:1500,zpM:12,dip:2000,dipM:12,kids:RI(1,2),man:false};
   const cal=["calId","calName","calPrefix","calTabIds","hiddenCal"].reduce((o,k)=>{if(rs[k]!=null)o[k]=rs[k];return o},{});
   put("settings/main",{manual:{},appName:"Pipeline – "+fn+" "+ln,sign:fn+" "+ln+(fem?", finanční poradkyně":", finanční poradce"),calPrefix:"VK:",...cal,
-    career:{cpts:RI(26000,90000),cAsOf:today,cBase:0,stat:"P6",obrat:"auto",obratQ:null},sjetiny:sj,monthlyUdr:udr,
+    career:(()=>{const t=RI(26000,90000);return {cpts:t,cOwn:Math.round(t*R(.38,.55)),cAsOf:today,cBase:0,stat:"P6",obrat:"auto",obratQ:null}})(),sjetiny:sj,monthlyUdr:udr,
     otherIncomes:[{id:newId(),label:"Nájem z bytu",mode:"const",amount:RI(9,15)*1000,monthly:{}},
       {id:newId(),label:"Dividendy a kupóny",mode:"var",amount:0,monthly:Object.fromEntries([...Array(15)].map((_,i)=>[ym(i-12),RI(2,7)*1000]))},
       {id:newId(),label:"Lektorování ve struktuře",mode:"const",amount:RI(4,8)*1000,monthly:{}}],
