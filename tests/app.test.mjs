@@ -75,6 +75,24 @@ export default {
     await ctx.close();
   },
 
+  async "čistý režim: prázdná appka, úpravy oddělené od skutečných dat"(env) {
+    const { ctx, page, errors } = await openApp(env, { store: STORE });
+    const before = await page.evaluate(() => localStorage.getItem("crm_store_v1"));
+    await page.evaluate(() => demoSwitch("clean")); await page.waitForTimeout(2000); await closeDialogs(page);
+    const r = await page.evaluate(() => ({ demo: DEMO, clean: CLEAN, leads: leads.length, team: team.length, clients: clientEntries().length, sj: Object.keys(settings.sjetiny || {}).length, sync: $("syncBtn").textContent }));
+    eq(r, { demo: true, clean: true, leads: 0, team: 0, clients: 0, sj: 0, sync: "Čistý režim" }, "prázdná appka");
+    for (const v of TABS) { await page.evaluate(v => setView(v), v); await page.waitForTimeout(250); }
+    await page.evaluate(() => db.collection("leads").add({ name: "Zkušební Lead", stage: "osloven", createdAt: new Date().toISOString() })); await page.waitForTimeout(300);
+    await page.evaluate(() => demoSwitch(false)); await page.waitForTimeout(1800);
+    eq(await page.evaluate(() => localStorage.getItem("crm_store_v1")), before, "skutečná data beze změny");
+    await page.evaluate(() => demoSwitch("clean")); await page.waitForTimeout(1800); await closeDialogs(page);
+    eq(await page.evaluate(() => leads.map(l => l.name)), ["Zkušební Lead"], "vyzkoušené zůstává");
+    await page.evaluate(() => demoSwitch("clean", true)); await page.waitForTimeout(1800); await closeDialogs(page);
+    eq(await page.evaluate(() => leads.length), 0, "začít znovu načisto");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
   async "daně: režim s.r.o."(env) {
     const { ctx, page } = await openApp(env, { store: STORE });
     const r = await page.evaluate(() => { const c = { ...taxCfg(), sroPay: 40000, sroIns: false, sroAcc: 36000, sroDiv: 100, kids: 2, oth: 0, pre: {}, exp: [], autoM: 0, autoReal: 0, gifts: [], dps: 0, zp: 0, dip: 0, dlp: 0, hy: {} };

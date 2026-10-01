@@ -1122,10 +1122,11 @@ html.locked body{overflow:hidden}
         <div id="lockCfgBody"></div>
       </div>
       <div class="dcfg" id="demoCfg" hidden>
-        <label>Prezentační režim</label>
+        <label id="demoLbl">Prezentační a čistý režim</label>
         <button type="button" class="dbtn" id="dDemo">Zapnout prezentační režim</button>
+        <button type="button" class="dbtn" id="dClean">Zapnout čistý režim (prázdná appka)</button>
         <button type="button" class="dbtn" id="dDemoNew" hidden>Vygenerovat jiného poradce</button>
-        <p class="hint" id="demoHint">Přepne appku na fiktivního poradce (kariéra, výdělek, tým, daně, cíle) s prázdnou pipeline – na předvádění. Tvoje data zůstanou beze změny a po vypnutí se vrátí. Vidíš jen ty.</p>
+        <p class="hint" id="demoHint">Prezentační: fiktivní poradce (kariéra, výdělek, tým, daně, cíle) na předvádění. Čistý: prázdná appka bez jakéhokoli nastavení, jak ji uvidí nový uživatel – na zkoušení. V obou se nic nesynchronizuje, tvoje data zůstanou beze změny a po vypnutí se vrátí. Vidíš jen ty.</p>
       </div>
       <button type="button" class="dbtn" id="dSync">Synchronizovat teď</button>
       <button type="button" class="dbtn" id="dExport">Stáhnout zálohu (.json – pro obnovu)</button>
@@ -1282,8 +1283,10 @@ const GCFG={
 };
 /* prezentační režim (jen admin): data fiktivního poradce v odděleném úložišti „demo:…“, bez synchronizace s Googlem;
    přihlášení, schválení přístupu a kurzy/fondy se sdílí se skutečným režimem */
-const DEMO=(()=>{try{return localStorage.getItem("demo_mode")==="1"}catch(e){return false}})();
-const lsKey=k=>DEMO&&!/^(g_(?!fid$|synced$)|dev_id$|acc$|lock$|fx:|fund:)/.test(k)?"demo:"+k:k;
+/* čistý režim (jen admin): totéž, ale prázdná appka jako u nového uživatele – úložiště „clean:…“ */
+const MODE=(()=>{try{const v=localStorage.getItem("demo_mode");return v==="1"?"demo":v==="clean"?"clean":""}catch(e){return""}})();
+const DEMO=!!MODE, CLEAN=MODE==="clean";
+const lsKey=k=>DEMO&&!/^(g_(?!fid$|synced$)|dev_id$|acc$|lock$|fx:|fund:)/.test(k)?(CLEAN?"clean:":"demo:")+k:k;
 const lsGet=(k,d=null)=>{try{const v=localStorage.getItem(lsKey(k));return v==null?d:JSON.parse(v)}catch(e){return d}};
 const lsSet=(k,v)=>{try{localStorage.setItem(lsKey(k),JSON.stringify(v));return true}catch(e){return false}};
 const newId=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
@@ -1513,7 +1516,7 @@ const GSync=(()=>{
       busy:["Synchronizuji…","Synchronizuji s Google Diskem"],
       ok:["✓ "+hm,"Synchronizováno s Google Diskem v "+hm],
       error:["Chyba","Synchronizace selhala: "+(msg||"")],
-      demo:["Prezentace","Prezentační režim – fiktivní data, nic se nesynchronizuje. Vypneš v tomto okně nahoře."],
+      demo:CLEAN?["Čistý režim","Čistý režim – prázdná appka na zkoušení, nic se nesynchronizuje. Vypneš v okně Data a synchronizace."]:["Prezentace","Prezentační režim – fiktivní data, nic se nesynchronizuje. Vypneš v tomto okně nahoře."],
       idle:["…",""]
     };
     const[t,title]=map[s]||map.idle;b.textContent=t;b.title=title;b.dataset.s=s;
@@ -2688,7 +2691,7 @@ function clientEntries(){
   clients.filter(c=>!c.hidden).forEach(c=>{const l=c.leadId?leads.find(x=>x.id===c.leadId):null;out.push({id:"c:"+c.id,rec:c,lead:l,name:c.name||"Bez jména",key:c.calKey||surnameOf(c.name),phone:c.phone||l?.phone||"",products:c.products||[]})});
   leads.filter(l=>SIGNED(l.stage)&&!clients.some(c=>c.leadId===l.id)&&!hidden.has("l:"+l.id)).forEach(l=>{const k=surnameOf(l.name);out.push({id:"l:"+l.id,lead:l,name:l.name,key:k,phone:l.phone||"",products:leadProducts(l),virtual:true})});
   calPeople().forEach(p=>{if(hidden.has(p.key))return;const e=out.find(x=>sameSurname(x.key,p.key)&&(!x.cal));if(e){e.cal=p;return}
-    if(DEMO)return; /* prezentace: lidé jen z tvého skutečného kalendáře se do klientely fiktivního poradce nepřidávají */
+    if(DEMO&&!CLEAN)return; /* prezentace: lidé jen z tvého skutečného kalendáře se do klientely fiktivního poradce nepřidávají */
     const ids=new Set(p.meets.map(m=>m.id)), ld=leads.find(l=>!SIGNED(l.stage)&&(l.meetings||[]).some(m=>ids.has(m.id)));
     out.push({id:"k:"+p.key,cal:p,lead:ld||null,prospect:ld?ST(ld.stage).t:null,name:p.name,key:p.key,phone:ld?.phone||"",products:[],virtual:true,calOnly:true})});
   const now=new Date().toISOString(), today=todayStr();
@@ -5925,10 +5928,13 @@ function demoBuild(real){
   if(cq){inv(2,"Důchodové portfolio",[{tgt:"f:"+cq,dep:[{d:"2019-09-05",a:1800000}],ra:0}]);inv(4,"Dynamické portfolio",[{tgt:"f:"+cq,dep:[{d:"2024-01-20",a:50000}],ra:0}],{freq:"m",from:"2024-02-20",to:""},8000)}
   return docs;
 }
+/* on: true = prezentační, "clean" = čistý režim, false = zpět na skutečná data; regen = začít znovu (zahodit úpravy v režimu) */
 function demoSwitch(on,regen){
+  const wipe=pre=>Object.keys(localStorage).filter(k=>k.startsWith(pre)).forEach(k=>localStorage.removeItem(k));
   try{
-    if(on){if(regen||!localStorage.getItem("demo:crm_store_v1")){const real=DEMO?JSON.parse(localStorage.getItem("crm_store_v1")||"{}").docs:LStore.docs();
-        Object.keys(localStorage).filter(k=>k.startsWith("demo:")).forEach(k=>localStorage.removeItem(k));
+    if(on==="clean"){if(regen)wipe("clean:");localStorage.setItem("demo_mode","clean")}
+    else if(on){if(regen||!localStorage.getItem("demo:crm_store_v1")){const real=DEMO?JSON.parse(localStorage.getItem("crm_store_v1")||"{}").docs:LStore.docs();
+        wipe("demo:");
         localStorage.setItem("demo:crm_store_v1",JSON.stringify({docs:demoBuild(real)}))}
       localStorage.setItem("demo_mode","1")}
     else localStorage.removeItem("demo_mode");
@@ -5959,10 +5965,14 @@ async function initLockCfg(){
 }
 function initDemoCfg(){
   const box=$("demoCfg");if(!box)return;box.hidden=!isAdminUser();
-  $("dDemo").textContent=DEMO?"Vypnout prezentační režim – zpět na moje data":"Zapnout prezentační režim";
+  $("dDemo").textContent=CLEAN?"Vypnout čistý režim – zpět na moje data":DEMO?"Vypnout prezentační režim – zpět na moje data":"Zapnout prezentační režim";
   $("dDemo").onclick=()=>demoSwitch(!DEMO);
-  $("dDemoNew").hidden=!DEMO;$("dDemoNew").onclick=()=>{if(confirm("Vygenerovat nového fiktivního poradce? Úpravy v prezentačním režimu se zahodí."))demoSwitch(true,true)};
-  if(DEMO){$("demoHint").textContent="Právě běží prezentační režim: fiktivní poradce, nic se nesynchronizuje s Google Diskem ani kalendářem. Tvoje data čekají beze změny – vrátíš se tlačítkem výše.";
+  $("dClean").hidden=DEMO;$("dClean").onclick=()=>demoSwitch("clean");
+  $("dDemoNew").hidden=!DEMO;$("dDemoNew").textContent=CLEAN?"Vymazat a začít znovu načisto":"Vygenerovat jiného poradce";
+  $("dDemoNew").onclick=()=>{if(CLEAN?confirm("Smazat vše, co jsi v čistém režimu vyzkoušel, a začít znovu? Tvoje skutečná data se nezmění."):confirm("Vygenerovat nového fiktivního poradce? Úpravy v prezentačním režimu se zahodí."))demoSwitch(CLEAN?"clean":true,true)};
+  if(CLEAN){$("demoLbl").textContent="Čistý režim";$("demoHint").textContent="Právě běží čistý režim: prázdná appka jako u nového uživatele, nic se nesynchronizuje s Google Diskem. Co tu vyzkoušíš, zůstane do příštího zapnutí (nebo do „Vymazat a začít znovu“). Tvoje data čekají beze změny – vrátíš se tlačítkem výše.";
+    ["dSync","dLogout"].forEach(id=>$(id).hidden=true)}
+  else if(DEMO){$("demoHint").textContent="Právě běží prezentační režim: fiktivní poradce, nic se nesynchronizuje s Google Diskem ani kalendářem. Tvoje data čekají beze změny – vrátíš se tlačítkem výše.";
     ["dSync","dLogout"].forEach(id=>$(id).hidden=true)}
 }
 function isAdminUser(){try{return JSON.parse(localStorage.getItem("g_owner"))==="kudlicka.vojtech2002@gmail.com"}catch(e){return false}}
