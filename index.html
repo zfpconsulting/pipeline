@@ -397,6 +397,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 /* ===== v3 ===== */
 .careerbar input.cpts{font-size:15px;font-weight:600;color:var(--label);background:var(--fill);border:none;border-radius:8px;padding:6px 10px;width:100px;text-align:right;font-variant-numeric:tabular-nums}
 .careerbar .cnext{font-size:12px;color:var(--label2);white-space:nowrap}
+.careerbar .cptsbtn{cursor:pointer;color:var(--tint);font-size:15px;font-weight:600;background:var(--fill);border:none;border-radius:8px;padding:6px 10px;min-width:100px;text-align:right;font-variant-numeric:tabular-nums}
 .perchip{flex:none;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;background:var(--tint-soft);color:var(--tint);border-radius:6px;padding:3px 7px;min-width:44px;text-align:center}
 .perchip.bad{background:var(--red-soft);color:var(--red)}
 .xadd{grid-template-columns:78px 1fr 170px auto}
@@ -1553,29 +1554,43 @@ function renderCareer(cur){
   const s2=el("select",{id:"c_obrat","aria-label":"Obratová kariéra v "+qLabel(cur.qk)},el("option",{value:""},"Nemám (statická)"),...PROFI.map(p=>el("option",{value:p.k},p.t+" · "+cz(p.r)+" Kč")));
   s2.value=c.obratQ===cur.qk&&c.obrat!=="auto"?c.obrat:(obratLevelFor(cur.prev)?.k||"");
   const nL=obratLevelFor(cur.total), nQ=qShift(cur.qk,1);
-  const cp=el("input",{id:"c_cpts",type:"number",min:"0",step:"1",inputmode:"numeric",placeholder:"zadej",class:"cpts","aria-label":"Kariérní body celkem"});cp.value=cum!=null?Math.round(cum):"";
   const save=async patch=>{try{await db.doc("settings/main").set({...settings,career:{...(settings.career||{}),...patch}});toast("Kariéra uložena")}catch(e){toast("Nepodařilo se uložit")}};
   s1.onchange=()=>{s1.blur();save({stat:s1.value})};
   s2.onchange=()=>{s2.blur();save({obrat:s2.value,obratQ:cur.qk})};
   const own=ownPts(), grp=groupPts();
-  const mk=(id,val,lab)=>{const i=el("input",{id,type:"number",min:"0",step:"1",inputmode:"numeric",placeholder:"zadej",class:"cpts","aria-label":lab});i.value=val!=null?Math.round(val):"";
-    i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();i.blur()}});return i};
-  const op=mk("c_own",own,"Body vlastní"), gp=mk("c_grp",grp,"Body skupinové");
-  /* každá úprava uloží aktuální stav k dnešku; další růst se pak přičítá sám (vlastní z vyplacených obchodů, skupinové z bodů týmu) */
-  const setPts=(total,ownV)=>{const d=todayStr(),t=Math.max(0,Math.round(total));save({cpts:t,cOwn:ownV==null?null:Math.min(t,Math.max(0,Math.round(ownV))),cAsOf:d,cBase:sinceTotal(d),stat:statFor(t)[0]})};
-  cp.onchange=()=>{cp.blur();if(cp.value===""){save({cpts:null,cOwn:null,cAsOf:null,cBase:0});return}setPts(+cp.value,own)};
-  op.onchange=()=>{op.blur();if(op.value===""){save({cOwn:null});return}const v=+op.value;setPts(cum==null?v:v+(grp??Math.max(0,cum-v)),v)};
-  gp.onchange=()=>{gp.blur();if(gp.value==="")return;const v=+gp.value,o=own??(cum!=null?Math.max(0,cum-v):0);setPts(o+v,o)};
-  cp.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();cp.blur()}});
-  const c0=settings.career||{}, since=c0.cAsOf?fmtDate(c0.cAsOf):"", oAdd=own!=null?sinceTotal(c0.cAsOf)-(+c0.cBase||0):0, gAdd=c0.cAsOf?groupSince(c0.cAsOf):0;
+  const cp=el("button",{type:"button",id:"c_cpts",class:"cpts cptsbtn","aria-label":"Kariérní body celkem – rozkliknout vlastní a skupinové",onclick:()=>openPtsSheet(save)},cum!=null?fmt0(cum):"zadej");
   const nxt=cum!=null?STAT_POS.find(p=>p[2]>cum):null, pq=qShift(cur.qk,-1);
   $("careerBar").replaceChildren(
     el("label",{},"Statická kariéra",c.auto?el("span",{class:"statchip",title:"Podle bodů celkem"},c.stat+" · "+statRate(c.stat)+" Kč"):s1),
-    el("label",{title:"Body celkem podle výpisu = vlastní + skupinové. Přičítají se vyplacené provize a body týmu za uzavřené měsíce."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext"},nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")),
-    el("label",{title:"Tvoje vlastní body podle výpisu. Přičítají se samy z obchodů ve fázi Provize vyplacena."},"Body vlastní",op,el("span",{class:"cnext"},own==null?"zadej podle výpisu":oAdd?"+"+fmt1(oAdd)+" b od "+since:"přičítá se z vyplacených obchodů")),
-    el("label",{title:"Body tvé struktury podle výpisu. Přičítají se samy z bodů členů týmu (u propojených členů z jejich Pipeline)."},"Body skupinové",gp,el("span",{class:"cnext"},grp==null?(cum!=null?"= celkem − vlastní":"zadej podle výpisu"):gAdd?"+"+fmt1(gAdd)+" b od "+since:"přičítá se z bodů týmu")),
+    el("label",{title:"Body celkem = vlastní + skupinové. Klikni a uprav, kolik je vlastních a kolik skupinových."},"Body celkem",cp,cum==null?null:el("span",{class:"cnext",style:"white-space:normal"},(nxt?"do "+nxt[0]+" chybí "+fmt0(nxt[2]-cum)+" b":"nejvyšší pozice")+(own!=null?" · vlastní "+fmt0(own)+" · skupinové "+fmt0(grp):""))),
     el("label",{title:"Zvol úroveň, na které jsi teď. Další kvartál se určí automaticky podle bodů za tento kvartál."},"Obratová v "+qLabel(cur.qk),s2,el("span",{class:"cnext"},"→ "+qLabel(nQ)+": "+(nL&&nL.r>statRate(c.stat)?nL.t+" · "+cz(nL.r)+" Kč":"statická "+c.stat+" (zatím "+fmt0(cur.total)+" b z 1 000)"))),
     el("span",{class:"rate"},"Tarif "+qLabel(cur.qk)+" ",el("b",{},cz(cur.rate)+" Kč/b"),el("small",{},cur.src+" · v "+qLabel(pq)+" "+fmt1(cur.prev)+" b")));
+}
+
+/* body celkem rozkliknuté na vlastní a skupinové; uložením se stav zapíše k dnešku a dál se přičítá sám
+   (vlastní z obchodů ve fázi Provize vyplacena, skupinové z bodů členů týmu za uzavřené měsíce) */
+function openPtsSheet(save){
+  const cum=cumPts(), own=ownPts(), grp=groupPts(), c0=settings.career||{}, since=c0.cAsOf?fmtDate(c0.cAsOf)+" "+c0.cAsOf.slice(0,4):"";
+  const oAdd=own!=null?sinceTotal(c0.cAsOf)-(+c0.cBase||0):0, gAdd=c0.cAsOf?groupSince(c0.cAsOf):0;
+  const inp=v=>{const i=el("input",{type:"number",min:"0",step:"1",inputmode:"numeric",class:"aumin",placeholder:"0"});i.value=v!=null?Math.round(v):"";return i};
+  const oi=inp(own), gi=inp(own!=null?grp:(cum!=null?cum:null));
+  const tot=el("b",{}), next=el("div",{class:"s",style:"white-space:normal"});
+  const upd=()=>{const t=(+oi.value||0)+(+gi.value||0);tot.textContent=fmt0(t)+" b";const n=STAT_POS.find(p=>p[2]>t);next.textContent=statFor(t)[0]+" · "+(n?"do "+n[0]+" chybí "+fmt0(n[2]-t)+" b":"nejvyšší pozice")};
+  /* ukládá se hned při změně pole (jako všude v appce) */
+  const commit=()=>{if(oi.value===""&&gi.value===""){save({cpts:null,cOwn:null,cAsOf:null,cBase:0});return}
+    const o=Math.max(0,Math.round(+oi.value||0)),g=Math.max(0,Math.round(+gi.value||0)),t=o+g,d=todayStr();
+    save({cpts:t,cOwn:oi.value===""?null:o,cAsOf:d,cBase:sinceTotal(d),stat:statFor(t)[0]})};
+  [oi,gi].forEach(i=>{i.addEventListener("input",upd);i.addEventListener("change",commit);i.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();i.blur()}})});upd();
+  const row=(t,s,ctl)=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},t),s?el("div",{class:"s",style:"white-space:normal"},s):null),el("span",{class:"end"},ctl," b"));
+  openSheet("Body celkem",[
+    el("p",{class:"hint"},"Rozděl body podle posledního výpisu. Po uložení se dál přičítají samy – vlastní z obchodů ve fázi „Provize vyplacena“, skupinové z bodů členů týmu za uzavřené měsíce (u propojených členů z jejich Pipeline)."),
+    el("div",{class:"group"},
+      row("Body vlastní",own!=null&&oAdd?"+"+fmt1(oAdd)+" b automaticky od "+since:"tvoje vlastní produkce",oi),
+      row("Body skupinové",own!=null&&gAdd?"+"+fmt1(gAdd)+" b automaticky od "+since:own==null&&cum!=null?"zatím celé body celkem – odečti vlastní":"body tvé struktury",gi),
+      el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},"Body celkem"),next),el("span",{class:"end"},tot))),
+    el("p",{class:"hint"},"Ukládá se samo při změně. Celkem = vlastní + skupinové; podle součtu se nastaví statická kariéra.")
+  ]);
+  setTimeout(()=>oi.focus(),50);
 }
 
 /* ---------- období (měsíce / roky) ---------- */
