@@ -137,4 +137,35 @@ export default {
     eq(await page.evaluate(() => AppLock.isLocked()), false, "správný PIN odemkne");
     await ctx.close();
   },
+
+  async "výdělek: přepínání měsíců a pipeline nabízí minulý měsíc"(env) {
+    const { ctx, page } = await openApp(env, { store: STORE });
+    const prevYm = await page.evaluate(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") });
+    assert(await page.evaluate(ym => perList().includes(ym), prevYm), "minulý měsíc v nabídce Pipeline");
+    await page.evaluate(() => { settings.sjetiny = { ...(settings.sjetiny || {}), "2026-01/1": 1 }; setView("money") }); await page.waitForTimeout(300);
+    const now = await page.textContent("#m_qlabel");
+    await page.click("#mPrevM"); await page.waitForTimeout(250);
+    const prev = await page.textContent("#m_qlabel");
+    assert(prev !== now && /vyplaceno|vyplatí/.test(prev), "přepnuto na minulý měsíc: " + prev);
+    await page.click("#mNextM"); await page.waitForTimeout(250);
+    eq(await page.textContent("#m_qlabel"), now, "zpět na aktuální");
+    await ctx.close();
+  },
+
+  async "uzávěrky: přečtení výpisu ze souboru a přepočet"(env) {
+    const { ctx, page } = await openApp(env, { store: STORE });
+    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
+    const per = await page.evaluate(() => lastClosedPers(1)[0]);
+    const end = await page.evaluate(p => perEnd(p), per);
+    const d = end.split("-").reverse().map(Number).join(". ");
+    const txt = `Provizní výpis\nUzávěrka do ${d}\nBody za uzávěrku 312,4\nZ toho udržovací provize 45,2\nZFP Investments udržovací 20,1\nConseq udržovací 25,1\nMeziprovize z týmu 1 250,00 Kč\nCena bodu 150 Kč\nCelkem k výplatě 48 110,00 Kč\nKariérní body celkem 9 890\nVlastní body 7 400`;
+    await page.locator("#edBody input[type=file]").setInputFiles({ name: "vypis.txt", mimeType: "text/plain", buffer: Buffer.from(txt) });
+    await page.waitForTimeout(600);
+    assert(/sedí s výpisem/.test(await page.textContent("#edBody")), "kontrola výplaty sedí");
+    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(600);
+    const r = await page.evaluate(p => ({ sj: settings.sjetiny[p], cum: cumPts(), own: ownPts(), rate: settings.monthlyRate[p.slice(0, 7)], aum: !!settings.passive?.aum?.ZFPI }), per);
+    eq(r, { sj: 312.4, cum: 9890, own: 7400, rate: 150, aum: true }, "uloženo a přepočteno");
+    await ctx.close();
+  },
 };
