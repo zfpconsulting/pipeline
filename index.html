@@ -853,7 +853,7 @@ html.locked body{overflow:hidden}
           <dt>Minulý kvartál</dt><dd id="m_prev">0 b</dd>
           <dt>Do konce kvartálu</dt><dd id="m_days">–</dd>
         </dl>
-        <div class="chips" style="margin-top:12px"><button type="button" class="chipbtn" id="mClosingsBtn">📄 Zapsat výpisy za poslední 3 měsíce</button></div>
+        <div class="chips" style="margin-top:12px"><button type="button" class="chipbtn" id="mClosingsBtn">📥 Importovat data</button></div>
         <div id="m_mix" class="mixbox"></div>
         <div id="mOstEdit" style="margin-top:14px"></div>
       </div>
@@ -1894,7 +1894,7 @@ function renderMoney(cq,cur){
   $("mPrevM").disabled=curYm<=moneyMinYm();$("mNextM").disabled=!past;
   $("mPrevM").onclick=()=>{const [y,m]=curYm.split("-").map(Number),d=new Date(y,m-2,1);moneyYm=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");render()};
   $("mNextM").onclick=()=>{const n=ymNext(curYm);moneyYm=n>=nowYm?null:n;render()};
-  $("mClosingsBtn").onclick=openClosings;
+  $("mClosingsBtn").onclick=openImport;
   $("m_earned").replaceChildren(fmt0(ownActiveNow)+" ",el("small",{},"Kč"));
   {const dts=[...document.querySelectorAll("#m_pts")].map(x=>x.previousElementSibling);if(dts[0])dts[0].textContent=past?"Body v "+qLabel(mq):"Body tento kvartál"}
   $("m_pts").textContent=fmt1(mcur.total)+" b";
@@ -1957,7 +1957,7 @@ async function closingFileText(f){
    a výsledek projde pevným seznamem povolených polí (jen čísla v rozumném rozsahu). */
 const CL_CAT=[["ZP","Životní pojištění",/zivotni\s*poj|\bzp\b/],["INV","Investice",/investic|podilov|fond/],["DPS","Penzijní spoření (DPS)",/penzij|\bdps\b|\bdip\b/],
   ["UVER","Úvěry a hypotéky",/hypote|uver/],["NEZ","Neživotní pojištění",/nezivot|majet|odpovednost|auto\s*poj|pov\b/],["REAL","Reality",/realit/],["OST","Ostatní",/ostatni|jine\b/]];
-const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],bonus:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[-1e5,1e7]};
+const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],teamKc:[-1e7,1e7],bonus:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[-1e5,1e7]};
 /* období výpisu: „2026/09/2“ (značení sjetin v ZFP) v textu nebo názvu souboru, jinak poslední datum ve výpisu */
 const CL_MON=["leden|ledna","unor|unora","brezen|brezna","duben|dubna","kveten|kvetna","cerven(?!ec)|cervna","cervenec|cervence","srpen|srpna","zari","rijen|rijna","listopad|listopadu","prosinec|prosince"];
 function clDetectPer(txt,fname){
@@ -1986,11 +1986,21 @@ function clSkeleton(txt){
    (meziprovize), mezisoučty „… [Kč]: X“ a „… v … období [Kč]: X“ (k výplatě), „… kariera ZFP: X“ (kariérní body).
    Z řádků smluv se bere jen druh produktu a čísla – jméno klienta ani číslo smlouvy se nikam nedostanou. */
 function parseZfpStatement(raw){
-  const nn=x=>(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-  const lines=String(raw||"").split(/\r?\n/).map(l=>l.replace(/[\s\u00a0]+/g," ").trim()).filter(Boolean);
+  const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
+  const lines=String(raw||"").split(/\r?\n/).map(l=>l.replace(/[\s ]+/g," ").trim()).filter(Boolean);
   if(!lines.some(l=>/cislo\s*smlouvy/.test(nn(l)))||!lines.some(l=>/\[kc\]\s*:/.test(nn(l))))return null;
-  const NUM=/-\s?\d{1,3}(?: \d{3})*,\d{2}(?!\d)|\d{1,3}(?: \d{3})*,\d{2}(?!\d)/g, nums=l=>[...l.matchAll(NUM)].map(m=>+m[0].replace(/\s/g,"").replace(",","."));
-  const r={own:0,udr:0,team:0,grp:0,bonus:0,split:{},cat:{}}, tarifs={};let sec=null,anyRow=false;
+  /* čísla v souvislém textu (hlavička, mezisoučty); nesmí navazovat na jiné číslice/písmena (např. konec čísla smlouvy) */
+  const NUM=/(?<![\w\/.,-])(?:-\s?)?\d{1,3}(?: \d{3})*,\d{2}(?!\d)/g, nums=l=>[...l.matchAll(NUM)].map(m=>+m[0].replace(/\s/g,"").replace(",","."));
+  /* konec řádku tabulky po sloupcích: posledních n čísel (částka smí mít mezery po tisících, ostatní ne) */
+  const tail=(line,n)=>{const tk=line.split(" ");let k=tk.length-1;const out=[];const isN=t=>/^-?\d+,\d{2}$/.test(t);
+    for(let c=0;c<n;c++){if(k<0||!isN(tk[k]))return null;let v=tk[k];k--;
+      if(c===0)while(k>=1&&/^\d{1,3}$/.test(tk[k])&&isN(tk[k-1])&&!v.startsWith("-")){v=tk[k]+v;k--}
+      if(k>=0&&tk[k]==="-"){v="-"+v;k--}
+      out.unshift(+v.replace(",","."))}
+    return {v:out,rest:tk.slice(0,k+1)}};
+  const okRow=(b,t,a)=>Math.abs(a-b*t)<=Math.abs(t)*0.006+0.03;
+  const R2=v=>Math.round(v*100)/100;
+  const r={own:0,udr:0,bonus:0,ownKc:0,teamKc:0,grp:0,split:{},cat:{},teamRows:[],bad:0}, tarifs={};let sec=null,anyRow=false;
   const pm=String(raw).match(/za\s*obdob\S*\s*:?\s*(20\d\d)\s*\/\s*(\d{1,2})\s*\/\s*([12])(?!\d)/i);
   if(pm)r.per=pm[1]+"-"+pm[2].padStart(2,"0")+"/"+pm[3];
   const comp=L=>/zfp\s*realitni\s*fond|zfp\s*investments|\bzfpi\b/.test(L)?"ZFPI":/zfp\s*wi\b|world\s*index/.test(L)?"WI":/conseq/.test(L)?"CQ":"OST";
@@ -2000,20 +2010,29 @@ function parseZfpStatement(raw){
   for(const line of lines){const L=nn(line);
     if(/cislo\s*smlouvy/.test(L)){sec="own";continue}
     if(/body\s*celkem/.test(L)&&/tarif/.test(L)){sec="team";continue}
-    if(/\[kc\]\s*:/.test(L)){const v=nums(line).pop();if(v!=null&&/obdob/.test(L))r.pay=v;if(/obdob|celkem/.test(L))sec=sec;continue}
+    if(/\[kc\]\s*:/.test(L)){const v=nums(line).pop();if(v!=null&&/obdob/.test(L))r.pay=v;sec=null;continue}
+    /* hlavička: „Tarif / … kariéra: Body: vlastní skupinové Provize: X Kč“ – přesné body za období od ZFP */
+    if(/tarif\s*\//.test(L)&&r.hdrOwn==null){const ns=nums(line);if(ns.length>=3){r.hdrOwn=ns[0];r.hdrGrp=ns[1];r.hdrProv=ns[2]}continue}
     const kar=L.match(/kariera\s*zfp\s*:?/);if(kar){const v=nums(line.slice(kar.index)).shift();if(v!=null)r.cum=v;continue}
-    if(!sec)continue;const ns=nums(line);
-    if(sec==="team"&&ns.length>=4){const [,b,,a]=ns.slice(-4);r.grp+=b;r.team+=a;anyRow=true;continue}
-    if(sec==="own"&&ns.length>=3){const [b,t,a]=ns.slice(-3);anyRow=true;
-      if(!b&&!t&&a){r.bonus+=a;continue}
-      r.own+=b;if(t)tarifs[t]=(tarifs[t]||0)+b;
-      const c=comp(L), isNew=/\bpz\d\b/.test(L)||/vstupn/.test(L), cat=catOf(L);
-      r.cat[cat]=(r.cat[cat]||0)+b;
-      if(!isNew&&(c!=="OST"||cat==="INV")){r.udr+=b;r.split[c]=(r.split[c]||0)+b}}}
-  if(!anyRow&&r.pay==null)return null;
+    if(!sec)continue;
+    if(sec==="team"){const tl=tail(line,4);if(!tl)continue;const [tot,b,t,a]=tl.v;if(!okRow(b,t,a)){r.bad++;continue}
+      /* jméno kolegy = text před čísly bez registračního čísla (jen kvůli rozpisu do týmu; klienti se tu nevyskytují) */
+      const name=tl.rest.filter(x=>!/\d/.test(x)).join(" ").replace(/[^\p{L} .'-]/gu,"").trim().slice(0,60);
+      r.grp+=b;r.teamKc+=a;r.teamRows.push({name,total:tot,pts:b,kc:a});anyRow=true;continue}
+    const tl=tail(line,3);if(!tl)continue;const [b,t,a]=tl.v;anyRow=true;
+    if(!b&&!t){r.bonus+=a;continue}
+    if(!okRow(b,t,a)){r.bad++;continue}
+    r.own+=b;r.ownKc+=a;if(t)tarifs[t]=(tarifs[t]||0)+Math.abs(b);
+    const c=comp(L), isNew=/\bpz\d\b/.test(L)||/vstupn/.test(L), cat=catOf(L);
+    r.cat[cat]=(r.cat[cat]||0)+b;
+    if(!isNew&&(c!=="OST"||cat==="INV")){r.udr+=b;r.split[c]=(r.split[c]||0)+b}}
+  if(!anyRow&&r.pay==null&&r.hdrOwn==null)return null;
   const best=Object.entries(tarifs).sort((a,b)=>b[1]-a[1])[0];
-  const R2=v=>Math.round(v*100)/100;
-  return {per:r.per,pts:R2(r.own),udr:R2(r.udr),team:R2(r.team),grp:R2(r.grp),bonus:R2(r.bonus),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,
+  /* body: přednost má hlavička výpisu (přesně podle ZFP); součet řádků slouží jako kontrola */
+  const pts=r.hdrOwn??R2(r.own), grp=r.hdrGrp??R2(r.grp);
+  const chk={rows:R2(r.own),hdr:r.hdrOwn??null,bad:r.bad,teamRows:R2(r.grp),hdrGrp:r.hdrGrp??null,ownKc:R2(r.ownKc)};
+  return {per:r.per,pts,udr:R2(r.udr),grp,bonus:R2(r.bonus),teamKc:R2(r.teamKc),rate:best?+best[0]:undefined,pay:r.pay,cum:r.cum,chk,
+    teamRows:r.teamRows.map(x=>({...x,pts:R2(x.pts),kc:R2(x.kc)})),
     split:Object.fromEntries(Object.entries(r.split).map(([k,v])=>[k,R2(v)])),cat:Object.fromEntries(Object.entries(r.cat).map(([k,v])=>[k,R2(v)]))};
 }
 function parseClosingText(txt,fname){
@@ -2054,102 +2073,115 @@ function clSanitize(r){
   Object.entries(CL_RANGE).forEach(([k,rg])=>{if(ok(r[k],rg))out[k]=Math.round(r[k]*100)/100});
   ["split","cat"].forEach(g=>{const allowed=g==="split"?CL_SPLIT.map(x=>x[0]):CL_CAT.map(x=>x[0]);const o={};
     allowed.forEach(k=>{if(r[g]&&ok(r[g][k],[-1e6,1e7]))o[k]=Math.round(r[g][k]*100)/100});if(Object.keys(o).length)out[g]=o});
+  /* kolegové z tabulky týmu: jen jméno (písmena) a čísla */
+  if(Array.isArray(r.teamRows))out.teamRows=r.teamRows.filter(x=>x&&typeof x.name==="string"&&ok(x.pts,[-1e5,1e6])).map(x=>({name:x.name.replace(/[^\p{L} .'-]/gu,"").trim().slice(0,60),total:ok(x.total,[0,1e7])?x.total:null,pts:x.pts,kc:ok(x.kc,[-1e7,1e7])?x.kc:0}));
+  if(r.chk&&typeof r.chk==="object"){const c={};["rows","hdr","bad","teamRows","hdrGrp","ownKc"].forEach(k=>{if(ok(r.chk[k],[-1e7,1e7]))c[k]=r.chk[k]});out.chk=c}
   return out;
 }
-/* ukládá se jen tohle – čísla, nic jiného */
-function clStore(x){const n=v=>typeof v==="number"&&isFinite(v)?Math.round(v*100)/100:null,o={at:new Date().toISOString()};
-  ["p1","p2","udr","team","bonus","rate","pay"].forEach(k=>o[k]=n(x[k]));
-  o.split=Object.fromEntries(CL_SPLIT.map(([k])=>[k,n(x.split?.[k])]).filter(e=>e[1]!=null));
-  o.cat=Object.fromEntries(CL_CAT.map(([k])=>[k,n(x.cat?.[k])]).filter(e=>e[1]!=null));return o}
 function lastMonths(n){const [y,m]=todayStr().slice(0,7).split("-").map(Number),out=[];for(let i=1;i<=n;i++){const d=new Date(y,m-1-i,1);out.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"))}return out}
 /* poslední 3 uzavřené měsíce – každý s oběma uzávěrkami (1.–15. a 16.–konec) a měsíčními údaji z výpisu */
-function openClosings(){
-  const C={...(settings.closings||{})};
-  const load=ym=>{const c=C[ym]&&!("pts" in C[ym])?C[ym]:{},sj=settings.sjetiny||{},v=x=>hasV(x)?+x:null;
-    return {ym,p1:c.p1??v(sj[ym+"/1"]),p2:c.p2??v(sj[ym+"/2"]),udr:c.udr??v(settings.monthlyUdr?.[ym]),split:{...(c.split||{})},
-      team:c.team??v(settings.monthlyTeam?.[ym]),bonus:c.bonus??v(settings.monthlyBonus?.[ym]),rate:c.rate??v(settings.monthlyRate?.[ym]),pay:c.pay??null,cat:{...(c.cat||{})},src:{}}};
-  const st=lastMonths(3).map(load), cs={cum:cumPts(),own:ownPts(),src:{}};
-  const body=el("div",{class:"clgrid"}), checks=[], check=()=>checks.forEach(f=>f()), diag=[];
-  const diagBox=()=>{if(!diag.length)return null;
-    const rows=diag.map(d=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:normal;word-break:break-all"},d.name),
-      el("div",{class:"s",style:"white-space:normal"},d.err?"Nepodařilo se otevřít: "+d.err:!d.lines?d.kind+" bez textu – nejspíš sken nebo obrázek, ten neumím přečíst":
-        d.kind+" · "+d.pages+" "+plural(d.pages,"strana","strany","stran")+" · "+d.lines+" řádků · "+(d.per?"období "+(d.per.endsWith("/1")?"1. uzávěrka ":"2. uzávěrka ")+ymLabel(perMonth(d.per),1):"období nepoznáno")+" · poznáno "+d.nf+" údajů")),
-      d.skel?el("button",{type:"button",class:"chipbtn",onclick:()=>showSkel(d)},"Struktura"):null));
-    return el("div",{class:"group"},el("div",{class:"frow"},el("h3",{style:"margin:0;font-size:15px"},"Přečtené výpisy")),...rows,
-      el("p",{class:"clnote"},"Když appka výpis nepozná správně, otevři „Struktura“ a pošli ji Claudovi – jména, čísla smluv, adresy a další osobní údaje jsou v ní nahrazené „×××“, zůstanou jen popisky a čísla výpisu."))};
+/* kolega z výpisu → člen týmu v appce (shoda všech slov kratšího jména, bez diakritiky a titulů) */
+function teamMatch(name){const W=s=>(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().split(/[^a-z]+/).filter(w=>w.length>1&&!/^(ing|mgr|bc|mba|phd|dis|judr|mudr|rndr|doc|prof)$/.test(w));
+  const a=W(name);if(!a.length)return null;const hit=team.filter(m=>{const b=W(m.name);if(!b.length)return false;const [x,y]=a.length<=b.length?[a,b]:[b,a];return x.every(w=>y.includes(w))});
+  return hit.length===1?hit[0]:hit.find(m=>W(m.name).join(" ")===a.join(" "))||null}
+/* ===== Import provizních výpisů (sjetin): období (rok / měsíc / 1. nebo 2. uzávěrka) se zjistí z výpisu
+   a údaje se doplní do celkových výsledků. Soubory se čtou jen v tomto zařízení, ukládají se jen čísla
+   (a u meziprovize jména kolegů z týmu – ne klientů). Meziprovize se ukládá jako body kolegů, ne v Kč. ===== */
+function openImport(){
+  /* přesně jako ve výpisu – body i koruny na 2 desetinná místa */
+  const fmt1=n=>(+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:0,maximumFractionDigits:2}), fmt0=fmt1, kc=n=>(+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2})+" Kč";
+  const items=[], diag=[], body=el("div",{class:"clgrid"});
+  const perTxt=per=>(per.endsWith("/1")?"1. uzávěrka ":"2. uzávěrka ")+ymLabel(perMonth(per),1);
+  const file=el("input",{type:"file",multiple:"",accept:".pdf,.xlsx,.xlsm,.xls,.ods,.csv,.txt,.htm,.html,image/*",hidden:""});
+  /* zrušený výběr souborů posílá „cancel“, který by jinak zavřel celé okno */
+  file.addEventListener("cancel",e=>e.stopPropagation());
   const showSkel=d=>{const ta=el("textarea",{readonly:"",style:"width:100%;min-height:55vh;font:12px/1.4 ui-monospace,Menlo,monospace;white-space:pre"});ta.value=d.skel;
     const dlg=el("dialog",{class:"skeldlg"},el("div",{class:"sheet"},el("div",{class:"sbar"},el("span",{}),el("h2",{},"Anonymizovaná struktura"),el("button",{type:"button",class:"r",onclick:()=>{dlg.close();dlg.remove()}},"Zavřít")),
       el("div",{class:"ebody"},el("p",{class:"hint"},"Zkontroluj, že v textu nezůstalo nic osobního (jména jsou „×××“). Pak ho zkopíruj a pošli."),ta,
         el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:async()=>{try{await navigator.clipboard.writeText(d.skel);toast("Zkopírováno")}catch(e){ta.select();toast("Označeno – zkopíruj ⌘C")}}},"Kopírovat")))));
     document.body.append(dlg);dlg.showModal()};
-  const numIn=(v,on,src,ph)=>{const i=el("input",{type:"number",step:"any",inputmode:"decimal",class:"aumin"+(src?" clsrc":""),placeholder:ph||"–"});i.value=v??"";i.addEventListener("input",()=>{i.classList.remove("clsrc");on(i.value===""?null:+i.value);check()});return i};
-  const fr=(lab,ctl,unit)=>el("div",{class:"frow"},el("label",{},lab),ctl,unit?el("span",{class:"xu"},unit):null);
-  const udrOf=x=>x.udr??(Object.keys(x.split).length?CL_SPLIT.reduce((a,[k])=>a+(+x.split[k]||0),0):null);
-  const draw=()=>{checks.length=0;
-    const cards=st.map((x,i)=>{
-      const sel=el("select",{},lastMonths(12).map(m=>el("option",{value:m},ymLabel(m,1))));sel.value=x.ym;sel.onchange=()=>{Object.assign(x,load(sel.value));draw()};
-      const res=el("div",{class:"clnote"});
-      checks.push(()=>{const u=udrOf(x),pts=(x.p1??0)+(x.p2??0),has=x.p1!=null||x.p2!=null,calc=has&&x.rate?pts*x.rate+(+x.team||0)+(+x.bonus||0):null;
-        const ct=CL_CAT.filter(([k])=>x.cat[k]).map(([k,t])=>[t,+x.cat[k]]),cs2=ct.reduce((a,c)=>a+c[1],0);
-        res.textContent=(has?"Body za měsíc "+fmt1(pts)+" b"+(u!=null?" (aktivní "+fmt1(pts-u)+" + udržovací "+fmt1(u)+")":"")+". ":"")
-          +(cs2?"Struktura: "+ct.sort((a,b)=>b[1]-a[1]).map(([t,v])=>t.split(" (")[0]+" "+Math.round(v/cs2*100)+" %").join(" · ")+". ":"")+(calc!=null?"Spočítaná provize "+kc(calc)+(x.pay!=null?(Math.abs(calc-x.pay)<Math.max(50,x.pay*.01)?" ✓ sedí s výpisem.":" – výpis "+kc(x.pay)+" (rozdíl "+kc(x.pay-calc)+": storna, zálohy, odměny…)."):"."):"")});
-      return el("div",{class:"group clcard"},
-        el("div",{class:"frow"},el("h3",{},(i+1)+". měsíc"),sel),
-        fr("Body – 1. uzávěrka (1.–15.)",numIn(x.p1,v=>x.p1=v,x.src.p1),"b"),
-        fr("Body – 2. uzávěrka (16.–konec)",numIn(x.p2,v=>x.p2=v,x.src.p2),"b"),
-        fr("z toho udržovací za měsíc",numIn(x.udr,v=>x.udr=v,x.src.udr,"součet níže"),"b"),
-        el("div",{class:"clnote"},"Udržovací body podle společnosti (nepovinné – z nich se dopočítá AUM a pasivní příjem):"),
-        ...CL_SPLIT.map(([k,t])=>fr("  "+t,numIn(x.split[k],v=>{if(v==null)delete x.split[k];else x.split[k]=v},x.src["s"+k]),"b")),
-        fr("Meziprovize z týmu",numIn(x.team,v=>x.team=v,x.src.team),"Kč"),
-        fr("Mimořádné provize / storna",numIn(x.bonus,v=>x.bonus=v,x.src.bonus),"Kč"),
-        fr("Cena bodu",numIn(x.rate,v=>x.rate=v,x.src.rate),"Kč/b"),
-        fr("K výplatě (kontrola)",numIn(x.pay,v=>x.pay=v,x.src.pay),"Kč"),
-        el("details",{class:"clcat",...(Object.keys(x.cat).length?{open:""}:{})},el("summary",{},"Z čeho je příjem (body podle druhu produktu)"),
-          ...CL_CAT.map(([k,t])=>fr(t,numIn(x.cat[k],v=>{if(v==null)delete x.cat[k];else x.cat[k]=v},x.src["c"+k]),"b"))),res)});
-    const careerBox=el("div",{class:"group clcard"},el("div",{class:"frow"},el("h3",{},"Kariérní body podle posledního výpisu")),
-      fr("Body celkem",numIn(cs.cum,v=>cs.cum=v,cs.src.cum),"b"),fr("z toho vlastní",numIn(cs.own,v=>cs.own=v,cs.src.own),"b"));
-    const file=el("input",{type:"file",multiple:"",accept:".pdf,.xlsx,.xlsm,.xls,.ods,.csv,.txt,.htm,.html,image/*",hidden:""});
-    file.onchange=async()=>{const fs=[...file.files];file.value="";if(!fs.length)return;toast("Čtu "+fs.length+" "+plural(fs.length,"soubor","soubory","souborů")+"…");
-      let got=0,lastPer="";diag.length=0;
-      for(const f of fs){let r,ft;try{ft=await closingFileText(f);r=parseClosingText(ft.text,f.name)}catch(e){diag.push({name:f.name,err:e.message||String(e)});continue}
-        const lines=ft.text.split(/\n/).filter(l=>l.trim()).length, nf=["pts","udr","team","rate","pay","cum","own"].filter(k=>r[k]!=null).length+Object.keys(r.split||{}).length+Object.keys(r.cat||{}).length;
-        diag.push({name:f.name,kind:ft.kind,pages:ft.pages,lines,per:r.per,nf,skel:clSkeleton(ft.text)});ft=null;
-        if(!r.per){continue}
-        const ym=r.per?perMonth(r.per):null, half=r.per&&r.per.endsWith("/1")?1:2;let x=ym&&st.find(s=>s.ym===ym);
-        if(!x&&ym&&lastMonths(12).includes(ym)){x=st.filter(s=>!s.src.used).sort((a,b)=>a.ym.localeCompare(b.ym))[0];if(x)Object.assign(x,load(ym))}
-        if(!x)continue;
-        /* druhý výpis téhož měsíce (druhá uzávěrka) se k prvnímu přičte, stejná uzávěrka ho nahradí */
-        const add=x.src.halves&&!x.src.halves.includes(half);x.src.used=1;x.src.halves=[...(x.src.halves||[]),half];
-        const put=(k,v,sk)=>{if(v==null)return;x[k]=add&&x[k]!=null&&x.src[sk||k]?Math.round((x[k]+v)*100)/100:v;x.src[sk||k]=1;got++};
-        if(r.pts!=null){x[half===1?"p1":"p2"]=r.pts;x.src[half===1?"p1":"p2"]=1;got++}
-        ["udr","team","bonus","pay"].forEach(k=>put(k,r[k]));if(r.rate!=null){x.rate=r.rate;x.src.rate=1;got++}
-        [["split","s"],["cat","c"]].forEach(([g,pre])=>{if(r[g])Object.entries(r[g]).forEach(([k,v])=>{x[g][k]=add&&x[g][k]!=null&&x.src[pre+k]?Math.round((x[g][k]+v)*100)/100:v;x.src[pre+k]=1;got++})});
-        if((r.per||"")>=lastPer){lastPer=r.per||lastPer;["cum","own"].forEach(k=>{if(r[k]!=null){cs[k]=r[k];cs.src[k]=1;got++}})}}
-      st.sort((a,b)=>b.ym.localeCompare(a.ym));draw();toast(diag.some(d=>d.err||!d.lines||!d.per)?"Některé výpisy se nepodařilo přečíst – podrobnosti nahoře v okně":got?"Přečteno "+got+" údajů – zkontroluj zvýrazněná pole":"Ve výpisu jsem čísla nepoznal – vyplň je prosím ručně")};
+  const line=(t,v,sub,cls)=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:normal"},t),sub?el("div",{class:"s",style:"white-space:normal"},sub):null),el("span",{class:"end"+(cls?" "+cls:"")},v));
+  const card=it=>{const r=it.r, now=settings.sjetiny?.[r.per], ym=perMonth(r.per);
+    const calc=(r.chk&&r.chk.ownKc!=null?r.chk.ownKc:r.pts*(r.rate||0))+(r.teamKc||0)+(r.bonus||0), okPay=r.pay!=null&&Math.abs(calc-r.pay)<=1;
+    const sp=CL_SPLIT.filter(([k])=>r.split?.[k]).map(([k,t])=>t+" "+fmt1(r.split[k])).join(" · ");
+    const ct=CL_CAT.filter(([k])=>r.cat?.[k]).map(([k,t])=>[t.split(" (")[0],+r.cat[k]]),cs=ct.reduce((a,c)=>a+Math.abs(c[1]),0);
+    const tm=(r.teamRows||[]).map(t=>{const m=teamMatch(t.name),had=m&&hasV(m.m?.[ym])&&!clTeamOurs(m.id,ym);
+      return line(t.name,fmt1(t.pts)+" b",m?(had?"v týmu už zadáno "+fmt1(+m.m[ym])+" b za "+ymLabel(ym,1)+" – nepřepíšu":"→ zapíše se k členovi "+m.name):"nový člen týmu"+(t.total!=null?" · "+statFor(t.total)[0]+" ("+fmt0(t.total)+" b celkem)":""))});
+    return el("div",{class:"group clcard"},
+      el("div",{class:"frow"},el("h3",{},perTxt(r.per)),el("span",{class:"xu",style:"flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},it.name),
+        it.skel?el("button",{type:"button",class:"chipbtn",style:"margin-left:8px",onclick:()=>showSkel(it)},"Struktura"):null),
+      line("Body vlastní",fmt1(r.pts)+" b",(hasV(now)&&Math.abs(+now-r.pts)>0.005?"teď v appce "+fmt1(+now)+" b → přepíše se":hasV(now)?"v appce stejně":"")+(r.udr?(hasV(now)?" · ":"")+"z toho udržovací "+fmt1(r.udr)+" b"+(sp?" ("+sp+")":""):"")),
+      cs?line("Z čeho je příjem","",ct.sort((a,b)=>b[1]-a[1]).map(([t,v])=>t+" "+Math.round(Math.abs(v)/cs*100)+" %").join(" · ")):null,
+      ...(tm.length?[el("div",{class:"clnote"},"Body z týmu podle kolegů ("+fmt1(r.grp||0)+" b):"),...tm]:[]),
+      r.bonus?line("Mimořádné provize / srážky",kc(r.bonus),"v Kč bez bodů"):null,
+      r.rate?line("Tarif",cz(r.rate)+" Kč/b"):null,
+      r.pay!=null?line("K výplatě",kc(r.pay),okPay?"✓ sedí s řádky výpisu":"součet řádků "+kc(calc)+" – rozdíl "+kc(r.pay-calc),okPay?"":"xr"):null,
+      r.cum!=null?line("Body kariéra ZFP",fmt0(r.cum)+" b",it.latest?"nastaví se jako body celkem":"starší výpis – body celkem se neberou"):null,
+      ...(it.warn||[]).map(w=>el("div",{class:"clnote",style:"color:var(--red)"},"⚠ "+w)))};
+  const draw=()=>{
+    const dg=diag.filter(d=>d.err||!d.lines||!d.per||d.nf===0);
     body.replaceChildren(
-      el("p",{class:"hint"},"Vyplň čísla z výpisů za poslední 3 měsíce, nebo výpisy nahraj – přečtou se jen v tomto zařízení, nikam se neposílají a ukládají se jen čísla. Z nich se nastaví výdělek po měsících, udržovačky a pasivní příjem (AUM), meziprovize, cena bodu, kvartální výsledky a kariérní body."),
-      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>file.click()},"📎 Nahrát výpisy (PDF / Excel)"),file),
-      ...[diagBox()].filter(Boolean),...cards,careerBox,
-      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:saveAll},"Uložit a přepočítat"),el("button",{type:"button",class:"chipbtn",onclick:()=>$("edDlg").close()},"Zrušit")));
-    check()};
-  async function saveAll(){
-    if(new Set(st.map(x=>x.ym)).size<st.length){toast("Dva měsíce jsou stejné");return}
-    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mt={...(S.monthlyTeam||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})};
-    st.forEach(x=>{const udr=udrOf(x);C[x.ym]=clStore({p1:x.p1,p2:x.p2,udr,split:x.split,cat:x.cat,team:x.team,bonus:x.bonus,rate:x.rate,pay:x.pay});if(x.bonus!=null)mb[x.ym]=x.bonus;
-      if(x.p1!=null)sj[x.ym+"/1"]=x.p1;if(x.p2!=null)sj[x.ym+"/2"]=x.p2;if(udr!=null)mu[x.ym]=Math.round(udr*100)/100;if(x.team!=null)mt[x.ym]=x.team;if(x.rate)mr[x.ym]=x.rate});
-    /* AUM z udržovaček za 3 měsíce: měsíční průměr (Conseq vyplácí čtvrtletně – za 3 měsíce právě jedna výplata) */
-    const n=st.length, P={...(S.passive||{})}, aum={...(P.aum||{})}, co=Object.fromEntries((typeof AUM_CO!=="undefined"?AUM_CO:[]).map(c=>[c.k,c]));let aumSet=false;
-    [["ZFPI","ZFPI"],["WI","WI"],["CQ","CQ"]].forEach(([sk,ak])=>{const vals=st.map(x=>x.split[sk]).filter(v=>v!=null);if(!vals.length||!co[ak])return;
-      aum[ak]=Math.round(vals.reduce((a,v)=>a+v,0)/n/(co[ak].coefY/12)/1000)*1000;aumSet=true});
-    const ost=st.map(x=>x.split.OST).filter(v=>v!=null);if(ost.length)P.ostatni=Math.round(ost.reduce((a,v)=>a+v,0)/n*10)/10;
-    const ms=st.map(x=>x.ym).sort();if(aumSet){P.aum=aum;P.source="AUM dopočítané z výpisů "+ymLabel(ms[0],1)+" – "+ymLabel(ms[ms.length-1],1)}
-    const car={...(S.career||{})};
-    if(cs.cum!=null){const d=perEnd(ms[ms.length-1]+"/2"),o=cs.own!=null?cs.own:ownPts();Object.assign(car,{cpts:Math.round(cs.cum),cOwn:o!=null?Math.round(Math.min(o,cs.cum)):null,cAsOf:d,cBase:sinceTotal(d),stat:statFor(cs.cum)[0]})}
-    try{await db.doc("settings/main").set({...S,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyTeam:mt,monthlyRate:mr,monthlyBonus:mb,passive:P,career:car});
-      $("edDlg").close();toast("Výpisy uloženy – výdělek přepočítán")}catch(e){toast("Nepodařilo se uložit")}
+      el("p",{class:"hint"},"Nahraj provizní výpisy (sjetiny) – klidně víc najednou a za libovolné období. Appka z každého zjistí rok, měsíc a uzávěrku a doplní body, udržovačky, tarif, mimořádné provize, body kolegů z týmu a kariérní body do výsledků. Výpisy se čtou jen v tomto zařízení a nikam se neposílají; jména klientů ani čísla smluv se nikam neukládají."),
+      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn"+(items.length?"":" ok"),onclick:()=>file.click()},"📎 Vybrat výpisy"),file),
+      ...(dg.length?[el("div",{class:"group"},el("div",{class:"frow"},el("h3",{style:"margin:0;font-size:15px"},"Nepřečtené výpisy")),
+        ...dg.map(d=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:normal;word-break:break-all"},d.name),
+          el("div",{class:"s",style:"white-space:normal"},d.err?"Nepodařilo se otevřít: "+d.err:!d.lines?d.kind+" bez textu – nejspíš sken nebo obrázek":!d.per?"Nepoznal jsem období výpisu":"Nepoznal jsem žádné údaje")),
+          d.skel?el("button",{type:"button",class:"chipbtn",onclick:()=>showSkel(d)},"Struktura"):null)),
+        el("p",{class:"clnote"},"„Struktura“ ukáže výpis s jmény a čísly smluv nahrazenými „×××“ – můžeš ji bezpečně poslat Claudovi k doladění čtení."))]:[]),
+      ...items.map(card),
+      ...(items.length?[el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:save},"Uložit do výsledků ("+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+")"),
+        el("button",{type:"button",class:"chipbtn",onclick:()=>$("edDlg").close()},"Zrušit"))]:[]))};
+  file.onchange=async()=>{const fs=[...file.files];file.value="";if(!fs.length)return;toast("Čtu "+fs.length+" "+plural(fs.length,"soubor","soubory","souborů")+"…");
+    for(const f of fs){let r,ft;try{ft=await closingFileText(f);r=parseClosingText(ft.text,f.name)}catch(e){diag.push({name:f.name,err:e.message||String(e)});continue}
+      const lines=ft.text.split(/\n/).filter(l=>l.trim()).length, nf=["pts","udr","bonus","rate","pay","cum"].filter(k=>r[k]!=null).length+(r.teamRows||[]).length;
+      const skel=clSkeleton(ft.text);diag.push({name:f.name,kind:ft.kind,pages:ft.pages,lines,per:r.per,nf,skel});ft=null;
+      if(!r.per||r.pts==null)continue;
+      const warn=[];
+      if(r.chk){if(r.chk.hdr!=null&&Math.abs(r.chk.hdr-r.chk.rows)>0.05)warn.push("součet řádků "+fmt1(r.chk.rows)+" b nesedí s hlavičkou výpisu "+fmt1(r.chk.hdr)+" b – beru hlavičku");
+        if(r.chk.bad)warn.push(r.chk.bad+" "+plural(r.chk.bad,"řádek","řádky","řádků")+" nešlo ověřit (body × tarif ≠ částka) – nejsou v rozpadu")}
+      const i=items.findIndex(x=>x.r.per===r.per);const it={name:f.name,r,warn,skel};if(i>=0)items[i]=it;else items.push(it)}
+    items.sort((a,b)=>b.r.per.localeCompare(a.r.per));const maxPer=items[0]?.r.per;items.forEach(x=>x.latest=x.r.per===maxPer&&(!settings.career?.cAsOf||perEnd(maxPer)>=settings.career.cAsOf.slice(0,10)));
+    draw();toast(items.length?"Přečteno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+" – zkontroluj a ulož":"Žádný výpis se nepodařilo přečíst – podrobnosti v okně")};
+  async function save(){
+    const prevC=settings.closings||{}, C={};Object.entries(prevC).forEach(([k,v])=>{if(/\/[12]$/.test(k))C[k]=v});
+    const S={...settings}, sj={...(S.sjetiny||{})}, mu={...(S.monthlyUdr||{})}, mr={...(S.monthlyRate||{})}, mb={...(S.monthlyBonus||{})}, mt={...(S.monthlyTeam||{})};
+    /* kolegové: najít v týmu, jinak založit (jen jednou na jméno) */
+    const made={}, memberOf=async t=>{const m=teamMatch(t.name);if(m)return m;if(!t.name)return null;if(made[t.name])return made[t.name];
+      const doc={name:t.name,pos:t.total!=null?statFor(t.total)[0]:"P1",rate:null,parent:null,m:{},createdAt:new Date().toISOString(),...(t.total!=null?{cpts:Math.round(t.total*100)/100}:{})};
+      const res=await db.collection("team").add(doc);return made[t.name]={id:res.id,...doc}};
+    const yms=new Set();
+    try{
+      for(const {r} of items){const ym=perMonth(r.per);yms.add(ym);const tm={};
+        for(const t of r.teamRows||[]){const m=await memberOf(t);if(!m)continue;
+          if(hasV(m.m?.[ym])&&!clTeamOurs(m.id,ym,prevC))continue;tm[m.id]=Math.round(((tm[m.id]||0)+t.pts)*100)/100}
+        C[r.per]={pts:r.pts,udr:r.udr??null,split:r.split||{},cat:r.cat||{},bonus:r.bonus||0,rate:r.rate??null,pay:r.pay??null,grp:r.grp??null,team:tm,at:new Date().toISOString()};
+        sj[r.per]=r.pts;if(r.rate)mr[ym]=r.rate}
+      /* měsíční souhrny z uzávěrek: udržovačky, mimořádné provize, body kolegů */
+      const teamUpd={};
+      yms.forEach(ym=>{const h=[C[ym+"/1"],C[ym+"/2"]].filter(Boolean),both=h.length===2,hadPrev=!!(prevC[ym+"/1"]||prevC[ym+"/2"]);
+        const sum=k=>Math.round(h.reduce((a,c)=>a+(+c[k]||0),0)*100)/100;
+        if(both||!hasV(mu[ym])||hadPrev)mu[ym]=sum("udr");
+        mb[ym]=sum("bonus");if(!mb[ym])delete mb[ym];
+        if(h.some(c=>Object.keys(c.team||{}).length))delete mt[ym]; /* meziprovize se počítá z bodů kolegů, ne z Kč */
+        h.forEach(c=>Object.entries(c.team||{}).forEach(([id,p])=>{(teamUpd[id]=teamUpd[id]||{})[ym]=Math.round(((teamUpd[id][ym]||0)+p)*100)/100}))});
+      /* AUM: průměr udržovacích bodů za poslední (až) 3 měsíce s uzávěrkami; Conseq vyplácí čtvrtletně → děleno 3 */
+      const recent=[...new Set(Object.keys(C).map(perMonth))].sort().slice(-3), P={...(S.passive||{})}, aum={...(P.aum||{})}, co=Object.fromEntries((typeof AUM_CO!=="undefined"?AUM_CO:[]).map(c=>[c.k,c]));let aumSet=false;
+      [["ZFPI","ZFPI"],["WI","WI"],["CQ","CQ"]].forEach(([sk,ak])=>{const tot=recent.reduce((a,ym)=>a+[1,2].reduce((b,h)=>b+(+C[ym+"/"+h]?.split?.[sk]||0),0),0);if(!tot||!co[ak])return;
+        aum[ak]=Math.round(tot/(sk==="CQ"?3:recent.length)/(co[ak].coefY/12)/1000)*1000;aumSet=true});
+      if(aumSet){P.aum=aum;P.source="AUM dopočítané z výpisů "+ymLabel(recent[0],1)+" – "+ymLabel(recent[recent.length-1],1)}
+      /* body celkem z nejnovějšího výpisu (vlastní zůstanou, skupinové = rozdíl) */
+      const car={...(S.career||{})}, lat=items.find(x=>x.latest&&x.r.cum!=null);
+      if(lat){const d=perEnd(lat.r.per),o=ownPts();Object.assign(car,{cpts:Math.round(lat.r.cum*100)/100,cOwn:o!=null?Math.round(Math.min(o,lat.r.cum)):(car.cOwn??null),cAsOf:d,cBase:sinceTotal(d),stat:statFor(lat.r.cum)[0]})}
+      await db.doc("settings/main").set({...S,closings:C,sjetiny:sj,monthlyUdr:mu,monthlyRate:mr,monthlyBonus:mb,monthlyTeam:mt,passive:P,career:car});
+      for(const [id,ms] of Object.entries(teamUpd)){const m=team.find(x=>x.id===id)||Object.values(made).find(x=>x.id===id);if(!m)continue;
+        await db.doc("team/"+id).update({m:{...(team.find(x=>x.id===id)?.m||m.m||{}),...ms}})}
+      $("edDlg").close();toast("Importováno "+items.length+" "+plural(items.length,"výpis","výpisy","výpisů")+(Object.keys(made).length?" · "+Object.keys(made).length+" "+plural(Object.keys(made).length,"nový člen","noví členové","nových členů")+" týmu":""));
+    }catch(e){console.error(e);toast("Nepodařilo se uložit")}
   }
-  openSheet("Poslední 3 měsíce",[body]);draw();
+  openSheet("Importovat data",[body]);draw();file.click();
 }
+/* hodnota člena za měsíc pochází z dřívějšího importu výpisu (pak ji smíme aktualizovat) */
+function clTeamOurs(id,ym,C){C=C||settings.closings||{};return [1,2].some(h=>C[ym+"/"+h]?.team&&id in C[ym+"/"+h].team)}
 /* poměr zdrojů příjmu za aktuální měsíc – vlastní produkce / tým / udržovačky / ostatní */
 let mixSpinPending=false;
 /* skutečné iOS systémové barvy jako základ, prstenec pak dostane skutečný 3D nádech (viz shade()) */

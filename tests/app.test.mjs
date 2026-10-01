@@ -153,99 +153,55 @@ export default {
     await ctx.close();
   },
 
-  async "výpisy za 3 měsíce: přečtení ze souboru a přepočet"(env) {
-    const { ctx, page } = await openApp(env, { store: STORE });
+  async "import výpisu ZFP: přesné body, tým po kolezích v bodech, žádné osobní údaje"(env) {
+    const store = { ...STORE, "team/k1": { name: "Jeden Podřízený", pos: "P3", parent: null, m: {}, _u: 1 } };
+    const { ctx, page } = await openApp(env, { store });
+    const ym = await page.evaluate(() => lastMonths(2)[1]), yp = ym.replace("-", "/");
+    const raw = readFileSync(new URL("./fixtures/zfp-vypis.txt", import.meta.url), "utf8").replaceAll("2026/08", yp);
+    /* záludnost ze skutečného výpisu: číslo smlouvy končící 3 číslicemi hned před body (dřív se slilo v 234 336,9) */
+    const raw2 = raw.replace("2026/08/1", yp + "/2").replaceAll(yp + "/1", yp + "/2").replace("Tyrkysová Jana   ZFP realitní fond   PZ1   1112223340   17,98   150,00   2 696,84", "Tyrkysová Jana   Hypotéka ČS   PZ1   234   336,90   150,00   50 535,00")
+      .replace("Tarif / statická kariéra:   Body:   35,77", "Tarif / statická kariéra:   Body:   354,69").replace("Celkem provize [Kč]:   6 222,20", "Celkem provize [Kč]:   54 060,36");
+    const r2 = await page.evaluate(t => parseClosingText(t, "x.pdf"), raw2);
+    eq([r2.per, r2.pts, r2.chk.rows, r2.chk.bad], [ym + "/2", 354.69, 354.69, 0], "číslo smlouvy se neslije s body");
     await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
-    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
-    const ym = await page.evaluate(() => lastMonths(1)[0]), per = ym + "/2";
-    const end = await page.evaluate(p => perEnd(p), per);
-    const d = end.split("-").reverse().map(Number).join(". ");
-    const txt = `Provizní výpis\nUzávěrka do ${d}\nBody za uzávěrku 312,4\nZ toho udržovací provize 45,2\nZFP Investments udržovací 20,1\nConseq udržovací 25,1\nMeziprovize z týmu 1 250,00 Kč\nCena bodu 150 Kč\nCelkem k výplatě 48 110,00 Kč\nKariérní body celkem 9 890\nVlastní body 7 400`;
-    await page.locator("#edBody input[type=file]").setInputFiles({ name: "vypis.txt", mimeType: "text/plain", buffer: Buffer.from(txt) });
-    await page.waitForTimeout(600);
-    assert(/sedí s výpisem/.test(await page.textContent("#edBody")), "kontrola výplaty sedí");
-    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(600);
-    const r = await page.evaluate(p => ({ sj: settings.sjetiny[p], cum: cumPts(), own: ownPts(), rate: settings.monthlyRate[p.slice(0, 7)], aum: !!settings.passive?.aum?.ZFPI }), per);
-    eq(r, { sj: 312.4, cum: 9890, own: 7400, rate: 150, aum: true }, "uloženo a přepočteno");
-    await ctx.close();
-  },
-
-  async "výpis: jména klientů a čísla smluv se nikam neuloží, čtou se jen příjmy"(env) {
-    const { ctx, page } = await openApp(env, { store: STORE });
-    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
-    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
-    const ym = await page.evaluate(() => lastMonths(1)[0]), [y, m] = ym.split("-").map(Number), last = new Date(y, m, 0).getDate();
-    const SECRET = ["Nováková", "Dvořák", "Šťastný", "7712345678", "9988776655", "905123/4567", "jan.dvorak@seznam.cz", "+420 777 123 456"];
-    const mk = (from, to, rows, sum) => [
-      `PROVIZNÍ VÝPIS – uzávěrka ${from}. ${m}. ${y} – ${to}. ${m}. ${y}`,
-      ...rows,
-      ...sum].join("\n");
-    const f1 = mk(1, 15, [
-      "Nováková Jana, RČ 905123/4567, smlouva 7712345678, Životní pojištění NN, body 120,5",
-      "Dvořák Jan (jan.dvorak@seznam.cz, +420 777 123 456) smlouva 9988776655 Investice ZFPI udržovací 18,0"],
-      ["Body za uzávěrku 180,2", "Z toho udržovací provize celkem 19,8", "ZFP Investments udržovací celkem 9,9", "Meziprovize z týmu 800,00 Kč", "Cena bodu 150 Kč",
-       "Životní pojištění celkem 120,5", "Investice celkem 40,0", "Celkem k výplatě 27 830,00 Kč"]);
-    const f2 = mk(16, last, [
-      "Šťastný Petr smlouva 1234567890 Investice ZFPI udržovací 11,0 body 250,0"],
-      ["Body za uzávěrku 312,4", "Z toho udržovací provize celkem 45,2", "ZFP Investments udržovací celkem 20,1", "Conseq udržovací celkem 25,1",
-       "Meziprovize z týmu 1 250,00 Kč", "Cena bodu 150 Kč", "Investice celkem 250,0", "Penzijní spoření celkem 10,4",
-       "Celkem k výplatě 48 110,00 Kč", "Kariérní body celkem 9 890", "Vlastní body 7 400", "Skupinové body 2 490"]);
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(300);
     await page.locator("#edBody input[type=file]").setInputFiles([
-      { name: "vypis1.txt", mimeType: "text/plain", buffer: Buffer.from(f1) }, { name: "vypis2.txt", mimeType: "text/plain", buffer: Buffer.from(f2) }]);
+      { name: "vypis1.pdf.txt", mimeType: "text/plain", buffer: Buffer.from(raw) }, { name: "vypis2.pdf.txt", mimeType: "text/plain", buffer: Buffer.from(raw2) }]);
     await page.waitForTimeout(800);
-    const shown = await page.evaluate(() => document.getElementById("edDlg").innerText + [...document.querySelectorAll("#edDlg input")].map(i => i.value).join(" "));
-    SECRET.forEach(x => assert(!shown.includes(x) && !shown.includes(x.replace(/\D/g, "")) || !/\d{6}/.test(x.replace(/\D/g, "")) && !shown.includes(x), "zobrazeno: " + x));
-    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(700);
-    const r = await page.evaluate(ym => ({ c: settings.closings[ym], cum: cumPts(), own: ownPts() }), ym);
-    eq([r.c.p1, r.c.p2, r.c.udr, r.c.team, r.c.rate, r.c.pay], [180.2, 312.4, 65, 2050, 150, 75940], "měsíc sečtený z obou uzávěrek");
-    eq(r.c.split, { ZFPI: 30, CQ: 25.1 }, "udržovací podle společností");
-    eq(r.c.cat, { ZP: 120.5, INV: 290, DPS: 10.4 }, "z čeho je příjem");
-    eq([r.cum, r.own], [9890, 7400], "kariérní body");
-    const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); s += k + "=" + localStorage.getItem(k) } return s });
-    for (const x of SECRET) { assert(!dump.includes(x), "uloženo v zařízení: " + x); const d = x.replace(/\D/g, ""); if (d.length >= 6) assert(!dump.includes(d), "uloženo číslo: " + d) }
-    for (const x of ["Nov", "Dvo", "Šťa", "seznam"]) assert(!dump.includes(x), "zbytek jména v úložišti: " + x);
-    await ctx.close();
-  },
-
-  async "6 výpisů naráz: období z názvu souboru, diagnostika a anonymizovaná struktura"(env) {
-    const { ctx, page } = await openApp(env, { store: STORE });
-    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
-    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
-    const months = await page.evaluate(() => lastMonths(3));
-    const files = [];
-    months.forEach((ym, i) => [1, 2].forEach(h => files.push({ name: `sjetina_${ym.replace("-", "_")}_${h}.txt`, mimeType: "text/plain",
-      buffer: Buffer.from(`Novák Jan smlouva 7712345678 ŽP 50,0\nBody za uzávěrku ${100 + i * 10 + h}\nCena bodu 150 Kč\nCelkem k výplatě ${(100 + i * 10 + h) * 150} Kč`) })));
-    files.push({ name: "sken.txt", mimeType: "text/plain", buffer: Buffer.from("   ") });
-    await page.locator("#edBody input[type=file]").setInputFiles(files); await page.waitForTimeout(900);
-    const r = await page.evaluate(() => [...document.querySelectorAll("#edBody .clcard")].slice(0, 3).map(c => [c.querySelector("select").value, ...[...c.querySelectorAll("input")].slice(0, 2).map(i => i.value)]));
-    eq(r, months.map((ym, i) => [ym, String(101 + i * 10), String(102 + i * 10)]), "6 výpisů rozřazeno do 3 měsíců");
     const txt = await page.textContent("#edBody");
-    assert(/bez textu/.test(txt), "hlášení u prázdného souboru");
-    assert(!/null/.test(txt), "žádné null v okně");
-    await page.locator("#edBody >> text=Struktura").first().click(); await page.waitForTimeout(300);
-    const sk = await page.evaluate(() => document.querySelector(".skeldlg textarea").value);
-    assert(!/Novák|7712345678/.test(sk) && /Body za uzávěrku/.test(sk) && /×××/.test(sk), "kostra bez jmen a čísel smluv: " + sk);
+    assert(/1\. uzávěrka/.test(txt) && /2\. uzávěrka/.test(txt), "obě uzávěrky poznané");
+    assert(/✓ sedí s řádky výpisu/.test(txt), "výplata sedí: " + txt.slice(0, 600));
+    assert(/zapíše se k členovi Jeden Podřízený/.test(txt) && /nový člen týmu/.test(txt), "tým po kolezích");
+    assert(!/Nováková|7712345678|Tyrkysová/.test(txt), "v okně nejsou klienti");
+    await page.click("#edBody >> text=Uložit do výsledků"); await page.waitForTimeout(900);
+    const r = await page.evaluate(ym => ({ sj1: settings.sjetiny[ym + "/1"], sj2: settings.sjetiny[ym + "/2"], bonus: settings.monthlyBonus?.[ym], kcTeam: settings.monthlyTeam?.[ym] ?? null,
+      udr: settings.monthlyUdr?.[ym], rate: settings.monthlyRate?.[ym], k1: team.find(m => m.name === "Jeden Podřízený")?.m?.[ym], k2: team.find(m => m.name === "Podřízený Druhý")?.m?.[ym],
+      pos2: team.find(m => m.name === "Podřízený Druhý")?.pos, cum: settings.career.cpts }), ym);
+    eq(r, { sj1: 35.77, sj2: 354.69, bonus: 4000, kcTeam: null, udr: 24.56, rate: 150, k1: 0.08, k2: 27.44, pos2: "P3", cum: 9081.02 }, "uloženo do výsledků");
+    const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) s += localStorage.getItem(localStorage.key(i)); return s });
+    for (const x of ["Nováková", "Dvořák", "Tyrkysová", "7712345678", "ZW998877", "Fiktivní", "Příkop", "12.03.1990"]) assert(!dump.includes(x), "uloženo: " + x);
     await ctx.close();
   },
 
-  async "provizní výpis ZFP: přesné čtení a žádné osobní údaje"(env) {
-    const { ctx, page } = await openApp(env, { store: STORE });
-    const ym = await page.evaluate(() => lastMonths(2)[1]);
+  async "import: body kolegy už zadané za měsíc se nepřepíšou, nečitelný soubor se nahlásí"(env) {
+    const ymP = new Date(); ymP.setDate(1); ymP.setMonth(ymP.getMonth() - 2);
+    const ym = ymP.getFullYear() + "-" + String(ymP.getMonth() + 1).padStart(2, "0");
+    const store = { ...STORE, "team/k2": { name: "Podřízený Druhý", pos: "P3", parent: null, m: { [ym]: 99 }, _u: 1 } };
+    const { ctx, page } = await openApp(env, { store });
     const raw = readFileSync(new URL("./fixtures/zfp-vypis.txt", import.meta.url), "utf8").replaceAll("2026/08", ym.replace("-", "/"));
-    const r = await page.evaluate(t => parseClosingText(t, "vypis.pdf"), raw);
-    eq([r.per, r.pts, r.udr, r.team, r.grp, r.bonus, r.rate, r.pay, r.cum], [ym + "/1", 35.77, 12.28, 275.27, 13.76, 2000, 150, 7640.42, 9081.02], "hodnoty z výpisu");
-    eq(r.split, { ZFPI: 1.6, WI: 10.5, CQ: 0.18 }, "udržovací podle společností");
-    eq(r.cat, { ZP: 2.56, INV: 33.21 }, "z čeho je příjem");
-    const json = JSON.stringify(r);
-    for (const x of ["Nováková", "Dvořák", "Podřízený", "7712345678", "ZW998877", "Fiktivní", "Příkop", "12.03.1990", "123456"]) assert(!json.includes(x), "ve výsledku je " + x);
-    /* uložení přes okno: nic z výpisu kromě čísel */
     await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
-    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
-    await page.locator("#edBody input[type=file]").setInputFiles({ name: "vypis.txt", mimeType: "text/plain", buffer: Buffer.from(raw) }); await page.waitForTimeout(700);
-    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(600);
-    const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) s += localStorage.getItem(localStorage.key(i)); return s });
-    for (const x of ["Nováková", "Dvořák", "Podřízený", "7712345678", "ZW998877", "Fiktivní", "Příkop", "Tyrkysová"]) assert(!dump.includes(x), "uloženo: " + x);
-    eq(await page.evaluate(ym => [settings.sjetiny[ym + "/1"], settings.monthlyBonus?.[ym], settings.monthlyTeam?.[ym]], ym), [35.77, 2000, 275.27], "uloženo do výdělku");
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(300);
+    await page.locator("#edBody input[type=file]").setInputFiles([{ name: "v.txt", mimeType: "text/plain", buffer: Buffer.from(raw) }, { name: "sken.txt", mimeType: "text/plain", buffer: Buffer.from("  ") }]);
+    await page.waitForTimeout(700);
+    const txt = await page.textContent("#edBody");
+    assert(/už zadáno 99 b/.test(txt) && /nepřepíšu/.test(txt), "hlášení u už zadaného kolegy");
+    assert(/bez textu/.test(txt) && !/null/.test(txt), "nečitelný soubor nahlášen");
+    await page.locator("#edBody button", { hasText: "Struktura" }).first().click(); await page.waitForTimeout(200);
+    const sk = await page.evaluate(() => document.querySelector(".skeldlg textarea").value);
+    assert(!/7712345678/.test(sk), "kostra bez čísel smluv");
+    await page.evaluate(() => document.querySelectorAll(".skeldlg").forEach(d => { d.close(); d.remove() }));
+    await page.click("#edBody >> text=Uložit do výsledků"); await page.waitForTimeout(800);
+    eq(await page.evaluate(ym => team.find(m => m.name === "Podřízený Druhý").m[ym], ym), 99, "nepřepsáno");
     await ctx.close();
   },
 };
