@@ -168,4 +168,41 @@ export default {
     eq(r, { sj: 312.4, cum: 9890, own: 7400, rate: 150, aum: true }, "uloženo a přepočteno");
     await ctx.close();
   },
+
+  async "výpis: jména klientů a čísla smluv se nikam neuloží, čtou se jen příjmy"(env) {
+    const { ctx, page } = await openApp(env, { store: STORE });
+    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
+    const ym = await page.evaluate(() => lastMonths(1)[0]), [y, m] = ym.split("-").map(Number), last = new Date(y, m, 0).getDate();
+    const SECRET = ["Nováková", "Dvořák", "Šťastný", "7712345678", "9988776655", "905123/4567", "jan.dvorak@seznam.cz", "+420 777 123 456"];
+    const mk = (from, to, rows, sum) => [
+      `PROVIZNÍ VÝPIS – uzávěrka ${from}. ${m}. ${y} – ${to}. ${m}. ${y}`,
+      ...rows,
+      ...sum].join("\n");
+    const f1 = mk(1, 15, [
+      "Nováková Jana, RČ 905123/4567, smlouva 7712345678, Životní pojištění NN, body 120,5",
+      "Dvořák Jan (jan.dvorak@seznam.cz, +420 777 123 456) smlouva 9988776655 Investice ZFPI udržovací 18,0"],
+      ["Body za uzávěrku 180,2", "Z toho udržovací provize celkem 19,8", "ZFP Investments udržovací celkem 9,9", "Meziprovize z týmu 800,00 Kč", "Cena bodu 150 Kč",
+       "Životní pojištění celkem 120,5", "Investice celkem 40,0", "Celkem k výplatě 27 830,00 Kč"]);
+    const f2 = mk(16, last, [
+      "Šťastný Petr smlouva 1234567890 Investice ZFPI udržovací 11,0 body 250,0"],
+      ["Body za uzávěrku 312,4", "Z toho udržovací provize celkem 45,2", "ZFP Investments udržovací celkem 20,1", "Conseq udržovací celkem 25,1",
+       "Meziprovize z týmu 1 250,00 Kč", "Cena bodu 150 Kč", "Investice celkem 250,0", "Penzijní spoření celkem 10,4",
+       "Celkem k výplatě 48 110,00 Kč", "Kariérní body celkem 9 890", "Vlastní body 7 400", "Skupinové body 2 490"]);
+    await page.locator("#edBody input[type=file]").setInputFiles([
+      { name: "vypis1.txt", mimeType: "text/plain", buffer: Buffer.from(f1) }, { name: "vypis2.txt", mimeType: "text/plain", buffer: Buffer.from(f2) }]);
+    await page.waitForTimeout(800);
+    const shown = await page.evaluate(() => document.getElementById("edDlg").innerText + [...document.querySelectorAll("#edDlg input")].map(i => i.value).join(" "));
+    SECRET.forEach(x => assert(!shown.includes(x) && !shown.includes(x.replace(/\D/g, "")) || !/\d{6}/.test(x.replace(/\D/g, "")) && !shown.includes(x), "zobrazeno: " + x));
+    await page.click("#edBody >> text=Uložit a přepočítat"); await page.waitForTimeout(700);
+    const r = await page.evaluate(ym => ({ c: settings.closings[ym], cum: cumPts(), own: ownPts() }), ym);
+    eq([r.c.p1, r.c.p2, r.c.udr, r.c.team, r.c.rate, r.c.pay], [180.2, 312.4, 65, 2050, 150, 75940], "měsíc sečtený z obou uzávěrek");
+    eq(r.c.split, { ZFPI: 30, CQ: 25.1 }, "udržovací podle společností");
+    eq(r.c.cat, { ZP: 120.5, INV: 290, DPS: 10.4 }, "z čeho je příjem");
+    eq([r.cum, r.own], [9890, 7400], "kariérní body");
+    const dump = await page.evaluate(() => { let s = ""; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); s += k + "=" + localStorage.getItem(k) } return s });
+    for (const x of SECRET) { assert(!dump.includes(x), "uloženo v zařízení: " + x); const d = x.replace(/\D/g, ""); if (d.length >= 6) assert(!dump.includes(d), "uloženo číslo: " + d) }
+    for (const x of ["Nov", "Dvo", "Šťa", "seznam"]) assert(!dump.includes(x), "zbytek jména v úložišti: " + x);
+    await ctx.close();
+  },
 };
