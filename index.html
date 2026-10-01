@@ -356,7 +356,7 @@ html.applocked body>*:not(#lockDlg){visibility:hidden!important}
 .mnav{display:flex;align-items:center;gap:8px}.mnav .eyebrow{flex:1;margin:0}
 .mnavb{width:30px;height:30px;border-radius:50%;background:var(--fill);color:var(--tint);font-size:20px;line-height:1;flex:none}.mnavb:disabled{opacity:.3}
 .clgrid{display:grid;gap:12px}.clcard .frow input{max-width:150px}.clcard h3{margin:0;font-size:15px}
-.clsrc{background:var(--tint-soft)!important}.clcat summary{padding:10px 16px;color:var(--tint);font-size:14px;cursor:pointer}.clnote{font-size:12px;color:var(--label2);margin:4px 16px 8px}
+.clsrc{background:var(--tint-soft)!important}.skeldlg{width:min(760px,100vw);max-height:92vh;border:none;border-radius:16px;padding:0}.clcat summary{padding:10px 16px;color:var(--tint);font-size:14px;cursor:pointer}.clnote{font-size:12px;color:var(--label2);margin:4px 16px 8px}
 .histbtn{padding:0 9px!important;display:inline-flex;align-items:center;justify-content:center}.histbtn:disabled{opacity:.3}
 @media (max-width:520px){.bar-in{gap:6px 6px}.bar .syncbtn{padding:0 10px}.bar .histbtn{padding:0 7px!important}}
 .syncbtn{height:34px;padding:0 13px;border-radius:999px;background:var(--fill);color:var(--label);font-size:14px;font-weight:500;white-space:nowrap;flex:none}
@@ -1934,18 +1934,21 @@ const CL_SPLIT=[["ZFPI","ZFPI"],["WI","ZFP WI"],["CQ","Conseq"],["OST","Ostatní
 function perEnd(per){const [y,m]=per.slice(0,7).split("-").map(Number);return per.endsWith("/1")?per.slice(0,7)+"-15":per.slice(0,7)+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0")}
 const loadScript=u=>new Promise((ok,ko)=>{if(document.querySelector('script[src="'+u+'"]'))return ok();const sc=document.createElement("script");sc.src=u;sc.onload=ok;sc.onerror=()=>ko(new Error("nelze načíst "+u));document.head.append(sc)});
 async function closingFileText(f){
-  const n=f.name.toLowerCase();
+  const n=f.name.toLowerCase();let pages=0;
   const lib=async(urls)=>{let err;for(const u of urls){try{await loadScript(u);return u}catch(e){err=e}}throw err};
   if(/\.pdf$/.test(n)){const u=await lib(["https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js","https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"]);
     pdfjsLib.GlobalWorkerOptions.workerSrc=u.replace("pdf.min.js","pdf.worker.min.js");
-    const doc=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let out=[];
+    const doc=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let out=[];pages=doc.numPages;
     for(let i=1;i<=doc.numPages;i++){const c=await(await doc.getPage(i)).getTextContent(),rows={};
       c.items.forEach(it=>{const y=Math.round(it.transform[5]);(rows[y]=rows[y]||[]).push([it.transform[4],it.str])});
       Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y=>out.push(rows[y].sort((a,b)=>a[0]-b[0]).map(x=>x[1]).join(" ")))}
-    return out.join("\n")}
-  if(/\.(xlsx|xls|ods)$/.test(n)){await lib(["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js","https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"]);
-    const wb=XLSX.read(await f.arrayBuffer());return wb.SheetNames.map(sn=>XLSX.utils.sheet_to_csv(wb.Sheets[sn],{FS:" ; "})).join("\n")}
-  return await f.text();
+    return {text:out.join("\n"),kind:"PDF",pages}}
+  if(/^image\//.test(f.type)||/\.(png|jpe?g|heic|gif|webp)$/.test(n))return {text:"",kind:"Obrázek",pages:1};
+  if(/\.html?$/.test(n)){const d=new DOMParser().parseFromString(await f.text(),"text/html");d.querySelectorAll("script,style").forEach(x=>x.remove());
+    d.querySelectorAll("tr,p,div,br,li,h1,h2,h3,h4").forEach(x=>x.append("\n"));d.querySelectorAll("td,th").forEach(x=>x.append(" ; "));return {text:d.body?d.body.textContent:"",kind:"HTML",pages:1}}
+  if(/\.(xlsx|xlsm|xls|ods)$/.test(n)){await lib(["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js","https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"]);
+    const wb=XLSX.read(await f.arrayBuffer());return {text:wb.SheetNames.map(sn=>XLSX.utils.sheet_to_csv(wb.Sheets[sn],{FS:" ; "})).join("\n"),kind:"Excel",pages:wb.SheetNames.length}}
+  return {text:await f.text(),kind:"text",pages:1};
 }
 /* Čtení výpisu (sjetiny) – SOUKROMÍ: soubor se zpracuje jen v paměti tohoto zařízení a nikam se neposílá.
    Z textu se berou výhradně čísla u známých souhrnných popisků (body, udržovací, meziprovize, cena bodu, k výplatě,
@@ -1955,7 +1958,29 @@ async function closingFileText(f){
 const CL_CAT=[["ZP","Životní pojištění",/zivotni\s*poj|\bzp\b/],["INV","Investice",/investic|podilov|fond/],["DPS","Penzijní spoření (DPS)",/penzij|\bdps\b|\bdip\b/],
   ["UVER","Úvěry a hypotéky",/hypote|uver/],["NEZ","Neživotní pojištění",/nezivot|majet|odpovednost|auto\s*poj|pov\b/],["REAL","Reality",/realit/],["OST","Ostatní",/ostatni|jine\b/]];
 const CL_RANGE={pts:[-1e5,1e6],udr:[-1e5,1e6],team:[-1e7,1e7],rate:[50,500],pay:[-1e7,1e8],cum:[0,1e7],own:[0,1e7],grp:[0,1e7]};
-function parseClosingText(txt){
+/* období výpisu: „2026/09/2“ (značení sjetin v ZFP) v textu nebo názvu souboru, jinak poslední datum ve výpisu */
+const CL_MON=["leden|ledna","unor|unora","brezen|brezna","duben|dubna","kveten|kvetna","cerven(?!ec)|cervna","cervenec|cervence","srpen|srpna","zari","rijen|rijna","listopad|listopadu","prosinec|prosince"];
+function clDetectPer(txt,fname){
+  const nn=x=>(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  for(const src of [fname,txt]){const m=String(src).match(/(20\d\d)\s*[\/_.-]\s*(\d{1,2})\s*[\/_.-]\s*([12])(?!\d)/);if(m&&+m[2]>=1&&+m[2]<=12)return m[1]+"-"+m[2].padStart(2,"0")+"/"+m[3]}
+  const t=todayStr(),ds=[...txt.matchAll(/(\d{1,2})\.\s?(\d{1,2})\.\s?(20\d\d)/g),...txt.matchAll(/(20\d\d)-(\d{2})-(\d{2})/g)].map(m=>m[1].length===4?m[1]+"-"+m[2]+"-"+m[3]:m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")).filter(d=>d<=t&&d>="2015").sort();
+  if(ds.length)return periodOf(ds[ds.length-1]);
+  const T=nn(txt+" "+fname);for(let i=0;i<12;i++){const m=T.match(new RegExp("\\b("+CL_MON[i]+")\\s+(20\\d\\d)"));if(m)return m[2]+"-"+String(i+1).padStart(2,"0")+"/2"}
+  return null;
+}
+/* anonymizovaná kostra výpisu – jen známá slova výpisů, čísla a data výpisu; vše ostatní (jména, adresy…) je „×××“.
+   Slouží k tomu, aby šlo bezpečně poslat strukturu výpisu a doladit čtení. */
+const CL_VOCAB=new Set(("uzaverka uzaverky uzaverku sjetina sjetiny body bod bodu bodove celkem provize provizi proviznich provizni ziskatelska ziskatelske nasledna nasledne udrzovaci udrzovacich meziprovize meziprovizi skupinova skupinove skupinovy vlastni vlastnich kariera karierni kariernich vyplata vyplaty vyplatu vyplatit vyplaceno vyplacena k ke za z ze toho tom na do od pro po v ve a i o s se cena hodnota sazba tarif obdobi datum smlouva smlouvy smlouvu cislo klient klienta klienti produkt produkty partner partneri spolecnost pojisteni zivotni nezivotni investice investicni penzijni sporeni stavebni dps dip uver uvery uveru hypoteka hypoteky hypotecni reality realitni storno storna stornovano zaloha zalohy srazka srazky dan dane odvod kc czk eur usd castka suma souhrn prehled vypis poradce ziskatel struktura tym tymu podrizeny podrizenych prevod poplatek poplatky vstupni prubezny poznamka typ stav pocet procento koeficient zfp zfpi investments world index wi conseq generali nn allianz kooperativa cpp csob uniqa maxima metlife ceska sporitelna komercni banka raiffeisen moneta unicredit mbank modra pyramida burinka platiniq auvesta gold sicav premium up fond fondy pojistovna mesic rok strana celkova celkovy zustatek predchozi aktualni stornovane zalohove konecny ostatni jine bonus odmena kvartal profi statick staticka obratova pozice tarifu").split(" "));
+function clSkeleton(txt){
+  const nn=x=>(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const y0=new Date().getFullYear()-2;
+  return String(txt||"").split(/\r?\n/).map(l=>l
+    .replace(/\S+@\S+/g,"×××").replace(/\+\d[\d \u00a0]{8,}/g,"×××").replace(/\b\d{2,}\s?\/\s?\d{2,}\b/g,"×××").replace(/\b\d{6,}(?![.,]\d)\b/g,"×××")
+    .replace(/(\d{1,2})\.\s?(\d{1,2})\.\s?((?:19|20)\d\d)/g,(m,a,b,y)=>+y>=y0?m:"××.××.××××")
+    .split(/(\s+|;|,(?!\d)|:|\(|\))/).map(tok=>{if(!tok||/^\s+$|^[;,:()]$/.test(tok))return tok;if(/\d/.test(tok))return tok;const w=nn(tok);if(!w)return tok;return CL_VOCAB.has(w)?tok:"×××"}).join(""))
+    .filter(l=>l.trim()).slice(0,400).join("\n");
+}
+function parseClosingText(txt,fname){
   const nn=x=>(x||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
   /* vymazání identifikátorů: čísla smluv a účtů (6+ číslic), rodná čísla a čísla s lomítkem, e-maily, telefony, IBAN */
   const scrub=l=>l.replace(/\S+@\S+/g," ").replace(/\bCZ\d{2}[ \d]{10,}\b/gi," ").replace(/\+\d{3}[  ]?\d{3}[  ]?\d{3}[  ]?\d{3}/g," ")
@@ -1969,8 +1994,7 @@ function parseClosingText(txt){
     const pref=idx.filter(i=>/celkem|souhrn|suma|total/.test(L[i]));
     for(const i of [...(pref.length?pref:idx)].reverse()){const v=num(lines[i])??(lines[i+1]?num(lines[i+1]):null);if(v!=null)return v}return null};
   const r={};
-  const ds=[...String(txt||"").matchAll(/(\d{1,2})\.\s?(\d{1,2})\.\s?(20\d\d)/g)].map(m=>m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")).filter(d=>d<=todayStr()).sort();
-  if(ds.length)r.per=periodOf(ds[ds.length-1]);
+  r.per=clDetectPer(String(txt||""),fname||"");
   r.pts=find(/(body|bodu)\s*(za\s*)?(uzaverk|sjetin|obdobi)|celkem\s*bod.*(uzaverk|obdobi)/);
   r.udr=find(/udrzovac|nasledn/,COMP);
   r.team=find(/meziproviz|skupinov\w*\s*proviz|proviz\w*\s*z\s*(tymu|struktur|podrizen)/);
@@ -2008,7 +2032,19 @@ function openClosings(){
     return {ym,p1:c.p1??v(sj[ym+"/1"]),p2:c.p2??v(sj[ym+"/2"]),udr:c.udr??v(settings.monthlyUdr?.[ym]),split:{...(c.split||{})},
       team:c.team??v(settings.monthlyTeam?.[ym]),rate:c.rate??v(settings.monthlyRate?.[ym]),pay:c.pay??null,cat:{...(c.cat||{})},src:{}}};
   const st=lastMonths(3).map(load), cs={cum:cumPts(),own:ownPts(),src:{}};
-  const body=el("div",{class:"clgrid"}), checks=[], check=()=>checks.forEach(f=>f());
+  const body=el("div",{class:"clgrid"}), checks=[], check=()=>checks.forEach(f=>f()), diag=[];
+  const diagBox=()=>{if(!diag.length)return null;
+    const rows=diag.map(d=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:normal;word-break:break-all"},d.name),
+      el("div",{class:"s",style:"white-space:normal"},d.err?"Nepodařilo se otevřít: "+d.err:!d.lines?d.kind+" bez textu – nejspíš sken nebo obrázek, ten neumím přečíst":
+        d.kind+" · "+d.pages+" "+plural(d.pages,"strana","strany","stran")+" · "+d.lines+" řádků · "+(d.per?"období "+(d.per.endsWith("/1")?"1. uzávěrka ":"2. uzávěrka ")+ymLabel(perMonth(d.per),1):"období nepoznáno")+" · poznáno "+d.nf+" údajů")),
+      d.skel?el("button",{type:"button",class:"chipbtn",onclick:()=>showSkel(d)},"Struktura"):null));
+    return el("div",{class:"group"},el("div",{class:"frow"},el("h3",{style:"margin:0;font-size:15px"},"Přečtené výpisy")),...rows,
+      el("p",{class:"clnote"},"Když appka výpis nepozná správně, otevři „Struktura“ a pošli ji Claudovi – jména, čísla smluv, adresy a další osobní údaje jsou v ní nahrazené „×××“, zůstanou jen popisky a čísla výpisu."))};
+  const showSkel=d=>{const ta=el("textarea",{readonly:"",style:"width:100%;min-height:55vh;font:12px/1.4 ui-monospace,Menlo,monospace;white-space:pre"});ta.value=d.skel;
+    const dlg=el("dialog",{class:"skeldlg"},el("div",{class:"sheet"},el("div",{class:"sbar"},el("span",{}),el("h2",{},"Anonymizovaná struktura"),el("button",{type:"button",class:"r",onclick:()=>{dlg.close();dlg.remove()}},"Zavřít")),
+      el("div",{class:"ebody"},el("p",{class:"hint"},"Zkontroluj, že v textu nezůstalo nic osobního (jména jsou „×××“). Pak ho zkopíruj a pošli."),ta,
+        el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:async()=>{try{await navigator.clipboard.writeText(d.skel);toast("Zkopírováno")}catch(e){ta.select();toast("Označeno – zkopíruj ⌘C")}}},"Kopírovat")))));
+    document.body.append(dlg);dlg.showModal()};
   const numIn=(v,on,src,ph)=>{const i=el("input",{type:"number",step:"any",inputmode:"decimal",class:"aumin"+(src?" clsrc":""),placeholder:ph||"–"});i.value=v??"";i.addEventListener("input",()=>{i.classList.remove("clsrc");on(i.value===""?null:+i.value);check()});return i};
   const fr=(lab,ctl,unit)=>el("div",{class:"frow"},el("label",{},lab),ctl,unit?el("span",{class:"xu"},unit):null);
   const udrOf=x=>x.udr??(Object.keys(x.split).length?CL_SPLIT.reduce((a,[k])=>a+(+x.split[k]||0),0):null);
@@ -2034,13 +2070,16 @@ function openClosings(){
           ...CL_CAT.map(([k,t])=>fr(t,numIn(x.cat[k],v=>{if(v==null)delete x.cat[k];else x.cat[k]=v},x.src["c"+k]),"b"))),res)});
     const careerBox=el("div",{class:"group clcard"},el("div",{class:"frow"},el("h3",{},"Kariérní body podle posledního výpisu")),
       fr("Body celkem",numIn(cs.cum,v=>cs.cum=v,cs.src.cum),"b"),fr("z toho vlastní",numIn(cs.own,v=>cs.own=v,cs.src.own),"b"));
-    const file=el("input",{type:"file",multiple:"",accept:".pdf,.xlsx,.xls,.ods,.csv,.txt",hidden:""});
+    const file=el("input",{type:"file",multiple:"",accept:".pdf,.xlsx,.xlsm,.xls,.ods,.csv,.txt,.htm,.html,image/*",hidden:""});
     file.onchange=async()=>{const fs=[...file.files];file.value="";if(!fs.length)return;toast("Čtu "+fs.length+" "+plural(fs.length,"soubor","soubory","souborů")+"…");
-      let got=0,lastPer="";
-      for(const f of fs){let r;try{r=parseClosingText(await closingFileText(f))}catch(e){toast("„"+f.name+"“ se nepodařilo přečíst ("+e.message+")");continue}
+      let got=0,lastPer="";diag.length=0;
+      for(const f of fs){let r,ft;try{ft=await closingFileText(f);r=parseClosingText(ft.text,f.name)}catch(e){diag.push({name:f.name,err:e.message||String(e)});continue}
+        const lines=ft.text.split(/\n/).filter(l=>l.trim()).length, nf=["pts","udr","team","rate","pay","cum","own"].filter(k=>r[k]!=null).length+Object.keys(r.split||{}).length+Object.keys(r.cat||{}).length;
+        diag.push({name:f.name,kind:ft.kind,pages:ft.pages,lines,per:r.per,nf,skel:clSkeleton(ft.text)});ft=null;
+        if(!r.per){continue}
         const ym=r.per?perMonth(r.per):null, half=r.per&&r.per.endsWith("/1")?1:2;let x=ym&&st.find(s=>s.ym===ym);
         if(!x&&ym&&lastMonths(12).includes(ym)){x=st.filter(s=>!s.src.used).sort((a,b)=>a.ym.localeCompare(b.ym))[0];if(x)Object.assign(x,load(ym))}
-        if(!x)x=st.find(s=>!s.src.used);if(!x)continue;
+        if(!x)continue;
         /* druhý výpis téhož měsíce (druhá uzávěrka) se k prvnímu přičte, stejná uzávěrka ho nahradí */
         const add=x.src.halves&&!x.src.halves.includes(half);x.src.used=1;x.src.halves=[...(x.src.halves||[]),half];
         const put=(k,v,sk)=>{if(v==null)return;x[k]=add&&x[k]!=null&&x.src[sk||k]?Math.round((x[k]+v)*100)/100:v;x.src[sk||k]=1;got++};
@@ -2048,11 +2087,11 @@ function openClosings(){
         ["udr","team","pay"].forEach(k=>put(k,r[k]));if(r.rate!=null){x.rate=r.rate;x.src.rate=1;got++}
         [["split","s"],["cat","c"]].forEach(([g,pre])=>{if(r[g])Object.entries(r[g]).forEach(([k,v])=>{x[g][k]=add&&x[g][k]!=null&&x.src[pre+k]?Math.round((x[g][k]+v)*100)/100:v;x.src[pre+k]=1;got++})});
         if((r.per||"")>=lastPer){lastPer=r.per||lastPer;["cum","own"].forEach(k=>{if(r[k]!=null){cs[k]=r[k];cs.src[k]=1;got++}})}}
-      st.sort((a,b)=>b.ym.localeCompare(a.ym));draw();toast(got?"Přečteno "+got+" údajů – zkontroluj zvýrazněná pole":"Ve výpisu jsem čísla nepoznal – vyplň je prosím ručně")};
+      st.sort((a,b)=>b.ym.localeCompare(a.ym));draw();toast(diag.some(d=>d.err||!d.lines||!d.per)?"Některé výpisy se nepodařilo přečíst – podrobnosti nahoře v okně":got?"Přečteno "+got+" údajů – zkontroluj zvýrazněná pole":"Ve výpisu jsem čísla nepoznal – vyplň je prosím ručně")};
     body.replaceChildren(
       el("p",{class:"hint"},"Vyplň čísla z výpisů za poslední 3 měsíce, nebo výpisy nahraj – přečtou se jen v tomto zařízení, nikam se neposílají a ukládají se jen čísla. Z nich se nastaví výdělek po měsících, udržovačky a pasivní příjem (AUM), meziprovize, cena bodu, kvartální výsledky a kariérní body."),
       el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>file.click()},"📎 Nahrát výpisy (PDF / Excel)"),file),
-      ...cards,careerBox,
+      ...[diagBox()].filter(Boolean),...cards,careerBox,
       el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:saveAll},"Uložit a přepočítat"),el("button",{type:"button",class:"chipbtn",onclick:()=>$("edDlg").close()},"Zrušit")));
     check()};
   async function saveAll(){

@@ -205,4 +205,25 @@ export default {
     for (const x of ["Nov", "Dvo", "Šťa", "seznam"]) assert(!dump.includes(x), "zbytek jména v úložišti: " + x);
     await ctx.close();
   },
+
+  async "6 výpisů naráz: období z názvu souboru, diagnostika a anonymizovaná struktura"(env) {
+    const { ctx, page } = await openApp(env, { store: STORE });
+    await page.evaluate(() => setView("money")); await page.waitForTimeout(300);
+    await page.click("#mClosingsBtn"); await page.waitForTimeout(400);
+    const months = await page.evaluate(() => lastMonths(3));
+    const files = [];
+    months.forEach((ym, i) => [1, 2].forEach(h => files.push({ name: `sjetina_${ym.replace("-", "_")}_${h}.txt`, mimeType: "text/plain",
+      buffer: Buffer.from(`Novák Jan smlouva 7712345678 ŽP 50,0\nBody za uzávěrku ${100 + i * 10 + h}\nCena bodu 150 Kč\nCelkem k výplatě ${(100 + i * 10 + h) * 150} Kč`) })));
+    files.push({ name: "sken.txt", mimeType: "text/plain", buffer: Buffer.from("   ") });
+    await page.locator("#edBody input[type=file]").setInputFiles(files); await page.waitForTimeout(900);
+    const r = await page.evaluate(() => [...document.querySelectorAll("#edBody .clcard")].slice(0, 3).map(c => [c.querySelector("select").value, ...[...c.querySelectorAll("input")].slice(0, 2).map(i => i.value)]));
+    eq(r, months.map((ym, i) => [ym, String(101 + i * 10), String(102 + i * 10)]), "6 výpisů rozřazeno do 3 měsíců");
+    const txt = await page.textContent("#edBody");
+    assert(/bez textu/.test(txt), "hlášení u prázdného souboru");
+    assert(!/null/.test(txt), "žádné null v okně");
+    await page.locator("#edBody >> text=Struktura").first().click(); await page.waitForTimeout(300);
+    const sk = await page.evaluate(() => document.querySelector(".skeldlg textarea").value);
+    assert(!/Novák|7712345678/.test(sk) && /Body za uzávěrku/.test(sk) && /×××/.test(sk), "kostra bez jmen a čísel smluv: " + sk);
+    await ctx.close();
+  },
 };
