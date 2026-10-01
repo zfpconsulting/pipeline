@@ -615,7 +615,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .xcmp tr.tot td{font-weight:700}
 .xcmp td.best{color:var(--green)}
 .xu{color:var(--label2);font-size:14px;flex:none}
-#view_tax .frow>input[type=number],#view_tax .frow>input[type=month]{margin-left:auto}
+#view_tax .frow>input[type=number],#view_tax .frow>input.numfmt,#view_tax .frow>input[type=month]{margin-left:auto}
 .xd+.xd,.xd+.row,.row+.xd,.xd+.xnote{border-top:.5px solid var(--sep)}
 .xdh{width:100%;text-align:left}
 .xdh .end.on{color:var(--label);font-weight:600}
@@ -1149,6 +1149,33 @@ html.locked body{overflow:hidden}
 <canvas id="fx" aria-hidden="true"></canvas>
 
 <script>
+/* ===== Oddělovače tisíců ve všech číselných polích =====
+   Každé <input type="number"> (i vytvořené později) se přepne na textové pole, které ukazuje „1 500 000,5“,
+   ale vlastnost .value vrací dál čisté číslo („1500000.5“) – zbytek appky se tak nemusí měnit. */
+const NumFmt=(()=>{
+  const NV=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value");
+  const SP=/[\s\u00a0\u202f]/g;
+  const show=x=>{let t=String(x??"").replace(SP,"");if(t==="")return "";
+    const neg=/^-/.test(t);t=t.replace(/-/g,"");const k=t.search(/[.,]/);
+    let i=(k<0?t:t.slice(0,k)).replace(/\D/g,""), d=k<0?null:t.slice(k+1).replace(/\D/g,"");
+    i=i.replace(/\B(?=(\d{3})+(?!\d))/g,"\u00a0");return (neg?"-":"")+i+(d!=null?","+d:"")};
+  const raw=t=>String(t).replace(SP,"").replace(",",".");
+  const cnt=t=>(t.match(/[\d,.-]/g)||[]).length;
+  function up(inp){
+    if(inp._nf||inp.type!=="number")return;inp._nf=1;
+    const v=NV.get.call(inp), dec=/\./.test(inp.step||"")||inp.step==="any"||inp.inputMode==="decimal";
+    inp.type="text";inp.classList.add("numfmt");if(!inp.inputMode)inp.inputMode=dec?"decimal":"numeric";inp.autocomplete="off";
+    Object.defineProperty(inp,"value",{configurable:true,get(){return raw(NV.get.call(this))},set(x){NV.set.call(this,show(x))}});
+    NV.set.call(inp,show(v));
+    inp.addEventListener("input",()=>{const cur=NV.get.call(inp),pos=inp.selectionStart??cur.length,n=cnt(cur.slice(0,pos)),f=show(cur);
+      if(f===cur)return;NV.set.call(inp,f);let p=0,c=0;while(p<f.length&&c<n){if(/[\d,.-]/.test(f[p]))c++;p++}
+      try{inp.setSelectionRange(p,p)}catch(e){}},true);
+  }
+  const scan=root=>{if(root.nodeType!==1)return;if(root.tagName==="INPUT")up(root);else root.querySelectorAll?.("input[type=number]").forEach(up)};
+  new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(scan))).observe(document.documentElement,{childList:true,subtree:true});
+  scan(document.documentElement);
+  return {show,raw,scan};
+})();
 /* ===== Offline úložiště + Google (Disk, Kalendář) ===== */
 const GCFG={
   clientId:"1020263773048-8cq5kp6cbmhgssmusfe7m7vno0f0s61l.apps.googleusercontent.com",
@@ -5175,7 +5202,7 @@ function pfInvEdit(x,preset,back){
     empBox.hidden=!(its.length===1&&cats[0]==="ps")}
   dipCb.onchange=()=>{Object.keys(per).forEach(k=>{if(!edited.has(k))delete per[k]});drawFees()};
   const mode=el("select",{},el("option",{value:"each"},"z každého vkladu"),el("option",{value:"pre"},"předplacený z cílové částky"));mode.value=fe.mode||"each";
-  const baseRow=el("div",{class:"frow"},el("label",{},"Cílová částka"),num(fe.base,"např. 500000",n=>fe.base=n,"1"),el("span",{class:"pfmeta"},"CZK"));
+  const baseRow=el("div",{class:"frow"},el("label",{},"Cílová částka"),num(fe.base,"např. 500 000",n=>fe.base=n,"1"),el("span",{class:"pfmeta"},"CZK"));
   const showBase=()=>baseRow.hidden=mode.value!=="pre";mode.onchange=()=>{fe.mode=mode.value;showBase()};showBase();
   modeBox.append(el("div",{class:"frow"},el("label",{},"Vstupní poplatek"),mode),baseRow);
   drawItems();drawFees();
