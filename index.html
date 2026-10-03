@@ -5404,15 +5404,15 @@ function asEvAdv(old,merged,oldList,newList){
   merged.forEach(t=>{
     if(asPending.has(t.id)||asIsTmp(t))return;
     const o=old.get(t.id),w=nm(t.asst);
-    if(!o){if(t.by==="asst")asAlert({title:w+" přidala úkol",body:t.text,tag:t.id,onTap:open(t)});return}
+    if(!o){if(t.by==="asst")asAlert({title:w+" "+asPast(w,"přidal")+" úkol",body:t.text,tag:t.id,onTap:open(t)});return}
     if(o.st!==t.st){
-      if(t.st==="hotovo")asAlert({title:w+" dokončila úkol ✓",body:t.text,tag:t.id,onTap:open(t)});
-      else if(t.st==="rozpracováno")asAlert({title:w+" začala na úkolu",body:t.text,tag:t.id,onTap:open(t)});
-      else asAlert({title:w+" vrátila úkol mezi nové",body:t.text,tag:t.id,onTap:open(t)});
-    }else if((o.an||"")!==(t.an||"")&&t.an)asAlert({title:w+" napsala poznámku",body:t.an.slice(0,120),tag:t.id,onTap:open(t)});
+      if(t.st==="hotovo")asAlert({title:w+" "+asPast(w,"dokončil")+" úkol ✓",body:t.text,tag:t.id,onTap:open(t)});
+      else if(t.st==="rozpracováno")asAlert({title:w+" "+asPast(w,"začal")+" na úkolu",body:t.text,tag:t.id,onTap:open(t)});
+      else asAlert({title:w+" "+asPast(w,"vrátil")+" úkol mezi nové",body:t.text,tag:t.id,onTap:open(t)});
+    }else if((o.an||"")!==(t.an||"")&&t.an)asAlert({title:w+" "+asPast(w,"napsal")+" poznámku",body:t.an.slice(0,120),tag:t.id,onTap:open(t)});
   });
   (newList||[]).forEach(n=>{const o=(oldList||[]).find(x=>x.asst===n.asst);
-    if(o&&o.status!==n.status){if(n.status==="sdílí")asAlert({title:nm(n.asst)+" přijala pozvánku",body:"Teď vidí tvoje úkoly a klienty, ke kterým jí je zadáš.",tag:"lnk"+n.asst});else if(n.status==="odmítnuto")asAlert({title:nm(n.asst)+" odmítla pozvánku",body:"",tag:"lnk"+n.asst})}});
+    if(o&&o.status!==n.status){if(n.status==="sdílí")asAlert({title:nm(n.asst)+" "+asPast(nm(n.asst),"přijal")+" pozvánku",body:"Uvidí tvoje úkoly a klienty, ke kterým zadáš úkol.",tag:"lnk"+n.asst});else if(n.status==="odmítnuto")asAlert({title:nm(n.asst)+" "+asPast(nm(n.asst),"odmítl")+" pozvánku",body:"",tag:"lnk"+n.asst})}});
 }
 async function asPushClients(force){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!asLinked().length||asMode())return;
@@ -5549,6 +5549,34 @@ function asVoc(n){
   if(/(ch|[kgh])$/.test(l))return w+"u";
   if(/[šžčřcjťďň]$/.test(l))return w+"i";
   return w+"e"}
+/* rod a 2. pád jména: Vojta dokončil (m) × Bety dokončila (ž) × nejisté → „dokončil(a)“; „od Vojty“, „od Jonáše“ */
+const asFirst=n=>{const w=String(n||"").trim().split(/[\s._-]+/)[0]||"";return w.replace(/^./,c=>c.toUpperCase())};
+function asSex(n){ /* "m" | "f" | "?" */
+  const parts=String(n||"").trim().split(/\s+/).filter(Boolean), w=asFirst(n), l=w.toLowerCase();
+  const sur=(parts.length>1?parts[parts.length-1]:"").toLowerCase();
+  if(!l)return"?";
+  if(/^(vojta|honza|jirka|kuba|standa|tonda|fanda|olda|jura|luka|ilja|mirek|zdenda|toma)$/.test(l))return"m";
+  if(/^(nikola|saša|sasha|míša|misa|mischa|alex|andrea|kiki|dany|dani|jani|toni|tony|andy)$/.test(l)){
+    if(/(ová|ská|cká|ná|á)$/.test(sur))return"f";if(sur&&/[^áa]$/.test(sur)&&!/ová$/.test(sur))return"m";return"?"}
+  if(/^(ester|miriam|mirjam|ingrid|karin|dagmar|margit|edith|judith|beatrix|ruth|ines|rút|carmen|lilian|jasmin)$/.test(l))return"f";
+  if(/a$/.test(l))return"f";
+  if(/^(bet|kat|lu|jen|ev|ann|kit|sand|dol|mil|em|mar|ell|am|kar|nel|moll|dai|sof)[iy]+e?$/.test(l)||/(ie|ia|ea)$/.test(l))return"f";
+  if(/e$/.test(l)&&l.length>3&&!/^(antoine|pierre|andre)$/.test(l))return"f";
+  if(/[yií]$/.test(l))return l==="jiří"?"m":(/(ová|ská|cká|ná|á)$/.test(sur)?"f":"?");
+  if(/[oóuů]$/.test(l))return"m";
+  return"m"}
+const asPast=(n,v)=>{const s=asSex(n);return s==="f"?v+"a":s==="m"?v:v+"(a)"};
+function asGen(n){ /* 2. pád křestního jména */
+  const w=asFirst(n);if(!w)return"";const l=w.toLowerCase(),cut=k=>w.slice(0,w.length-k);
+  if(/^(ester|miriam|mirjam|ingrid|karin|dagmar|margit|edith|judith|beatrix|ruth|ines|rút|carmen)$/.test(l))return w;
+  if(l==="jiří")return"Jiřího";
+  if(/a$/.test(l))return cut(1)+"y";
+  if(/[eioyuýíůúóé]$/.test(l))return w;
+  if(/něk$/.test(l))return cut(3)+"ňka";
+  if(/ek$/.test(l))return cut(2)+"ka";
+  if(/^(pavel|karel|havel)$/.test(l))return cut(2)+"la";
+  if(/[šžčřcjťďň]$/.test(l))return w+"e";
+  return w+"a"}
 function asFillMsg(a,t,kind){
   const jm=asVoc(a.name||asNameOf(a.email).replace(/^./,c=>c.toUpperCase()));
   let tpl=kind==="remind"?asTplRemind():asTpl();
@@ -5684,7 +5712,7 @@ function asAsk(x){
     if(!allow){$("edDlg").close();toast("Odmítnuto");return}
     asPull(true);
     if(asMode()){$("edDlg").close();toast("Propojeno ✓");return}
-    openSheet("Propojeno ✓",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},"Úkoly od "+(x.name||x.advisor)+" najdeš v záložce Úkoly. Pipeline zůstává tvoje vlastní.")),
+    openSheet("Propojeno ✓",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},"Úkoly od "+asGen(x.name||x.advisor)+" najdeš v záložce Úkoly. Pipeline zůstává tvoje vlastní.")),
       el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>{$("edDlg").close();setView("atasks")}},"Otevřít úkoly"),el("button",{type:"button",class:"chipbtn",onclick:()=>{asSetMode(true);$("edDlg").close()}},"Přepnout na čisté rozhraní asistentky"))])};
   openSheet("Pozvánka do týmu",[el("div",{class:"ucard pend"},
     el("div",{class:"t",style:"font-weight:600;font-size:17px"},who+" tě zve jako svou asistentku"),
@@ -5725,12 +5753,12 @@ async function asPull(force){
   const openT=t=>()=>{setView("atasks");setTimeout(()=>asOpenATask(t),150)};
   if(fresh.length){
     if(first&&fresh.length>1)asAlert({title:"Máš "+fresh.length+" "+plural(fresh.length,"nový úkol","nové úkoly","nových úkolů"),body:"Otevři záložku Úkoly.",tag:"newmany",onTap:()=>setView("atasks")});
-    else fresh.slice(0,3).forEach(t=>asAlert({title:"Nový úkol od "+asAdvName(t.adv),body:t.text+(t.due?" · deadline "+asCz(t.due):""),tag:t.id,onTap:openT(t)}));
+    else fresh.slice(0,3).forEach(t=>asAlert({title:"Nový úkol od "+asGen(asAdvName(t.adv)),body:t.text+(t.due?" · deadline "+asCz(t.due):""),tag:t.id,onTap:openT(t)}));
     if(fresh.length>3)asAlert({title:"+ "+(fresh.length-3)+" dalších nových úkolů",body:"",tag:"newmore",sound:false});
   }
   if(hadOld){ /* poradce upravil / zrušil úkol, který už mám */
     tasks.forEach(t=>{const o=oldA.get(t.id);if(!o||asPending.has(t.id)||asIsTmp(t)||fresh.includes(t))return;
-      if((o.bn||"")!==(t.bn||"")&&t.bn)asAlert({title:asAdvName(t.adv)+" ti napsal(a) vzkaz",body:t.bn.slice(0,120),tag:t.id,onTap:openT(t)});
+      if((o.bn||"")!==(t.bn||"")&&t.bn)asAlert({title:asAdvName(t.adv)+" ti "+asPast(asAdvName(t.adv),"napsal")+" vzkaz",body:t.bn.slice(0,120),tag:t.id,onTap:openT(t)});
       else if(o.text!==t.text||(o.due||"")!==(t.due||""))asAlert({title:"Úkol byl upraven",body:t.text+(t.due?" · deadline "+asCz(t.due):""),tag:t.id,onTap:openT(t)})});
     const gone=(ASA.tasks||[]).filter(o=>o.st!=="hotovo"&&!tasks.some(t=>t.id===o.id)&&!asPending.has(o.id)&&!asIsTmp(o));
     if(gone.length>3)asAlert({title:"Několik úkolů zmizelo ze seznamu",body:"Poradce je smazal nebo tě odebral.",tag:"gone",sound:false});
@@ -5883,8 +5911,8 @@ function asOpenATask(t){
   const del=t.by==="asst"?el("button",{type:"button",class:"danger-row"},"Smazat úkol"):null;
   if(del)del.onclick=()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}
     if(asDelTask("asst",t.id)){$("edDlg").close();renderAsTasks()}};
-  openSheet("Úkol od "+asAdvName(t.adv),[
-    el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:pre-wrap;font-size:17px"},t.text),el("div",{class:"s"},"zadal/a "+asAdvName(t.adv)+" · "+ago(t.at)))),
+  openSheet("Úkol od "+asGen(asAdvName(t.adv)),[
+    el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:pre-wrap;font-size:17px"},t.text),el("div",{class:"s"},asPast(asAdvName(t.adv),"zadal")+" "+asAdvName(t.adv)+" · "+ago(t.at)))),
       t.due?el("div",{class:"frow"},el("label",{},"Deadline"),el("span",{class:"tdtag "+(dt&&dt.cls||"")},asCz(t.due)+(dt&&dt.cls?" · "+dt.txt:""))):null,
       t.client?el("div",{class:"frow"},el("label",{},"Klient"),cl?el("button",{type:"button",class:"chipbtn",onclick:()=>asClientSheet(cl,t.adv)},t.client+" ›"):el("span",{class:"mrate"},t.client)):null),
     el("h3",{class:"sechead"},"Stav"),stBtns,
