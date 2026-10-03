@@ -121,6 +121,22 @@ function zfpLogo({x=0,y=0,s=1,gray="#4f5052",gray2="#7d8183",orange="#db6b33",op
   <text x="0" y="123" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="35" textLength="222" lengthAdjust="spacingAndGlyphs" style="fill:${gray2}">CONSULTING</text></g>`}
 const LOGO_W=222,LOGO_H=124;
 
+/* vodoznak v grafu: wm = {t:"zfp"|"img"|"text"|"none", img,iw,ih, txt, op (průhlednost 0–1), sz (velikost, 1 = výchozí)} */
+const WM_DEF={t:"zfp",op:.3,sz:1,txt:""};
+function wmSVG(wm,{cx,cy,W,H,c}){
+  const p={...WM_DEF,...wm},base=Math.min(170,Math.max(104,W*.17))*p.sz,op=Math.min(1,Math.max(0,+p.op||0));
+  if(p.t==="none")return"";
+  if(p.t==="img"&&p.img){let bw=base*1.1,bh=bw*(p.ih||1)/(p.iw||1);const mh=H*.7;if(bh>mh){bw*=mh/bh;bh=mh}
+    return `<image class="fc-wm" href="${p.img}" x="${(cx-bw/2).toFixed(1)}" y="${(cy-bh/2).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" opacity="${op}" preserveAspectRatio="xMidYMid meet"/>`}
+  if(p.t==="text"&&p.txt.trim()){const fs=Math.min(base*1.6/Math.max(4,p.txt.trim().length)*1.9,base*.42);
+    return `<text class="fc-wm" x="${cx.toFixed(1)}" y="${(cy+fs*.35).toFixed(1)}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="${fs.toFixed(1)}" opacity="${op}" style="fill:${c.wmGray}">${esc(p.txt.trim())}</text>`}
+  const ws=base/LOGO_W;return zfpLogo({x:cx-LOGO_W*ws/2,y:cy-LOGO_H*ws/2,s:ws,gray:c.wmGray,gray2:c.wmGray2,orange:c.wmOrange,op});
+}
+/* nahraný obrázek vodoznaku: zmenšit na max. 600 px, PNG kvůli průhlednosti */
+function readWmImage(file){return new Promise((res,rej)=>{const r=new FileReader();r.onerror=rej;r.onload=()=>{const i=new Image();i.onerror=rej;i.onload=()=>{
+  const k=Math.min(1,600/Math.max(i.naturalWidth,i.naturalHeight)),c=document.createElement("canvas");c.width=Math.max(1,Math.round(i.naturalWidth*k));c.height=Math.max(1,Math.round(i.naturalHeight*k));
+  c.getContext("2d").drawImage(i,0,0,c.width,c.height);res({img:c.toDataURL("image/png"),iw:c.width,ih:c.height})};i.src=r.result};r.readAsDataURL(file)})}
+
 /* graf: a = hlavní křivka (zelená s výplní), b = šedá plocha */
 function chartSVG(pts,{w=900,h=440,c,labelA,labelB,wm=true}){
   const pl=74,pr=16,pt=16,pb=34,W=w-pl-pr,H=h-pt-pb;
@@ -141,7 +157,7 @@ function chartSVG(pts,{w=900,h=440,c,labelA,labelB,wm=true}){
   xt.forEach(t=>{s+=`<text x="${sx(t).toFixed(2)}" y="${pt+H+22}" text-anchor="middle" font-size="12" style="fill:${c.txt}">${Math.round(t)}</text>`});
   s+=`<path class="fc-aa" d="${area("a")}" fill="url(#${gid})"/>`;
   s+=`<path class="fc-ab" d="${area("b")}" style="fill:${c.b};opacity:.9"/>`;
-  if(wm){const ws=Math.min(170,Math.max(104,W*.17))/LOGO_W;s+=zfpLogo({x:pl+W/2-LOGO_W*ws/2,y:pt+H/2-LOGO_H*ws/2,s:ws,gray:c.wmGray,gray2:c.wmGray2,orange:c.wmOrange,op:c.wmOp})}
+  if(wm)s+=wmSVG(wm,{cx:pl+W/2,cy:pt+H/2,W,H,c});
   s+=`<path class="fc-la" d="${path("a")}" style="fill:none;stroke:${c.a};stroke-width:3.2;stroke-linejoin:round;stroke-linecap:round"/>`;
   s+=`<g class="fc-hover" style="display:none"><line class="fc-hx" y1="${pt}" y2="${pt+H}" style="stroke:${c.txt};stroke-width:1;stroke-dasharray:3 3"/><circle class="fc-ha" r="5.5" style="fill:${c.a};stroke:${c.ring};stroke-width:2"/></g>`;
   s+=`<rect class="fc-hit" x="${pl}" y="${pt}" width="${W}" height="${H}" fill="transparent"/></svg>`;
@@ -155,7 +171,7 @@ const CSS=`
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f;--fc-logo1:#e5e5e7;--fc-logo2:#a1a1a6}}
 :root[data-theme="dark"] .fc{--fc-navy:#f2f4f7;--fc-area:#3a3d42;--fc-tile:#2c2c2e;--fc-line:#48484a;--fc-calc:#2a3442;--fc-txt:#a1a1aa;--fc-grid:#3a3a3c;--fc-green:#6fd10f;--fc-logo1:#e5e5e7;--fc-logo2:#a1a1a6}
 :where(.fc) button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
-.fc-head{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--fc-line)}
+.fc-head{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--fc-line)}
 .fc-logo svg{display:block;height:36px;width:auto}
 .fc-title{text-align:center;font-size:16px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fc-acts{display:flex;align-items:center;gap:10px}
@@ -214,12 +230,25 @@ const CSS=`
 .fc-mi .t small{color:var(--fc-txt);font-size:12.5px}
 .fc-mi .del{color:var(--red,#ff3b30);font-size:13px}
 .fc-mi.cur b{color:var(--fc-orange)}
+.fc-wm{padding:2px 14px 12px;display:grid;gap:10px;border-top:1px solid var(--fc-line);margin-top:6px}
+.fc-wm h4{margin:10px 0 0!important}
+.fc-wseg{display:grid;grid-template-columns:repeat(4,1fr);background:var(--fc-tile);border-radius:8px;padding:2px}
+.fc-wseg button{font-size:13px!important;padding:6px 4px!important;border-radius:6px}
+.fc-wseg button[aria-pressed="true"]{background:var(--bg2,#fff);font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.fc-wrow{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--fc-txt)}
+.fc-wrow span{width:92px;flex:none}
+.fc-wrow input[type=range]{flex:1;min-width:0}
+.fc-wrow input[type=text]{flex:1;min-width:0;height:34px;border:1px solid var(--fc-line);border-radius:6px;padding:0 10px;font:inherit;font-size:14px;background:var(--bg2,#fff);color:var(--fc-navy)}
+.fc-wimg{display:flex;align-items:center;gap:10px}
+.fc-wimg img{width:56px;height:40px;object-fit:contain;background:var(--fc-tile);border-radius:6px}
+.fc-wimg button{color:var(--tint,#007aff);font-size:14px!important;font-weight:500}
+.fc-wnote{font-size:12px;color:var(--fc-txt);margin:0}
 .fc-wrapH{position:relative}
 @media (max-width:860px){
-  .fc-head{grid-template-columns:auto 1fr;gap:10px}
+  .fc-head{grid-template-columns:auto 1fr auto;gap:10px}
   .fc-title{text-align:right}
-  .fc-acts{grid-column:1/-1;flex-wrap:wrap;gap:8px}
-  .fc-acts .fc-btn{flex:1}
+  .fc-acts{grid-column:1/-1;order:3;gap:8px}
+  .fc-acts .fc-btn{flex:1 1 0;min-width:0;padding:0 6px;overflow:hidden;text-overflow:ellipsis}
   .fc-body{flex-direction:column}
   .fc-tabs{flex-direction:row;width:auto}
   .fc-tabs button{writing-mode:horizontal-tb;transform:none;padding:12px 0;flex:1;width:auto;border-left:none;border-bottom:2px solid transparent}
@@ -250,6 +279,11 @@ function mount(root,opts={}){
   if(!st||!st.m||!ORDER.every(k=>st.m[k]))st=fresh();
   let saved=[],help=null,menuOpen=false,minPar=false,lastRes=null;
   const persist=()=>ls.set(LS,st);
+  /* vodoznak: sdílí se mezi zařízeními přes úložiště Pipeline (fcprefs/main), jinak jen v tomto zařízení */
+  let wm={...WM_DEF,...(ls.get("fc_wm_v1")||{})};
+  const wmDoc=store&&store.doc?store.doc("fcprefs/main"):null;
+  const saveWm=()=>{ls.set("fc_wm_v1",wm);if(wmDoc)wmDoc.set({wm}).catch(()=>{})};
+  if(wmDoc&&wmDoc.onSnapshot)wmDoc.onSnapshot(d=>{const n=d.exists&&d.data()&&d.data().wm;if(n&&JSON.stringify(n)!==JSON.stringify(wm)){wm={...WM_DEF,...n};ls.set("fc_wm_v1",wm);if(menuOpen&&!root.querySelector(".fc-menu").contains(document.activeElement))draw();else if(lastRes)drawChart()}});
   if(store)store.collection("fincalc").onSnapshot(s=>{saved=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));if(menuOpen)draw()});
 
   const cur=()=>st.m[st.mode];
@@ -267,8 +301,8 @@ function mount(root,opts={}){
     root.innerHTML=`<div class="fc"><div class="fc-wrapH">
       <div class="fc-head"><div class="fc-logo"><svg viewBox="0 0 ${LOGO_W} ${LOGO_H}" role="img" aria-label="ZFP Consulting">${zfpLogo({gray:"var(--fc-logo1)",gray2:"var(--fc-logo2)"})}</svg></div>
         <div class="fc-title" title="${esc(title)}">${esc(title)}</div>
-        <div class="fc-acts"><button class="fc-btn" data-a="save" type="button">Uložit</button><button class="fc-btn" data-a="pdf" type="button">Stáhnout PDF</button><button class="fc-btn pri" data-a="new" type="button">Nová kalkulace</button>
-          <button class="fc-ico" data-a="menu" type="button" aria-label="Uložené kalkulace" title="Uložené kalkulace">${ICON.menu}</button></div></div>
+        <div class="fc-acts"><button class="fc-btn" data-a="save" type="button">Uložit</button><button class="fc-btn" data-a="pdf" type="button">Stáhnout PDF</button><button class="fc-btn pri" data-a="new" type="button">Nová kalkulace</button></div>
+          <button class="fc-ico" data-a="menu" type="button" aria-label="Uložené kalkulace a vodoznak" title="Uložené kalkulace a vodoznak">${ICON.menu}</button></div>
       ${menuOpen?menuHTML():""}</div>
       <div class="fc-body">
         <div class="fc-tabs" role="tablist" aria-label="Typ výpočtu">${ORDER.map(k=>`<button type="button" role="tab" data-a="mode" data-k="${k}" aria-selected="${k===st.mode}">${MODES[k].t}</button>`).join("")}</div>
@@ -305,7 +339,7 @@ function mount(root,opts={}){
     const {ok,v,M}=lastRes;
     if(!ok){box.innerHTML=`<div class="fc-empty">${esc(lastRes.err)}</div>`;return}
     const pts=series(st.mode,v),w=Math.max(320,Math.round(box.clientWidth||900)),h=Math.round(Math.min(480,Math.max(280,w*0.5)));
-    const ch=chartSVG(pts,{w,h,c:scrColors(),labelA:M.sa,labelB:M.sb});
+    const ch=chartSVG(pts,{w,h,c:scrColors(),labelA:M.sa,labelB:M.sb,wm});
     box.innerHTML=ch.svg;
     /* animace jen při změně zadání nebo režimu (ne při změně velikosti okna): křivky vyrostou od spodní osy */
     const sig=st.mode+JSON.stringify(v);cancelAnimationFrame(anim);
@@ -328,7 +362,17 @@ function mount(root,opts={}){
     hit.addEventListener("pointermove",move);hit.addEventListener("pointerdown",move);hit.addEventListener("pointerleave",leave);
   }
   function menuHTML(){
-    return `<div class="fc-menu" role="menu"><h4>Uložené kalkulace</h4>${saved.length?saved.map(s=>`<div class="fc-mi${s.id===st.id?" cur":""}"><button type="button" class="t" data-a="load" data-id="${esc(s.id)}" style="text-align:left"><b>${esc(s.name||"Bez názvu")}</b><small>${esc(MODES[s.mode]?.t||"")} · ${s.updatedAt?new Date(s.updatedAt).toLocaleDateString("cs-CZ"):""}</small></button><button type="button" class="del" data-a="delsaved" data-id="${esc(s.id)}">Smazat</button></div>`).join(""):`<div class="fc-mi"><span class="t"><small>${store?"Zatím nic uloženého. Kalkulaci uložíš tlačítkem Uložit.":"Ukládání tu není k dispozici."}</small></span></div>`}</div>`;
+    return `<div class="fc-menu" role="menu"><h4>Uložené kalkulace</h4>${saved.length?saved.map(s=>`<div class="fc-mi${s.id===st.id?" cur":""}"><button type="button" class="t" data-a="load" data-id="${esc(s.id)}" style="text-align:left"><b>${esc(s.name||"Bez názvu")}</b><small>${esc(MODES[s.mode]?.t||"")} · ${s.updatedAt?new Date(s.updatedAt).toLocaleDateString("cs-CZ"):""}</small></button><button type="button" class="del" data-a="delsaved" data-id="${esc(s.id)}">Smazat</button></div>`).join(""):`<div class="fc-mi"><span class="t"><small>${store?"Zatím nic uloženého. Kalkulaci uložíš tlačítkem Uložit.":"Ukládání tu není k dispozici."}</small></span></div>`}${wmHTML()}</div>`;
+  }
+  function wmHTML(){
+    const T=[["zfp","ZFP"],["img","Obrázek"],["text","Text"],["none","Žádný"]];
+    return `<div class="fc-wm"><h4>Vodoznak v grafu a PDF</h4>
+      <div class="fc-wseg" role="group" aria-label="Typ vodoznaku">${T.map(([k,t])=>`<button type="button" data-a="wmt" data-k="${k}" aria-pressed="${wm.t===k}">${t}</button>`).join("")}</div>
+      ${wm.t==="img"?`<div class="fc-wimg">${wm.img?`<img src="${wm.img}" alt="Nahraný vodoznak">`:""}<button type="button" data-a="wmpick">${wm.img?"Nahrát jiný obrázek":"Nahrát obrázek (logo)…"}</button></div><p class="fc-wnote">Nejlépe PNG s průhledným pozadím.</p>`:""}
+      ${wm.t==="text"?`<label class="fc-wrow"><span>Text</span><input type="text" data-w="txt" maxlength="40" placeholder="např. tvoje jméno" value="${esc(wm.txt)}"></label>`:""}
+      ${wm.t!=="none"?`<label class="fc-wrow"><span>Průhlednost</span><input type="range" data-w="op" min="0.05" max="0.8" step="0.01" value="${wm.op}" aria-label="Viditelnost vodoznaku"></label>
+      <label class="fc-wrow"><span>Velikost</span><input type="range" data-w="sz" min="0.5" max="2.2" step="0.05" value="${wm.sz}" aria-label="Velikost vodoznaku"></label>`:""}
+    </div>`;
   }
   /* --- změny hodnot --- */
   function setField(k,val){const c=cur();if(k===c.calc)return;c.v[k]=val;refresh()}
@@ -338,7 +382,7 @@ function mount(root,opts={}){
 
   root.addEventListener("click",async e=>{
     const b=e.target.closest("[data-a]");
-    if(!b){if(help||menuOpen){help=null;menuOpen=false;draw()}return}
+    if(!b){if(e.target.closest(".fc-menu"))return;if(help||menuOpen){help=null;menuOpen=false;draw()}return}
     const a=b.dataset.a,k=b.dataset.k;
     if(a!=="help"&&a!=="menu"&&help){help=null}
     if(a==="mode"){st.mode=k;help=null;draw()}
@@ -349,13 +393,22 @@ function mount(root,opts={}){
     else if(a==="ctitle"){const t=prompt("Název grafu",st.titles[st.mode]||MODES[st.mode].chart);if(t!=null){st.titles[st.mode]=t.trim()||undefined;draw()}}
     else if(a==="new"){const keep=st.mode;st=fresh();st.mode=keep;menuOpen=false;draw();toast("Nová kalkulace")}
     else if(a==="menu"){menuOpen=!menuOpen;draw()}
+    else if(a==="wmt"){wm.t=k;saveWm();draw();if(k==="img"&&!wm.img)pickWm()}
+    else if(a==="wmpick")pickWm();
     else if(a==="save")save();
     else if(a==="pdf")pdf();
     else if(a==="load"){const s=saved.find(x=>x.id===b.dataset.id);if(s){const f=fresh();st={...f,...JSON.parse(JSON.stringify(s.state||{})),id:s.id,name:s.name};ORDER.forEach(m=>{if(!st.m[m])st.m[m]=f.m[m]});menuOpen=false;draw();toast("Načteno: "+(s.name||"kalkulace"))}}
     else if(a==="delsaved"){const s=saved.find(x=>x.id===b.dataset.id);if(s&&confirm(`Smazat uloženou kalkulaci „${s.name||"Bez názvu"}“?`)){await store.doc("fincalc/"+s.id).delete();if(st.id===s.id){st.id=null;st.name=""}draw()}}
   });
+  /* výběr souboru musí běžet přímo z kliknutí (iPhone) */
+  function pickWm(){const inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.style.display="none";root.append(inp);
+    inp.addEventListener("change",async()=>{const f=inp.files&&inp.files[0];inp.remove();if(!f)return;
+      try{Object.assign(wm,await readWmImage(f),{t:"img"});saveWm();draw();toast("Vodoznak nahrán")}catch(err){toast("Obrázek se nepodařilo načíst")}});
+    inp.click()}
+  root.addEventListener("input",e=>{const t=e.target;if(!t.dataset||!t.dataset.w)return;const k=t.dataset.w;wm[k]=k==="txt"?t.value:+t.value;ls.set("fc_wm_v1",wm);if(lastRes&&lastRes.ok)drawChart()});
   root.addEventListener("change",e=>{
     const t=e.target;
+    if(t.dataset&&t.dataset.w){saveWm();return}
     if(t.matches("select[data-a=freq]")){cur().v.freq=t.value;refresh();return}
     if(t.matches("input[data-k]")){const k=t.dataset.k,v=parseNum(t.value);if(isFinite(v))setField(k,clampF(k,v));t.value=fieldVal(k,cur().v[k])}
   });
@@ -377,7 +430,7 @@ function mount(root,opts={}){
     const res=lastRes;if(!res.ok){toast("Nejdřív oprav zadání – "+res.err);return}
     const M=MODES[st.mode],v=res.v,c=cur();
     const pts=series(st.mode,v);
-    const ch=chartSVG(pts,{w:900,h:430,c:{a:"#5cb800",b:"#e4e6e9",grid:"#e9ebee",txt:"#6b7280",ring:"#fff",wmGray:"#4f5052",wmGray2:"#7d8183",wmOrange:"#db6b33",wmOp:.3},labelA:M.sa,labelB:M.sb});
+    const ch=chartSVG(pts,{w:900,h:430,c:{a:"#5cb800",b:"#e4e6e9",grid:"#e9ebee",txt:"#6b7280",ring:"#fff",wmGray:"#4f5052",wmGray2:"#7d8183",wmOrange:"#db6b33",wmOp:.3},labelA:M.sa,labelB:M.sb,wm});
     const params=FIELDS[st.mode].map(k=>[M.f[k].l.replace(/ \((CZK|%|počet let)\)/,""),k==="rate"?fmtPct(v[k]):k==="years"?yrsTxt(v[k]):fmtKc(v[k]),k===c.calc]);
     params.push(["Frekvence připisování úroku",(FREQ.find(f=>f[0]===v.freq)||FREQ[0])[1],false]);
     const d=new Date().toLocaleDateString("cs-CZ");
@@ -406,5 +459,5 @@ function mount(root,opts={}){
   return{redraw:draw,state:()=>st};
 }
 
-window.FinCalc={mount,math:{iMonth,valueAt,solve,series,totals,FIELDS},fmt:{fmtKc,yrsTxt,parseNum}};
+window.FinCalc={mount,math:{iMonth,valueAt,solve,series,totals,FIELDS},fmt:{fmtKc,yrsTxt,parseNum},logo:{svg:zfpLogo,w:LOGO_W,h:LOGO_H}};
 })();

@@ -11,8 +11,9 @@
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="robots" content="noindex">
 <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="48x48" href="favicon-48.png?v=2">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=2">
 <title>Pipeline</title>
 <style>
 :root{
@@ -992,7 +993,7 @@ html.locked body{overflow:hidden}
     <div id="gIncActive"></div>
     <div class="group" id="gIncPassive"></div>
     <div class="group" id="gIncTeam"></div>
-    <p class="secfoot">Aktivní příjem podle kategorie je průměr z posledních 3 měsíců uzavřených obchodů při tvém aktuálním tarifu. Pasivní příjem a příjem z týmu vychází ze stejných dat jako ve Výdělku a Rozvoji sítě.</p>
+    <p class="secfoot">Aktivní příjem podle kategorie je průměr z posledních 3 měsíců uzavřených obchodů při tvém aktuálním tarifu. Pasivní příjem a příjem z týmu vychází ze stejných dat jako v Obratu a Rozvoji sítě.</p>
     <h3 class="sechead">Rozpočet</h3>
     <div class="group" id="gBudget"></div>
     <h3 class="sechead">Cíle</h3>
@@ -1014,12 +1015,12 @@ html.locked body{overflow:hidden}
     <div class="org"><div id="teamTree2"></div></div>
     <div class="sechead-row" style="margin-top:18px"><h3 class="sechead">Tvůj tým – kdo roste a kdo stojí</h3><button type="button" class="chipbtn" id="addMember2">+ Člen týmu</button></div>
     <div class="group" id="nTeam"></div>
-    <p class="secfoot">Body po měsících a „Body celkem“ zapisuješ v kartě člena (klikni na něj). Když u člena vyplníš Gmail a on používá Pipeline, doplňují se samy. Tým a meziprovize najdeš i ve Výdělku.</p>
+    <p class="secfoot">Body po měsících a „Body celkem“ zapisuješ v kartě člena (klikni na něj). Když u člena vyplníš Gmail a on používá Pipeline, doplňují se samy. Tým a meziprovize najdeš i v Obratu.</p>
     <div id="shareBox"></div>
   </section>
   <section id="view_pp" hidden>
     <div id="ppList"></div>
-    <p class="secfoot">Zdroj: Provizní příloha PP/2026/09/01, účinná od 1. 9. 2026. Počítá se jen získatelská provize u nových smluv (ne navýšení). Pečovatelské a následné provize sem zapiš ručně ve Výdělku.</p>
+    <p class="secfoot">Zdroj: Provizní příloha PP/2026/09/01, účinná od 1. 9. 2026. Počítá se jen získatelská provize u nových smluv (ne navýšení). Pečovatelské a následné provize sem zapiš ručně v Obratu.</p>
   </section>
   <section id="view_calc" hidden>
     <div id="calcBox"></div>
@@ -1661,6 +1662,21 @@ function plural(n,a,b,c){return n===1?a:n>1&&n<5?b:c}
 function shortKc(a){a=+a||0;return a>=1e6?(Math.round(a/1e5)/10).toLocaleString("cs-CZ")+" mil.":a>=1e4?fmt0(a/1e3)+" tis.":fmt0(a)}
 function initials(n){return (n||"?").replace(/\(.*?\)/g,"").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase()}
 function teamAvatar(m,cls,col){return m.photo?el("img",{class:cls,src:m.photo,alt:""}):el("span",{class:cls,style:"background:"+col},initials(m.name))}
+function meAvatar(cls){return settings.myPhoto?el("img",{class:cls,src:settings.myPhoto,alt:""}):el("span",{class:cls,style:"background:var(--tint)"},"Já")}
+/* profilovka (člen týmu i ty): bez fotky výběr souboru → editor; s fotkou rovnou editor s uloženým výřezem
+   (photoSrc = zmenšený originál pro pozdější úpravy, photoCrop = posun/zoom/otočení, photo = hotový čtverec 320 px) */
+function editPhoto({title,photo,src,crop,save,remove,back}){
+  if(!window.PhotoEdit){toast("Editor fotek se nenačetl – obnov stránku");return}
+  const open=(s,c)=>openSheet(title,[PhotoEdit.create({src:s,crop:c,onCancel:back,
+    onSave:async r=>{try{await save(r);toast("Fotka uložena");back()}catch(e){toast("Nepodařilo se uložit")}},
+    onRemove:photo?async()=>{try{await remove();toast("Fotka odebrána");back()}catch(e){toast("Nepodařilo se uložit")}}:null})]);
+  if(photo)open(src||photo,src?crop:null);else PhotoEdit.pick().then(s=>{if(s)open(s,null)});
+}
+function editMyPhoto(back){
+  const put=patch=>db.doc("settings/main").set({...settings,...patch});
+  editPhoto({title:"Tvoje fotka",photo:settings.myPhoto,src:settings.myPhotoSrc,crop:settings.myPhotoCrop,back,
+    save:r=>put({myPhoto:r.photo,myPhotoSrc:r.src,myPhotoCrop:r.crop}),remove:()=>put({myPhoto:null,myPhotoSrc:null,myPhotoCrop:null})});
+}
 function dueState(l){if(!ACTIVE(l.stage))return"";if(!l.nextDate)return"none";const t=todayStr();return l.nextDate<t?"late":l.nextDate===t?"today":""}
 function lastTouch(l){return l.lastContact||l.updatedAt||l.createdAt}
 function isCold(l){return ACTIVE(l.stage)&&daysSince(lastTouch(l))>=STALE_DAYS&&!nextMeeting(l)}
@@ -1714,7 +1730,7 @@ function render(){
   $("banner").hidden=!leads.some(l=>l.example);
   const act=leads.filter(l=>ACTIVE(l.stage)).length;
   if(view==="pipe"){queueMicrotask(runFlip);$("bigTitle").textContent=appName();$("sub").textContent=pper&&!q?pmLabel(pper)+" · archiv":leads.length?`${act} ${plural(act,"rozjednaný lead","rozjednané leady","rozjednaných leadů")} · ${pmLabel(null)}`:"Zatím prázdno. Přidej první lead tlačítkem +.";renderCareer(cur);renderPipe(cur)}
-  else if(view==="money"){$("bigTitle").textContent="Výdělek";$("sub").textContent="Body, provize, pasivní příjem a tým";renderMoney(cq,cur)}
+  else if(view==="money"){$("bigTitle").textContent="Obrat";$("sub").textContent="Body, provize, pasivní příjem a tým";renderMoney(cq,cur)}
   else if(view==="cli"){$("bigTitle").textContent="Klienti";renderClients()}
   else if(view==="cal"){$("bigTitle").textContent="Kalendář";$("sub").textContent="Přehled z vybraných sdílených kalendářů";renderCalTab()}
   else if(view==="net"){$("bigTitle").textContent="Rozvoj sítě";renderNet()}
@@ -1731,7 +1747,7 @@ function renderCalc(){
   if(calcUI||calcLoading)return;
   const go=()=>{calcLoading=false;if(!window.FinCalc){$("calcBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}calcUI=FinCalc.mount($("calcBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)}})};
   if(window.FinCalc)return go();
-  calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=2";sc.onload=go;sc.onerror=go;document.head.append(sc);
+  calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=3";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;
@@ -1900,7 +1916,7 @@ function card(l,i,cur){
 }
 
 /* ---------- money ---------- */
-/* zobrazený měsíc v kartě Výdělku (null = aktuální); šipkami jde přepnout do minulých měsíců */
+/* zobrazený měsíc v kartě Obratu (null = aktuální); šipkami jde přepnout do minulých měsíců */
 let moneyYm=null;
 function moneyMinYm(){const ks=[...Object.keys(settings.sjetiny||{}).map(perMonth),...Object.keys(settings.monthlyTeam||{})].sort();return ks[0]||ymOf(todayStr())}
 function renderMoney(cq,cur){
@@ -2558,7 +2574,7 @@ function openRegSheet(){
   inp.addEventListener("change",()=>savePassive(p=>({...p,regular:inp.value===""?0:+inp.value,regSource:null})));
   const deals=M.deals.filter(d=>d.monthly);
   openSheet("Pravidelné vklady",[
-    el("p",{class:"hint"},"Provize z poplatků pravidelných investic – každý vklad do investice pod "+fmt0(REG_DEP_MAX)+" Kč. Zadej, kolik bodů měsíčně ti chodí ze smluv, které nemáš v pipeline – nebo to appka nastaví sama z výpisů (Výdělek → Importovat data)."+(P.regSource?" Naposledy nastaveno "+P.regSource+".":"")),
+    el("p",{class:"hint"},"Provize z poplatků pravidelných investic – každý vklad do investice pod "+fmt0(REG_DEP_MAX)+" Kč. Zadej, kolik bodů měsíčně ti chodí ze smluv, které nemáš v pipeline – nebo to appka nastaví sama z výpisů (Obrat → Importovat data)."+(P.regSource?" Naposledy nastaveno "+P.regSource+".":"")),
     el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},"Mimo pipeline"),el("div",{class:"s"},"body měsíčně")),el("span",{class:"end"},inp," b/měs"))),
     deals.length?el("h3",{class:"sechead"},"Z pipeline (měsíční investice)"):null,
     deals.length?el("div",{class:"group"},deals.map(d=>el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},d.name),el("div",{class:"s"},itemLabel(d.it)+" · "+kc(d.it.amt)+"/měs")),el("span",{class:"end"},fmt1(d.regPts*d.sh)+" b ≈ "+kc(d.regPts*d.sh*rate))))):null
@@ -2587,7 +2603,7 @@ function renderTeam(cur,tid){
   const node=(o)=>{
     const d=el("div",{class:"onode"+(o.me?" me":""),style:"--oc:"+o.col},
       el("button",{type:"button",class:"ohit",title:o.me?"Tvoje meziprovize":"Upravit "+o.name,"aria-label":o.me?"Tvoje meziprovize":"Upravit "+o.name,onclick:o.open}),
-      o.m?teamAvatar(o.m,"oav",o.col):el("span",{class:"oav",style:"background:"+o.col},o.ini),
+      o.m?teamAvatar(o.m,"oav",o.col):o.me?meAvatar("oav"):el("span",{class:"oav",style:"background:"+o.col},o.ini),
       el("div",{class:"oname"},o.name),
       el("div",{class:"ost"},o.sub),
       el("div",{class:"opts"},o.pts),
@@ -2613,14 +2629,14 @@ function renderTeam(cur,tid){
 function openMe(ov,rate,qk){
   const rows=team.map(m=>({m,...ov.per[m.id]})).sort((a,b)=>b.o-a.o||b.pts-a.pts);
   openSheet("Tvoje meziprovize",[
-    el("div",{class:"mhero"},el("span",{class:"oav big",style:"background:var(--tint)"},"Já"),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(ov.total)),el("div",{class:"mh-s"},"z týmu za "+qLabel(qk)+" · tvůj tarif "+cz(rate)+" Kč/b"))),
-    Math.abs(ov.total-(ov.calc??ov.total))>1?el("p",{class:"hint"},"U měsíců, kde máš ve Výdělku zapsanou meziprovizi ze sjetiny, beru ji. Podle bodů zapsaných u členů by za "+qLabel(qk)+" vyšlo "+kc(ov.calc)+"."):null,
+    el("div",{class:"mhero"},meAvatar("oav big"),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(ov.total)),el("div",{class:"mh-s"},"z týmu za "+qLabel(qk)+" · tvůj tarif "+cz(rate)+" Kč/b"))),
+    Math.abs(ov.total-(ov.calc??ov.total))>1?el("p",{class:"hint"},"U měsíců, kde máš v Obratu zapsanou meziprovizi ze sjetiny, beru ji. Podle bodů zapsaných u členů by za "+qLabel(qk)+" vyšlo "+kc(ov.calc)+"."):null,
     rows.length?el("div",{class:"group"},rows.map(r=>el("button",{type:"button",class:"row row-btn",onclick:()=>openMember(r.m)},
       teamAvatar(r.m,"avatar",POSCOL[r.m.pos]||POSCOL.P1),
       el("span",{class:"main"},el("div",{class:"t"},r.m.name||"Bez jména"),el("div",{class:"s"},fmt1(r.pts)+" b × ("+cz(rate)+" − "+cz(r.maxR)+") Kč")),
       el("span",{class:"end"},el("b",{style:r.o>0?"color:var(--green)":""},kc(r.o))),chev()))):el("p",{class:"hint"},"Zatím nemáš žádné členy týmu."),
     el("p",{class:"hint"},"Meziprovize se počítá rozdílově: z bodů člena ti náleží rozdíl mezi tvým tarifem a nejvyšším tarifem v linii mezi tebou a ním. Body členů zapisuješ po měsících v jejich kartě."),
-    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>addMember(null)},"+ Přidat člena přímo pod sebe"))
+    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>editMyPhoto(()=>openMe(ov,rate,qk))},settings.myPhoto?"Upravit svoji fotku":"Nahrát svoji fotku"),el("button",{type:"button",class:"chipbtn",onclick:()=>addMember(null)},"+ Přidat člena přímo pod sebe"))
   ]);
 }
 async function addMember(parent){
@@ -2661,15 +2677,12 @@ function openMember(m0){
     try{for(const k of team.filter(x=>parentOf(x)===m.id))await db.doc("team/"+k.id).update({parent:parentOf(m)});await db.doc("team/"+m.id).delete();$("edDlg").close();toast("Odebráno");if(typeof syncTeam==="function")syncTeam(true)}catch(e){toast("Nepodařilo se uložit")}};
   const p=teamOverride({qk:CURQ()},quarterRow(CURQ()).rate).per[m.id]||{pts:0,o:0};
   const stTxt=!m.gmail?null:!S?"Propojuji…":S.status==="sdílí"?(S.snap?"✓ Propojeno – body, pozice a pipeline se propisují samy · aktualizováno "+ago(S.at):"✓ Souhlasil – čekám na první data z jeho aplikace"):S.status==="odmítnuto"?"Sdílení odmítl – můžeš ho požádat znovu (smaž a znovu zadej Gmail)":S.uses?"Čeká na jeho souhlas – žádost uvidí v aplikaci":"Zatím nepoužívá Pipeline – až se přihlásí tímto Gmailem, uvidí žádost";
-  const photoInp=el("input",{type:"file",accept:"image/*",style:"display:none"});
-  photoInp.addEventListener("change",()=>{const f=photoInp.files[0];if(!f)return;const reader=new FileReader();
-    reader.onload=()=>{const img=new Image();img.onload=()=>{const S=160,c=document.createElement("canvas");c.width=S;c.height=S;const ctx=c.getContext("2d");
-      const side=Math.min(img.width,img.height),sx=(img.width-side)/2,sy=(img.height-side)/2;ctx.drawImage(img,sx,sy,side,side,0,0,S,S);
-      upd({photo:c.toDataURL("image/jpeg",.85)}).then(()=>openMember(m))};img.src=reader.result};
-    reader.readAsDataURL(f)});
+  const photoBtn=()=>editPhoto({title:"Fotka – "+(m.name||"člen týmu"),photo:m.photo,src:m.photoSrc,crop:m.photoCrop,
+    save:r=>upd({photo:r.photo,photoSrc:r.src,photoCrop:r.crop}),remove:()=>upd({photo:null,photoSrc:null,photoCrop:null}),
+    back:()=>openMember(team.find(x=>x.id===m.id)||m)});
   openSheet(m.name||"Člen týmu",[
     el("div",{class:"mhero"},teamAvatar(m,"oav big",POSCOL[m.pos]||POSCOL.P1),el("div",{},el("div",{class:"mh-v",style:"font-size:22px"},kc(p.o)),el("div",{class:"mh-s"},"tvoje meziprovize za "+qLabel(CURQ())+" · "+fmt1(p.pts)+" b"))),
-    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>photoInp.click()},m.photo?"Změnit fotku":"Nahrát fotku"),m.photo?el("button",{type:"button",class:"chipbtn",onclick:()=>upd({photo:null}).then(()=>openMember(m))},"Odebrat fotku"):null,photoInp),
+    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:photoBtn},m.photo?"Upravit fotku":"Nahrát fotku")),
     el("button",{type:"button",class:"chipbtn mpipe"+(synced?"":" off"),onclick:()=>synced?openMemberPipe(m,S):pipeHelp(m,S)},"Otevřít "+(isFem(m.name)?"její":"jeho")+" pipeline ›"),
     el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Pod kým"),par),
       el("div",{class:"frow"},el("label",{},"Gmail"),gm),
@@ -2829,7 +2842,7 @@ function openClient(e0){
     el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Telefon"),ph),el("div",{class:"frow"},el("label",{},"E-mail"),em),el("div",{class:"frow"},el("label",{},"Datum narození"),bd),el("div",{class:"frow"},el("label",{},"Poslední schůzka"),lm)),
     el("div",{class:"group"},el("div",{class:"frow col"},nt)),
     el("h3",{class:"sechead"},"Produkty"),pwrap,add,
-    el("p",{class:"hint"},"Produkty tady nemají vliv na výdělek – slouží jako přehled smluv. Výjimka: když u ŽP z pipeline označíš zánik, spočítá se storno a odečte se ve Výdělku."),
+    el("p",{class:"hint"},"Produkty tady nemají vliv na výdělek – slouží jako přehled smluv. Výjimka: když u ŽP z pipeline označíš zánik, spočítá se storno a odečte se v Obratu."),
     meets.length?el("h3",{class:"sechead"},"Schůzky z kalendáře · "+meets.length):null,
     meets.length?el("div",{class:"group"},meets.slice(0,12).map(s=>el("div",{class:"row"},el("span",{class:"main"},fmtMeet(s)+" "+s.slice(0,4)),el("span",{class:"end"},s>new Date().toISOString()?"naplánováno":"")))):null,
     log.length?el("h3",{class:"sechead"},"Historie servisu"):null,
@@ -2854,7 +2867,7 @@ function prodEditor(p,onDel,onSave,rerender){
   if(p.type==="ŽP"&&p.status==="ended"){
     const l=p.src?.lead?leads.find(x=>x.id===p.src.lead):null, it=l?normItem((l.items||[])[p.src.idx]||{}):null;
     const x=it?stornoCalc({...it,storno:true,zal:p.from||l.signedAt,zan:p.to},l.signedAt):null;
-    sto=el("div",{class:"itemres miss"},el("span",{},x?x.why+" · odečte se ve Výdělku":"Storno se počítá jen u ŽP podepsané přes pipeline."),el("b",{},x?"−"+fmt1(x.pts)+" b ≈ −"+kc(x.pts*quarterRow(qOf(p.to||todayStr())).rate):""));
+    sto=el("div",{class:"itemres miss"},el("span",{},x?x.why+" · odečte se v Obratu":"Storno se počítá jen u ŽP podepsané přes pipeline."),el("b",{},x?"−"+fmt1(x.pts)+" b ≈ −"+kc(x.pts*quarterRow(qOf(p.to||todayStr())).rate):""));
   }
   return el("div",{class:"group pedit",style:"--pc:"+T.c},
     el("div",{class:"frow phead"},el("i",{class:"pdot"}),ty,el("span",{style:"flex:1"}),el("button",{type:"button",class:"del",onclick:onDel},"Odebrat")),
@@ -3469,7 +3482,7 @@ function annuityMonthly(target,saved,years){
   if(Math.abs(rm)<1e-6)return need/n;
   return need*rm/(Math.pow(1+rm,n)-1);
 }
-/* průměrný měsíční výdělek z posledních uzavřených výplat (stejná data jako Výdělek/Daně) */
+/* průměrný měsíční výdělek z posledních uzavřených výplat (stejná data jako Obrat/Daně) */
 function myMonthlyIncome(){
   const s0=passiveNow(), P={tot:s0.tot,udr:s0.udr}, d0=new Date();
   const rows=[];for(let i=1;i<=6;i++){const d=new Date(d0.getFullYear(),d0.getMonth()-i,1);rows.push(monthRow(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"),P))}
@@ -3651,7 +3664,7 @@ function renderIncome(){
   const pasFromProd=PR.inv>0?el("div",{class:"frow",style:"flex-direction:column;align-items:stretch"},
     el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t"},"Z namodelovaného vkladu do investic"),el("div",{class:"s"},"vklad "+kc(PR.inv)+" z Aktivního příjmu výše · ZFP realitní fond, růst 5 %/rok")),el("span",{class:"end"},kc(invPasNow)+"/měs")),
     el("div",{class:"xh"},"za 1 rok cca "+kc(invPasY1)+"/měs · za 3 roky cca "+kc(invPasY3)+"/měs · za 5 let cca "+kc(invPasY5)+"/měs")):null;
-  RC("gIncPassive",line("Pasivní příjem","","xs","z ZFPI, ZFPWI a Conseq – stejná data jako ve Výdělku"),...pasRows,pasCur.Ostatní>0?line("Ostatní pasivní (mimo tyto 3)",kc(pasCur.Ostatní),"xs","Generali a další – bez vlastního cíle"):null,pasFromProd,
+  RC("gIncPassive",line("Pasivní příjem","","xs","z ZFPI, ZFPWI a Conseq – stejná data jako v Obratu"),...pasRows,pasCur.Ostatní>0?line("Ostatní pasivní (mimo tyto 3)",kc(pasCur.Ostatní),"xs","Generali a další – bez vlastního cíle"):null,pasFromProd,
     line("Pasivní příjem celkem (aktuální + z modelace)",kc(pasCurSum+invPasNow),"xs","aktuální pasivní ze všech zdrojů + odhad z namodelovaného vkladu"));
   const teamRowsReal=realTeamRows().sort((a,b)=>b.kc-a.kc);
   const teamRowsUi=teamRowsReal.map(r=>el("div",{class:"row"},
@@ -5866,7 +5879,7 @@ function pfClientSection(e,rec){
   return [el("h3",{class:"sechead"},"Portfolio"),has?pfClientCard(rec.id,{back}):el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>pfInvEdit(null,rec?{client:rec.id}:{cid:e.id},back)},"+ Sledovat investici v Portfoliích"))];
 }
 
-const TABS=[["pipe","Pipeline"],["money","Výdělek"],["cli","Klienti"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["calc","Kalkulačka"],["pp","Sazebník"]];
+const TABS=[["pipe","Pipeline"],["money","Obrat"],["cli","Klienti"],["calc","Kalkulačka"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["pp","Sazebník"]];
 /* „Uživatelé“ je speciální záložka jen pro admina – vždy úplně na konci, nejde skrýt ani přeřadit
    (proto stojí mimo TABS/nastavení pořadí), zjišťuje se přímo z uloženého přihlášeného e-mailu. */
 /* ===== prezentační režim: fiktivní poradce (jen admin) ===== */
@@ -6008,7 +6021,12 @@ function initDemoCfg(){
     ["dSync","dLogout"].forEach(id=>$(id).hidden=true)}
 }
 function isAdminUser(){try{return JSON.parse(localStorage.getItem("g_owner"))==="kudlicka.vojtech2002@gmail.com"}catch(e){return false}}
-function tabOrder(){const saved=(settings.tabOrder||[]).filter(k=>TABS.some(t=>t[0]===k));const rest=TABS.map(t=>t[0]).filter(k=>!saved.includes(k));return [...saved,...rest]}
+function tabOrder(){const out=(settings.tabOrder||[]).filter(k=>TABS.some(t=>t[0]===k));
+  /* záložka, kterou uložené pořadí ještě nezná (přibyla později), se zařadí za svého předchůdce v TABS, ne na konec */
+  TABS.forEach(([k],i)=>{if(out.includes(k))return;let at=out.length;for(let j=i-1;j>=0;j--){const p=out.indexOf(TABS[j][0]);if(p>=0){at=p+1;break}}if(i===0)at=0;out.splice(at,0,k)});
+  /* Kalkulačka byla původně za Portfolii – z tohoto (výchozího) místa ji přesuň za Klienty */
+  const ci=out.indexOf("calc");if(ci>0&&out[ci-1]==="pf"&&out.includes("cli")){out.splice(ci,1);out.splice(out.indexOf("cli")+1,0,"calc")}
+  return out}
 function tabHiddenSet(){return new Set(settings.tabHidden!==undefined?settings.tabHidden:["pp"])}
 function visibleTabs(){const hidden=tabHiddenSet();const vis0=tabOrder().filter(k=>!hidden.has(k));const vis=vis0.length?vis0:["pipe"];return isAdminUser()&&!DEMO?[...vis,"users"]:vis}
 function renderTabBar(){
@@ -6454,6 +6472,7 @@ const PP_ENC="v1.GG_alntvaznrBNSjFP00yQ.zN8bLnGgq_5dH1jA.RVSZSe9s-Ls_Fa3V6pjt1rn
   dec(code).then(run,()=>ask("Přístupový kód se změnil nebo nesedí – zadej aktuální kód od správce."));
 })();
 </script>
+<script src="photoedit.js?v=1" defer></script>
 <script src="wallpaper.js?v=4" defer></script>
 </body>
 </html>

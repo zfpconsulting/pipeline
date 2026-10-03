@@ -17,11 +17,11 @@ async function open({ width = 1300, height = 900, dark = false } = {}) {
   await page.route(base + "harness.html", r => r.fulfill({ contentType: "text/html", body: `<!doctype html><html lang="cs"><head><meta charset="utf-8">
     <style>:root{--bg:#F2F2F7;--bg2:#fff;--label:#000;--red:#FF3B30;--card-shadow:0 1px 2px rgba(0,0,0,.04)}
     @media (prefers-color-scheme: dark){:root{--bg:#000;--bg2:#1C1C1E;--label:#fff}}body{background:var(--bg);margin:0;padding:16px;font-family:-apple-system,system-ui,sans-serif}</style>
-    </head><body><div id="box"></div><script src="fincalc.js"></script><script>
+    </head><body><div id="box"></div><script src="fincalc.js"></script><script src="photoedit.js"></script><script>
     const docs={},subs=new Set(),emit=()=>subs.forEach(f=>f());let n=0;
     const store={collection:name=>({onSnapshot(cb){const f=()=>cb({docs:Object.entries(docs).filter(([k])=>k.startsWith(name+"/")).map(([k,v])=>({id:k.split("/")[1],data:()=>v}))});subs.add(f);f()},
       async add(d){const id="d"+(++n);docs[name+"/"+id]=d;emit();return{id}}}),
-      doc:p=>({async set(d){docs[p]=d;emit()},async delete(){delete docs[p];emit()}})};
+      doc:p=>({onSnapshot(cb){const f=()=>cb({exists:!!docs[p],data:()=>docs[p]});subs.add(f);f()},async set(d){docs[p]=d;emit()},async delete(){delete docs[p];emit()}})};
     window.toasts=[];window.ui=FinCalc.mount(document.getElementById("box"),{store,toast:m=>toasts.push(m)});window.docs=docs;
     </script></body></html>` }));
   await page.goto(base + "harness.html");
@@ -166,6 +166,74 @@ const tests = {
     const html = await pop.content();
     assert(html.includes("2 641 225 Kč") && html.includes("CONSULTING") && html.includes("Vývoj hodnoty investice"), "obsah PDF");
     if (SHOTS) await pop.screenshot({ path: "/tmp/fc-pdf.png", fullPage: true });
+    assert(!errors.length, "chyby: " + errors.join(" | "));
+    await ctx.close();
+  },
+  async "vodoznak: ZFP, text, žádný, vlastní obrázek – v grafu i v PDF, uloží se"() {
+    const { ctx, page, errors } = await open();
+    assert(await page.$eval("#fcChart svg", s => s.textContent.includes("CONSULTING")), "výchozí ZFP");
+    await page.click('button[data-a="menu"]');
+    await page.click('button[data-a="wmt"][data-k="text"]');
+    assert(await page.$eval(".fc-menu", m => !!m), "menu zůstalo otevřené");
+    await page.fill('input[data-w="txt"]', "Vojtěch Kudlička");
+    assert(await page.$eval("#fcChart svg .fc-wm", t => t.textContent === "Vojtěch Kudlička"), "textový vodoznak");
+    await page.$eval('input[data-w="op"]', i => { i.value = "0.6"; i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true })); });
+    eq(await page.$eval("#fcChart svg .fc-wm", t => t.getAttribute("opacity")), "0.6", "průhlednost");
+    assert(await page.$eval(".fc-menu", m => !!m), "posuvník menu nezavřel");
+    eq(await page.evaluate(() => docs["fcprefs/main"].wm.txt), "Vojtěch Kudlička", "uloženo do úložiště");
+    await page.click('button[data-a="wmt"][data-k="none"]');
+    assert(!(await page.$("#fcChart svg .fc-wm")) && !(await page.$eval("#fcChart svg", s => s.textContent.includes("CONSULTING"))), "žádný vodoznak");
+    // vlastní obrázek: výběr souboru
+    const png = Buffer.from(await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 400; c.height = 200; const x = c.getContext("2d"); x.fillStyle = "#c00"; x.fillRect(0, 0, 400, 200); return c.toDataURL("image/png").split(",")[1]; }), "base64");
+    const fc = page.waitForEvent("filechooser");
+    await page.click('button[data-a="wmt"][data-k="img"]');
+    await (await fc).setFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => document.querySelector("#fcChart svg image.fc-wm"));
+    const r = await page.$eval("#fcChart svg image.fc-wm", i => (+i.getAttribute("width")) / (+i.getAttribute("height")));
+    assert(Math.abs(r - 2) < 0.01, "poměr stran obrázku zachován: " + r);
+    // PDF použije stejný vodoznak
+    const popP = ctx.waitForEvent("page");
+    await page.click('button[data-a="pdf"]');
+    const pop = await popP; await pop.waitForLoadState();
+    assert((await pop.content()).includes('class="fc-wm"'), "vodoznak v PDF");
+    // po znovunačtení zůstane
+    await page.reload(); await page.waitForFunction(() => window.ui);
+    assert(await page.$("#fcChart svg image.fc-wm"), "vodoznak zapamatovaný");
+    assert(!errors.length, "chyby: " + errors.join(" | "));
+    await ctx.close();
+  },
+  async "editor fotky: posun, zoom, otočení, výstup 320×320, znovu otevření se stejným výřezem"() {
+    const { ctx, page, errors } = await open({ width: 430, height: 900 });
+    await page.evaluate(() => {
+      const c = document.createElement("canvas"); c.width = 600; c.height = 300; const x = c.getContext("2d");
+      x.fillStyle = "#00f"; x.fillRect(0, 0, 300, 300); x.fillStyle = "#f00"; x.fillRect(300, 0, 300, 300);
+      window.peOut = null; window.peEl = PhotoEdit.create({ src: c.toDataURL("image/png"), onSave: r => { window.peOut = r }, onCancel: () => { window.peCancel = 1 } });
+      document.body.prepend(window.peEl);
+    });
+    await page.waitForTimeout(200);
+    const box = await page.$eval(".pe-view", v => { const r = v.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width } });
+    // táhnout doleva → do kruhu se posune pravá (červená) půlka
+    await page.mouse.move(box.x + box.w / 2, box.y + box.w / 2); await page.mouse.down();
+    await page.mouse.move(box.x + box.w / 2 - 300, box.y + box.w / 2, { steps: 8 }); await page.mouse.up();
+    const st1 = await page.evaluate(() => ({ ...peEl._state }));
+    assert(st1.x < -0.4, "posun doleva až k okraji: " + st1.x);
+    // zoom posuvníkem
+    await page.$eval(".pe-zoom input", i => { i.value = "2"; i.dispatchEvent(new Event("input", { bubbles: true })) });
+    eq(await page.evaluate(() => peEl._state.z), 2, "zoom");
+    await page.click('[data-pe="save"]');
+    await page.waitForFunction(() => window.peOut);
+    const out = await page.evaluate(async () => { const i = new Image(); i.src = peOut.photo; await i.decode(); const c = document.createElement("canvas"); c.width = c.height = 320; const x = c.getContext("2d"); x.drawImage(i, 0, 0);
+      const d = x.getImageData(160, 160, 1, 1).data; return { w: i.naturalWidth, h: i.naturalHeight, r: d[0], b: d[2], crop: peOut.crop, src: peOut.src.slice(0, 22) } });
+    eq([out.w, out.h], [320, 320], "čtverec 320 px");
+    assert(out.r > 200 && out.b < 60, "uprostřed je červená půlka fotky");
+    eq(out.crop.z, 2, "uložený zoom");
+    // znovu otevřít s uloženým výřezem → stejný stav; otočení
+    await page.evaluate(() => { peEl.remove(); window.peEl = PhotoEdit.create({ src: peOut.src, crop: peOut.crop, onSave: r => { window.peOut2 = r } }); document.body.prepend(peEl) });
+    await page.waitForTimeout(150);
+    eq(await page.evaluate(() => ({ z: peEl._state.z, x: peEl._state.x })), { z: out.crop.z, x: out.crop.x }, "výřez obnoven");
+    await page.click('[data-pe="rot"]'); eq(await page.evaluate(() => peEl._state.r), 90, "otočení");
+    await page.click('[data-pe="save"]'); await page.waitForFunction(() => window.peOut2);
+    await page.screenshot({ path: "/tmp/pe.png" });
     assert(!errors.length, "chyby: " + errors.join(" | "));
     await ctx.close();
   },
