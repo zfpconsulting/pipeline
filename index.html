@@ -755,7 +755,7 @@ html.locked body{overflow:hidden}
 .dragtime{position:absolute;top:0;left:0;z-index:60;pointer-events:none;background:var(--label);color:var(--bg2);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 9px;border-radius:8px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);will-change:transform}
 .cwev b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* ---- v34: úkoly + asistentka ---- */
+/* ---- v35: úkoly + asistentka ---- */
 .sh-actions{display:flex;align-items:center;gap:8px;margin:0 4px 6px 0}.sh-actions .chipbtn{margin:0}
 .tkrow{align-items:center}.tkrow.done .t{text-decoration:line-through;color:var(--label2)}
 .tkchk{width:22px;height:22px;border-radius:50%;border:2px solid var(--label3,#c7c7cc);flex:none;margin-right:2px;display:grid;place-items:center;cursor:pointer}
@@ -794,6 +794,18 @@ html.asmode #todayBtn,html.asmode #qchip,html.asmode #usersBtn{display:none}
 html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,html.asmode #dPdf{display:none}
 .akstrip{display:none;gap:6px;margin:0 0 10px;overflow-x:auto}.akstrip .tkst{border:none;cursor:pointer;font-size:12px;padding:6px 11px}
 @media (max-width:760px){.akstrip{display:flex}}
+#asBan{position:fixed;inset:auto;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);width:min(calc(100vw - 16px),420px);margin:0;padding:0;border:0;background:none;overflow:visible;display:grid;gap:8px;pointer-events:none;z-index:2147483000}
+.asb{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:22px;background:rgba(246,246,250,.88);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:0 8px 30px rgba(0,0,0,.22);color:#111;cursor:pointer;animation:asbIn .38s cubic-bezier(.2,.9,.24,1)}
+@media (prefers-color-scheme:dark){.asb{background:rgba(44,44,48,.88);color:#f5f5f7}}
+.asb.out{animation:asbOut .26s ease-in forwards}
+@keyframes asbIn{from{transform:translateY(-140%);opacity:0}to{transform:none;opacity:1}}
+@keyframes asbOut{to{transform:translateY(-140%);opacity:0}}
+.asb-i{width:38px;height:38px;border-radius:9px;flex:none;object-fit:cover;background:var(--tint,#0a84ff)}
+.asb-m{min-width:0;flex:1}
+.asb-h{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.04em;opacity:.55;font-weight:600}
+.asb-t{font-weight:600;font-size:15px;line-height:1.25;margin-top:1px}
+.asb-b{font-size:14px;line-height:1.3;opacity:.85;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+@media (prefers-reduced-motion:reduce){.asb,.asb.out{animation:none}}
 </style>
 </head>
 <body>
@@ -5249,7 +5261,7 @@ setInterval(()=>{if(document.visibilityState==="visible"){pushSnap();syncTeam()}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){checkInvites();syncTeam()}else pushSnap()});
 </script>
 <script>
-/* ===== v34: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
+/* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 const AS_ST=[["nový","Nový úkol","blue"],["rozpracováno","Rozpracováno","orange"],["hotovo","Hotovo","green"]];
 const asLbl=s=>(AS_ST.find(x=>x[0]===s)||AS_ST[0])[1];
 function asNT(t){if(t&&t.st==="čeká")t.st="rozpracováno";return t}   /* starý stav „čeká“ se zobrazuje jako rozpracováno */
@@ -5359,7 +5371,8 @@ function asPipeNodes(){
 async function asMyDone(t){try{await db.doc("mytasks/"+t.rid).update({done:t.st==="hotovo"?"":new Date().toISOString()})}catch(e){toast("Nepodařilo se uložit")}}
 
 /* setList = výslovný nový seznam e-mailů asistentek (jen při přidání/odebrání); bez něj se server jen čte */
-const asAdvEvery=()=>(ASD.tasks||[]).some(t=>t.st!=="hotovo")?15000:60000;  /* s otevřenými úkoly se stav asistentky obnovuje po 15 s */
+let asVerOK=true, asVerSeen=null, asVerAt=0, asVerBusy=false, asVerRetry=0, asFbAt=0;
+const asAdvEvery=()=>asVerOK?90000:((ASD.tasks||[]).some(t=>t.st!=="hotovo")?15000:60000);  /* s as_ver stačí pojistka, jinak záložní dotazování */
 let asAdvBusy=false;
 async function asAdvSync(force,setList){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!Trk.on()||!Acc.ok()||asMode())return false;
@@ -5370,7 +5383,7 @@ async function asAdvSync(force,setList){
   if(j.status!=="ok")return false;
   const old=new Map((ASD.tasks||[]).map(t=>[t.id,t]));
   const merged=asMerge(j.tasks,ASD.tasks);
-  merged.forEach(t=>{const o=old.get(t.id);if(o&&o.st!=="hotovo"&&t.st==="hotovo"&&!asPending.has(t.id))toast("✓ "+asNameOf(t.asst,((asAssistants().find(a=>a.email===t.asst)||{}).name))+" dokončila: "+t.text.slice(0,50))});
+  if(ASD.at)asEvAdv(old,merged,ASD.list||[],j.list);
   const changed=JSON.stringify(j.list)!==JSON.stringify(ASD.list)||JSON.stringify(merged)!==JSON.stringify(ASD.tasks);
   ASD={list:j.list,tasks:merged,at:Date.now()};lsSet("as_adv",ASD);
   if(changed){if(view==="pipe"||view==="net"||view==="money")render();if(!document.querySelector("dialog[open]")&&view==="atasks")renderAsTasks()}
@@ -5384,6 +5397,23 @@ function asSnapPer(){ /* každé asistentce jen klienti, ke kterým má otevřen
       const k=asNorm(t.client);if(seen.has(k))return;seen.add(k);const c=by.get(k);if(c)L.push(c)});
     per[l.asst]=L});
   return per}
+/* upozornění pro poradce: asistentka začala / dokončila / přidala poznámku nebo úkol / přijala pozvánku */
+function asEvAdv(old,merged,oldList,newList){
+  const nm=e=>{const a=asAssistants().find(x=>x.email===e);return (a&&a.name)||asNameOf(e,a&&a.name)};
+  const open=t=>()=>asOpenTask({...t,own:false,who:nm(t.asst)});
+  merged.forEach(t=>{
+    if(asPending.has(t.id)||asIsTmp(t))return;
+    const o=old.get(t.id),w=nm(t.asst);
+    if(!o){if(t.by==="asst")asAlert({title:w+" přidala úkol",body:t.text,tag:t.id,onTap:open(t)});return}
+    if(o.st!==t.st){
+      if(t.st==="hotovo")asAlert({title:w+" dokončila úkol ✓",body:t.text,tag:t.id,onTap:open(t)});
+      else if(t.st==="rozpracováno")asAlert({title:w+" začala na úkolu",body:t.text,tag:t.id,onTap:open(t)});
+      else asAlert({title:w+" vrátila úkol mezi nové",body:t.text,tag:t.id,onTap:open(t)});
+    }else if((o.an||"")!==(t.an||"")&&t.an)asAlert({title:w+" napsala poznámku",body:t.an.slice(0,120),tag:t.id,onTap:open(t)});
+  });
+  (newList||[]).forEach(n=>{const o=(oldList||[]).find(x=>x.asst===n.asst);
+    if(o&&o.status!==n.status){if(n.status==="sdílí")asAlert({title:nm(n.asst)+" přijala pozvánku",body:"Teď vidí tvoje úkoly a klienty, ke kterým jí je zadáš.",tag:"lnk"+n.asst});else if(n.status==="odmítnuto")asAlert({title:nm(n.asst)+" odmítla pozvánku",body:"",tag:"lnk"+n.asst})}});
+}
 async function asPushClients(force){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!asLinked().length||asMode())return;
   const per=asSnapPer(),sig=JSON.stringify(Object.keys(per).sort().map(k=>[k,per[k].map(c=>[c.n,c.p,c.e,c.s,c.x,c.d].join("|"))]));
@@ -5429,7 +5459,7 @@ function asAdd(){
 function asInviteInfo(a){
   if(!a)return;
   const url=location.origin+location.pathname.replace(/index\.html$/,"");
-  const txt="Ahoj"+(a.name?" "+a.name:"")+", zvu Tě do aplikace Pipeline jako asistentku. Přihlas se Gmailem "+a.email+": "+url;
+  const txt="Ahoj"+(a.name?" "+asVoc(a.name):"")+", zvu Tě do aplikace Pipeline jako asistentku. Přihlas se Gmailem "+a.email+": "+url;
   openSheet("Pozvánka uložena",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},(a.name||a.email)+" uvidí pozvánku po přihlášení do Pipeline.")),
     el("p",{class:"hint"},"Aby přístup fungoval, musíš ji ještě schválit v záložce Uživatelé a zaškrtnout u ní „Asistentka“. Potom pozvánku přijme v aplikaci."),
     el("div",{class:"tdbtns"},
@@ -5503,8 +5533,24 @@ function asNewTask(preset){
     el("h3",{class:"sechead"},"Klient"),pk.node,hint,el("div",{class:"chips"},save)]);
   draw();
 }
+/* 5. pád křestního jména: Vojta → Vojto, Jonáš → Jonáši, Petr → Petře, Bety zůstane Bety */
+function asVoc(n){
+  const w=String(n||"").trim().split(/\s+/)[0]||"";if(!w)return"";
+  const l=w.toLowerCase(), cut=k=>w.slice(0,w.length-k);
+  if(/^(ester|miriam|mirjam|ingrid|karin|dagmar|margit|edith|judith|beatrix|ruth|ines)$/.test(l))return w;
+  if(/a$/.test(l))return cut(1)+"o";
+  if(/[eioyuýíůúóé]$/.test(l))return w;
+  if(/něk$/.test(l))return cut(3)+"ňku";
+  if(/ek$/.test(l))return cut(2)+"ku";
+  if(/ec$/.test(l))return cut(2)+"če";
+  if(/^(pavel|karel|havel)$/.test(l))return cut(2)+"le";
+  if(/[iu]el$/.test(l))return w+"i";
+  if(/[bcdfghklmnpstvzž]r$/.test(l)&&!/(or|er|ar)$/.test(l))return cut(1)+"ře";
+  if(/(ch|[kgh])$/.test(l))return w+"u";
+  if(/[šžčřcjťďň]$/.test(l))return w+"i";
+  return w+"e"}
 function asFillMsg(a,t,kind){
-  const jm=a.name||asNameOf(a.email).replace(/^./,c=>c.toUpperCase());
+  const jm=asVoc(a.name||asNameOf(a.email).replace(/^./,c=>c.toUpperCase()));
   let tpl=kind==="remind"?asTplRemind():asTpl();
   if(!t.due)tpl=tpl.replace(/\s*[^.!?\n]*\{deadline\}[^.!?\n]*[.!?]?/g,"");
   return tpl.replace(/\{(\w+)\}/g,(m,k)=>({jmeno:jm,ukol:t.text,klient:t.client||"",deadline:asCz(t.due),podpis:settings.sign||""}[k]??m)).replace(/ {2,}/g," ").replace(/ ([.,!?])/g,"$1").trim();
@@ -5661,7 +5707,7 @@ let asPullBusy=false;
 async function asPull(force){
   if(!asFlag)return;
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!Trk.on()||!Acc.ok())return;
-  const every=(ASA.advisors||[]).length?20000:120000;
+  const every=asVerOK?90000:((ASA.advisors||[]).length?20000:120000);
   if(asPullBusy||(!force&&Date.now()-(ASA.at||0)<every-2000))return;
   const have={};(ASA.advisors||[]).forEach(a=>{if(a.clients)have[a.email]=a.at});
   asPullBusy=true;let j;try{j=await Acc.post({t:"as_sync",email:me,tok,have})}catch(e){asPullBusy=false;return}
@@ -5670,18 +5716,25 @@ async function asPull(force){
   const cache=new Map((ASA.advisors||[]).map(a=>[a.email,a]));
   const advisors=j.advisors.map(a=>({...a,clients:a.clients||(cache.get(a.email)||{}).clients||[]}));
   const tasks=asMerge(j.tasks,ASA.tasks);
+  const oldA=new Map((ASA.tasks||[]).map(t=>[t.id,t])), hadOld=!!ASA.at;
   const first=lsGet("as_notified")==null, seen=new Set(lsGet("as_notified")||[]);
   const fresh=tasks.filter(t=>t.st==="nový"&&!seen.has(t.id)&&!asIsTmp(t));
   const changed=JSON.stringify(tasks)!==JSON.stringify(ASA.tasks)||JSON.stringify(advisors.map(a=>[a.email,a.at]))!==JSON.stringify((ASA.advisors||[]).map(a=>[a.email,a.at]));
   ASA={advisors,tasks,at:Date.now()};lsSet("as_asst",ASA);
   lsSet("as_notified",[...new Set([...seen,...tasks.filter(t=>!asIsTmp(t)).map(t=>t.id)])].slice(-600));
+  const openT=t=>()=>{setView("atasks");setTimeout(()=>asOpenATask(t),150)};
   if(fresh.length){
-    if(first)toast("Máš "+fresh.length+" "+plural(fresh.length,"nový úkol","nové úkoly","nových úkolů"));
-    else{
-      const nm=a=>asNameOf(a,(advisors.find(x=>x.email===a)||{}).name);
-      toast("🔔 "+(fresh.length===1?"Nový úkol od "+nm(fresh[0].adv)+": "+fresh[0].text.slice(0,50):fresh.length+" nové úkoly"));
-      fresh.slice(0,3).forEach(t=>asNotify("Nový úkol od "+nm(t.adv),t.text+(t.due?" · deadline "+asCz(t.due):""),t.id));
-    }
+    if(first&&fresh.length>1)asAlert({title:"Máš "+fresh.length+" "+plural(fresh.length,"nový úkol","nové úkoly","nových úkolů"),body:"Otevři záložku Úkoly.",tag:"newmany",onTap:()=>setView("atasks")});
+    else fresh.slice(0,3).forEach(t=>asAlert({title:"Nový úkol od "+asAdvName(t.adv),body:t.text+(t.due?" · deadline "+asCz(t.due):""),tag:t.id,onTap:openT(t)}));
+    if(fresh.length>3)asAlert({title:"+ "+(fresh.length-3)+" dalších nových úkolů",body:"",tag:"newmore",sound:false});
+  }
+  if(hadOld){ /* poradce upravil / zrušil úkol, který už mám */
+    tasks.forEach(t=>{const o=oldA.get(t.id);if(!o||asPending.has(t.id)||asIsTmp(t)||fresh.includes(t))return;
+      if((o.bn||"")!==(t.bn||"")&&t.bn)asAlert({title:asAdvName(t.adv)+" ti napsal(a) vzkaz",body:t.bn.slice(0,120),tag:t.id,onTap:openT(t)});
+      else if(o.text!==t.text||(o.due||"")!==(t.due||""))asAlert({title:"Úkol byl upraven",body:t.text+(t.due?" · deadline "+asCz(t.due):""),tag:t.id,onTap:openT(t)})});
+    const gone=(ASA.tasks||[]).filter(o=>o.st!=="hotovo"&&!tasks.some(t=>t.id===o.id)&&!asPending.has(o.id)&&!asIsTmp(o));
+    if(gone.length>3)asAlert({title:"Několik úkolů zmizelo ze seznamu",body:"Poradce je smazal nebo tě odebral.",tag:"gone",sound:false});
+    else gone.forEach(o=>asAlert({title:"Úkol byl zrušen",body:o.text,tag:o.id,sound:false}));
   }
   asBadge();
   if(changed&&!document.querySelector("dialog[open]")&&(view==="atasks"||view==="aclients"))asRerender();
@@ -5691,12 +5744,84 @@ function asBadge(){
   try{if(navigator.setAppBadge){n?navigator.setAppBadge(n):navigator.clearAppBadge()}}catch(e){}
   const base=appName();document.title=n?"("+n+") "+base:base;
 }
+/* ---------- upozornění v aplikaci (jako na iPhonu) + cinknutí ---------- */
+let asAC=null;
+function asAudioUnlock(){try{if(!asAC){const C=window.AudioContext||window.webkitAudioContext;if(C)asAC=new C()}if(asAC&&asAC.state==="suspended")asAC.resume()}catch(e){}}
+let asAct=Date.now(); /* poslední aktivita uživatele – po 5 min nečinnosti se dotazuje jen každých 15 s (šetří denní limit Apps Scriptu) */
+["pointerdown","touchstart","keydown","scroll"].forEach(ev=>document.addEventListener(ev,()=>{const idle=Date.now()-asAct>300000;asAct=Date.now();if(idle)asVerAt=0},{passive:true,capture:true}));
+["pointerdown","touchstart","keydown"].forEach(ev=>document.addEventListener(ev,asAudioUnlock,{passive:true}));
+function asChime(){ /* dvoutónové „cink“ jako sklenice – syntetizované, bez souboru */
+  if(settings&&settings.asSound===false)return;
+  asAudioUnlock();if(!asAC||asAC.state!=="running")return;
+  try{const t0=asAC.currentTime;
+    [[1318.5,0],[1975.5,0.13]].forEach(([f,dt])=>{
+      [[f,0.22],[f*2.76,0.05]].forEach(([fr,vol])=>{
+        const o=asAC.createOscillator(),g=asAC.createGain();o.type="sine";o.frequency.value=fr;
+        g.gain.setValueAtTime(0.0001,t0+dt);g.gain.exponentialRampToValueAtTime(vol,t0+dt+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t0+dt+0.9);
+        o.connect(g);g.connect(asAC.destination);o.start(t0+dt);o.stop(t0+dt+1)})})}catch(e){}
+}
+function asAlert(o){ /* banner + zvuk; když je aplikace skrytá, i systémové upozornění */
+  asBanner(o);
+  if(document.visibilityState!=="visible")asNotify(o.title,o.body||"",o.tag);
+}
+function asBanner({title,body,tag,onTap,sound=true}){
+  let box=$("asBan");
+  if(!box){box=el("div",{id:"asBan","aria-live":"polite"});box.setAttribute("popover","manual");document.body.append(box)}
+  try{if(box.showPopover&&!box.matches(":popover-open"))box.showPopover()}catch(e){}
+  [...box.children].forEach(c=>{if(tag&&c.dataset.tag===tag)c.remove()});
+  let timer=null;
+  const close=()=>{clearTimeout(timer);b.classList.add("out");setTimeout(()=>b.remove(),260)};
+  const ic=el("img",{class:"asb-i",src:"icon-192.png",alt:"",onerror:e=>{e.target.style.visibility="hidden"}});
+  const b=el("div",{class:"asb",role:"status","data-tag":tag||""},ic,
+    el("div",{class:"asb-m"},el("div",{class:"asb-h"},el("span",{},"PIPELINE"),el("span",{},"teď")),el("div",{class:"asb-t"},title),body?el("div",{class:"asb-b"},body):null));
+  b.addEventListener("click",()=>{close();if(onTap)onTap()});
+  let y0=null;b.addEventListener("touchstart",e=>{y0=e.touches[0].clientY},{passive:true});
+  b.addEventListener("touchend",e=>{if(y0!=null&&e.changedTouches[0].clientY-y0<-18)close();y0=null});
+  box.prepend(b);while(box.children.length>3)box.lastChild.remove();
+  timer=setTimeout(close,6500);
+  if(sound)asChime();
+}
+/* ---------- okamžité aktualizace: lehké dotazování na „verzi“ (as_ver), při změně se stáhne vše ---------- */
+async function asRefreshAll(skipInv){
+  const jobs=[];if(!skipInv)jobs.push(asCheckInv(true));
+  if(asFlag)jobs.push(asPull(true));
+  if(!asMode()&&asAssistants().length)jobs.push(asAdvSync(true));
+  await Promise.all(jobs);
+}
+async function asPoll(){
+  const me=asMeMail();if(!me||!Trk.on()||!Acc.ok())return;
+  const vis=document.visibilityState==="visible",active=asFlag||asAssistants().length>0;
+  const every=vis?(active?(Date.now()-asAct>300000?15000:3000):20000):30000;
+  if(asVerBusy||Date.now()-asVerAt<every-250)return;
+  asVerBusy=true;asVerAt=Date.now();
+  try{
+    if(asVerOK){
+      let j=null;try{j=await Acc.post({t:"as_ver",email:me})}catch(e){}
+      if(j&&j.status==="ok"&&j.v!==undefined){
+        if(asVerSeen===null)asVerSeen=j.v;
+        else if(j.v!==asVerSeen){asVerSeen=j.v;await asRefreshAll()}
+      }else if(j){asVerOK=false;asVerRetry=Date.now()+10*60000}  /* starší server bez as_ver */
+    }else if(Date.now()>asVerRetry)asVerOK=true;
+    else if(active&&Date.now()-asFbAt>=6000){asFbAt=Date.now();await asRefreshAll(true)}  /* záloha: plná synchronizace po 6 s */
+  }finally{asVerBusy=false}
+}
 async function asNotify(title,body,tag){
   if(!("Notification"in window)||Notification.permission!=="granted")return;
   try{const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();if(reg&&reg.showNotification){await reg.showNotification(title,{body,tag});return}}catch(e){}
   try{new Notification(title,{body,tag})}catch(e){}
 }
-const asAdvName=e=>{const a=(ASA.advisors||[]).find(x=>x.email===e);return asNameOf(e,a&&a.name)};
+const asAdvName=e=>{const al=((settings&&settings.advAlias)||{})[e];if(al)return al;const a=(ASA.advisors||[]).find(x=>x.email===e);return asNameOf(e,a&&a.name)};
+function asAdvAliases(){ /* asistentka si poradce pojmenuje po svém (uloží se do nastavení, synchronizuje se přes Disk) */
+  const advs=[...new Set([...(ASA.advisors||[]).map(a=>a.email),...(ASA.tasks||[]).map(t=>t.adv)])];
+  if(!advs.length){toast("Zatím nemáš žádného poradce");return}
+  const save=async(e,v)=>{const al={...((settings&&settings.advAlias)||{})};if(v)al[e]=v;else delete al[e];
+    try{await db.doc("settings/main").set({...settings,advAlias:al});toast("Uloženo")}catch(x){toast("Nepodařilo se uložit")}};
+  openSheet("Pojmenovat poradce",[el("div",{class:"group"},advs.map(e=>{
+      const a=(ASA.advisors||[]).find(x=>x.email===e),inp=el("input",{placeholder:asNameOf(e,a&&a.name),"aria-label":"Jméno poradce "+e,autocomplete:"off"});
+      inp.value=((settings&&settings.advAlias)||{})[e]||"";inp.onchange=()=>save(e,inp.value.trim());
+      return el("div",{class:"frow"},el("label",{style:"font-size:13px;word-break:break-all"},e),inp)})),
+    el("p",{class:"hint"},"Jméno se ukáže u úkolů, ve filtru nahoře, u klientů i v upozorněních. Prázdné pole = výchozí jméno.")]);
+}
 const asSet=(t,patch)=>asPatch("asst",t.id,patch);
 const asNext=st=>st==="nový"?[["rozpracováno","▶ Začít"],["hotovo","✓ Hotovo"]]:st==="rozpracováno"?[["hotovo","✓ Hotovo"],["nový","↩ Zpět"]]:[["rozpracováno","↺ Znovu otevřít"]];
 function asCardEl(t){
@@ -5720,9 +5845,10 @@ function renderAsTasks(){
     ...advs.map(e=>el("button",{type:"button",role:"tab","aria-selected":String(asFilter===e),onclick:()=>{asFilter=e;renderAsTasks()}},asAdvName(e),el("i",{},String(all.filter(t=>t.adv===e&&t.st!=="hotovo").length))))):el("span",{});
   const plus=el("button",{type:"button",class:"plus","aria-label":"Nový úkol",title:"Nový úkol",onclick:()=>asNewAsstTask()});
   plus.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
+  const ed=el("button",{type:"button",class:"chipbtn","aria-label":"Pojmenovat poradce",title:"Pojmenovat poradce",onclick:asAdvAliases},"✎ Poradci");
   const rf=el("button",{type:"button",class:"chipbtn","aria-label":"Obnovit",title:"Obnovit",onclick:async()=>{rf.disabled=true;await asPull(true);rf.disabled=false;renderAsTasks()}},"↻");
   const bar=el("div",{class:"abar"},chips,el("span",{style:"display:flex;gap:10px;align-items:center"},
-    el("label",{class:"adone"},el("input",{type:"checkbox",checked:asShowDone?"":null,onchange:e=>{asShowDone=e.target.checked;renderAsTasks()}}),"Starší hotové"),rf,plus));
+    el("label",{class:"adone"},el("input",{type:"checkbox",checked:asShowDone?"":null,onchange:e=>{asShowDone=e.target.checked;renderAsTasks()}}),"Starší hotové"),ed,rf,plus));
   const weekAgo=Date.now()-7*864e5;
   /* vždy přesně tři sloupce: Nový úkol · Rozpracováno · Hotovo */
   const cols=AS_ST.map(([k,label,cls])=>{
@@ -5785,7 +5911,7 @@ function asNewAsstTask(preset){
   preset=preset||{};
   const advs=(ASA.advisors||[]);if(!advs.length){toast("Zatím nemáš žádného poradce");return}
   let adv=preset.adv||(asFilter!=="all"?asFilter:advs[0].email);
-  const sel=el("select",{"aria-label":"Pro poradce"},advs.map(a=>el("option",{value:a.email},asNameOf(a.email,a.name))));sel.value=adv;
+  const sel=el("select",{"aria-label":"Pro poradce"},advs.map(a=>el("option",{value:a.email},asAdvName(a.email))));sel.value=adv;
   let client=preset.client?{n:preset.client}:null;
   const pool=()=>((advs.find(a=>a.email===adv)||{}).clients||[]);
   const wrap=el("div",{});
@@ -5819,7 +5945,7 @@ function renderAsClients(){
   const L=all.filter(c=>(asCliAdv==="all"||c.adv===asCliAdv)&&(!q||asNorm(c.n).includes(q)||(c.p||"").replace(/\s/g,"").includes(q.replace(/\s/g,"")))).sort((a,b)=>a.n.localeCompare(b.n,"cs"));
   const search=el("input",{id:"acSearch",type:"search",placeholder:"Hledat klienta",value:asCliQ,"aria-label":"Hledat klienta",autocomplete:"off"});
   search.addEventListener("input",()=>{asCliQ=search.value;asCliShow=30;const pos=search.selectionStart;renderAsClients();const s=$("acSearch");if(s){s.focus();try{s.setSelectionRange(pos,pos)}catch(e){}}});
-  const chips=advs.length>1?el("div",{class:"achips"},el("button",{type:"button",role:"tab","aria-selected":String(asCliAdv==="all"),onclick:()=>{asCliAdv="all";renderAsClients()}},"Všichni"),...advs.map(a=>el("button",{type:"button",role:"tab","aria-selected":String(asCliAdv===a.email),onclick:()=>{asCliAdv=a.email;renderAsClients()}},asNameOf(a.email,a.name)))):null;
+  const chips=advs.length>1?el("div",{class:"achips"},el("button",{type:"button",role:"tab","aria-selected":String(asCliAdv==="all"),onclick:()=>{asCliAdv="all";renderAsClients()}},"Všichni"),...advs.map(a=>el("button",{type:"button",role:"tab","aria-selected":String(asCliAdv===a.email),onclick:()=>{asCliAdv=a.email;renderAsClients()}},asAdvName(a.email)))):null;
   box.replaceChildren(el("label",{class:"search cli-search",style:"margin-bottom:10px"},search),chips,
     L.length?el("div",{class:"group"},L.slice(0,asCliShow).map(c=>el("button",{type:"button",class:"row row-btn",onclick:()=>asClientSheet(c)},
       el("span",{class:"avatar",style:"background:var(--tint)"},initials(c.n)),
@@ -5833,6 +5959,11 @@ function renderAsCfg(){
   const box=$("asCfg");if(!box)return;
   const save=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}};
   const nodes=[];
+  if(asFlag||asAssistants().length){
+    const snd=el("input",{type:"checkbox",role:"switch",class:"switch"});snd.checked=!(settings&&settings.asSound===false);snd.onchange=()=>save({asSound:snd.checked});
+    nodes.push(el("div",{class:"frow",style:"padding:0;min-height:0"},el("label",{style:"flex:1"},"Zvuk upozornění (cinknutí)"),snd),
+      el("button",{type:"button",class:"dbtn",onclick:()=>asBanner({title:"Zkouška upozornění",body:"Takhle vypadá nový úkol nebo změna stavu.",tag:"test"})},"Vyzkoušet upozornění"));
+  }
   if(!asMode()){ /* poradcovy šablony zpráv asistentce – čistá asistentka je nepotřebuje */
     const msg=el("textarea",{rows:"3","aria-label":"Text zprávy asistentce"});msg.value=asTpl();msg.onchange=()=>save({asstMsg:msg.value.trim()||null});
     const rem=el("textarea",{rows:"2","aria-label":"Text připomínky asistentce"});rem.value=asTplRemind();rem.onchange=()=>save({asstRemind:rem.value.trim()||null});
@@ -5858,8 +5989,9 @@ function asStart(){
   const tick=()=>{if(document.visibilityState!=="visible")return;asAutoMode();if(asFlag)asPull();if(!asMode())asAdvSync()};
   setTimeout(()=>{asCheckInv(true).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else{if(asFlag)asPull(true);asAdvSync(true)}})},3500);
   setInterval(tick,5000);
+  setInterval(asPoll,1000);
   setInterval(()=>{if(document.visibilityState==="visible")asCheckInv()},60000);
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){asCheckInv();tick()}else if(!asMode())asPushClients(false)});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){asVerAt=0;asPoll();asCheckInv();tick()}else if(!asMode())asPushClients(false)});
   document.addEventListener("close",e=>{if(e.target&&e.target.tagName==="DIALOG")setTimeout(()=>{if(view==="pipe"&&asFlag&&asInv.some(x=>x.status==="žádost"))render();asAskPending()},500)},true);
   $("addTask").onclick=()=>asNewTask();
   applyAsMode();
