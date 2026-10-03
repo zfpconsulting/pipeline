@@ -755,7 +755,7 @@ html.locked body{overflow:hidden}
 .dragtime{position:absolute;top:0;left:0;z-index:60;pointer-events:none;background:var(--label);color:var(--bg2);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 9px;border-radius:8px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);will-change:transform}
 .cwev b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* ---- v33: úkoly + asistentka ---- */
+/* ---- v34: úkoly + asistentka ---- */
 .sh-actions{display:flex;align-items:center;gap:8px;margin:0 4px 6px 0}.sh-actions .chipbtn{margin:0}
 .tkrow{align-items:center}.tkrow.done .t{text-decoration:line-through;color:var(--label2)}
 .tkchk{width:22px;height:22px;border-radius:50%;border:2px solid var(--label3,#c7c7cc);flex:none;margin-right:2px;display:grid;place-items:center;cursor:pointer}
@@ -776,7 +776,8 @@ html.locked body{overflow:hidden}
 .achips button{border:none;background:var(--fill);color:var(--label);border-radius:999px;padding:7px 13px;font-size:14px;font-weight:500;white-space:nowrap;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
 .achips button[aria-selected="true"]{background:var(--tint);color:#fff}.achips button i{font-style:normal;font-size:12px;opacity:.8}
 .adone{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--label2)}
-.akboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;align-items:start}
+.akboard{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+@media (max-width:760px){.akboard{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;margin:0 -16px;padding:0 16px 10px;-webkit-overflow-scrolling:touch}.akcol{flex:0 0 84%;scroll-snap-align:center}}
 .akcol{background:var(--fill2);border-radius:var(--r-lg);padding:10px;display:grid;gap:8px;min-height:90px}.akcol.drop{outline:2px dashed var(--tint)}
 .akh{display:flex;justify-content:space-between;align-items:center}.akn{font-size:13px;color:var(--label2);font-weight:600}
 .akempty{color:var(--label2);font-size:14px;padding:10px 4px;text-align:center}
@@ -787,6 +788,12 @@ html.locked body{overflow:hidden}
 .chipbtn.on{background:var(--tint);color:#fff}
 html.asmode #todayBtn,html.asmode #qchip,html.asmode #usersBtn{display:none}
 .uasst{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--label)}.uasst input{width:18px;height:18px}
+.tkwho{color:var(--purple);font-weight:600}
+.akc.tmp{opacity:.6}
+.asinv .t{font-weight:600}
+html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,html.asmode #dPdf{display:none}
+.akstrip{display:none;gap:6px;margin:0 0 10px;overflow-x:auto}.akstrip .tkst{border:none;cursor:pointer;font-size:12px;padding:6px 11px}
+@media (max-width:760px){.akstrip{display:flex}}
 </style>
 </head>
 <body>
@@ -1115,7 +1122,7 @@ html.asmode #todayBtn,html.asmode #qchip,html.asmode #usersBtn{display:none}
       <p class="hint" id="bkInfo">Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů).</p>
       <button type="button" class="dbtn" id="dImport">Importovat zálohu…</button>
       <input type="file" id="dFile" accept="application/json,.json" hidden>
-      <div class="dcfg">
+      <div class="dcfg keepas">
         <label>Název aplikace <input id="dAppName" placeholder="Vojtova pipeline" autocomplete="off"></label>
         <p class="hint">Zobrazí se v záhlaví záložky Pipeline a na kartě prohlížeče – dej si tam třeba svoje jméno. Necháš-li prázdné, zůstane „Pipeline“.</p>
       </div>
@@ -1130,10 +1137,10 @@ html.asmode #todayBtn,html.asmode #qchip,html.asmode #usersBtn{display:none}
         <p class="hint">Do CRM se berou jen události, jejichž název začíná tímto textem (např. „VK: Novák“). Porady, tréninky a ostatní události se ignorují. Bez vyplnění se z kalendáře nic nenačte.</p>
         <button type="button" class="dbtn" id="dTasks" hidden>Povolit zápis úkolů do kalendáře</button>
       </div>
-      <div class="dcfg">
+      <div class="dcfg keepas">
         <label>Tapeta<select id="dWp"><option value="auto">Automaticky (podle měsíce)</option><option value="1">Leden – zima</option><option value="2">Únor – zima</option><option value="3">Březen – tání</option><option value="4">Duben – déšť a duha</option><option value="5">Květen – rozkvetlé stromy</option><option value="6">Červen – léto</option><option value="7">Červenec – léto</option><option value="8">Srpen – západ slunce</option><option value="9">Září – javorové listí</option><option value="10">Říjen – podzim</option><option value="11">Listopad – Halloween</option><option value="12">Prosinec – Vánoce</option></select></label>
       </div>
-      <div class="dcfg" id="asCfg"></div>
+      <div class="dcfg keepas" id="asCfg"></div>
       <div class="dcfg">
         <label>Šablony zpráv</label>
         <label>Podpis <input id="dSign" placeholder="např. Vojtěch Kudlička, ZFP Group" autocomplete="off"></label>
@@ -1143,7 +1150,7 @@ html.asmode #todayBtn,html.asmode #qchip,html.asmode #usersBtn{display:none}
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
-      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se nikam neodesílají.</p>
+      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se neodesílají nikam – jedinou výjimkou je asistentka, které zadáš úkol: jen s jejím souhlasem se jí sdílí jméno, telefon, e-mail a stav klienta, ke kterému úkol zadáš.</p>
     </div>
   </div>
 </dialog>
@@ -1270,7 +1277,7 @@ async function gfetch(url,opt={}){
   return r;
 }
 
-function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at"].forEach(k=>localStorage.removeItem(k))}
+function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at","as_snap_sig","as_auto","as_inv_at"].forEach(k=>localStorage.removeItem(k))}
 /* --- nastavení kalendáře (per uživatel, ukládá se do settings/main) --- */
 function calCfg(){const s=(typeof settings!=="undefined"&&settings)||{};return{id:s.calId||"primary",name:s.calName||"Hlavní kalendář",prefix:(s.calPrefix??"").trim()}}
 function prefixRe(){const p=calCfg().prefix;if(!p)return null;return new RegExp("^"+p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s*:$/,"\\s*:")+"\\s*","i")}
@@ -4831,7 +4838,7 @@ const TABS=[["pipe","Pipeline"],["money","Výdělek"],["cli","Klienti"],["cal","
 function isAdminUser(){try{return JSON.parse(localStorage.getItem("g_owner"))==="kudlicka.vojtech2002@gmail.com"}catch(e){return false}}
 function tabOrder(){const saved=(settings.tabOrder||[]).filter(k=>TABS.some(t=>t[0]===k));const rest=TABS.map(t=>t[0]).filter(k=>!saved.includes(k));return [...saved,...rest]}
 function tabHiddenSet(){return new Set(settings.tabHidden!==undefined?settings.tabHidden:["pp"])}
-function visibleTabs(){if(typeof asMode==="function"&&asMode())return ["atasks","aclients"];const hidden=tabHiddenSet();const vis0=tabOrder().filter(k=>!hidden.has(k));const vis=vis0.length?vis0:["pipe"];return isAdminUser()?[...vis,"users"]:vis}
+function visibleTabs(){if(typeof asMode==="function"&&asMode())return ["atasks","aclients"];const hidden=tabHiddenSet();const vis0=tabOrder().filter(k=>!hidden.has(k));const vis=vis0.length?vis0:["pipe"];const ex=(typeof asFlag!=="undefined"&&asFlag)?["atasks"]:[];return isAdminUser()?[...vis,...ex,"users"]:[...vis,...ex]}
 function renderTabBar(){
   const bar=$("tabBar");if(!bar)return;
   bar.replaceChildren(...visibleTabs().map(k=>{const t=TABS.find(x=>x[0]===k)||({users:["users","Uživatelé"],atasks:["atasks","Úkoly"],aclients:["aclients","Klienti"]})[k];if(!t)return null;
@@ -4920,8 +4927,12 @@ $("clearEx").onclick=async()=>{for(const l of leads.filter(l=>l.example)){try{aw
 
 renderTabBar();
 let sv="pipe";try{sv=localStorage.getItem("pipe_view")||"pipe"}catch(e){}
-if(sv==="srv")sv="cli";if(location.hash==="#vydelek")sv="money";if(location.hash==="#klienti"||location.hash==="#servis")sv="cli";if(location.hash==="#sazebnik")sv="pp";
-if(location.hash==="#sit")sv="net";if(location.hash==="#dane")sv="tax";if(location.hash==="#cile")sv="goals";if(location.hash==="#uzivatele")sv="users";if(location.hash==="#portfolia")sv="pf";
+if(sv==="srv")sv="cli";
+{let nav="";try{nav=(performance.getEntriesByType("navigation")[0]||{}).type||""}catch(e){}
+ const HM={"#vydelek":"money","#klienti":"cli","#servis":"cli","#sazebnik":"pp","#sit":"net","#dane":"tax","#cile":"goals","#uzivatele":"users","#portfolia":"pf"};
+ /* odkaz s # platí jen při novém otevření; při obnovení stránky (refresh) zůstane záložka, kde jsi skončil */
+ if(HM[location.hash]&&nav!=="reload")sv=HM[location.hash];
+ if(location.hash&&!/access_token=|error=/.test(location.hash)){try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}}
 setView(sv);
 
 async function updateEurRate(){
@@ -5238,20 +5249,41 @@ setInterval(()=>{if(document.visibilityState==="visible"){pushSnap();syncTeam()}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){checkInvites();syncTeam()}else pushSnap()});
 </script>
 <script>
-/* ===== v33: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
-const AS_ST=[["nový","Nový","blue"],["rozpracováno","Rozpracováno","orange"],["čeká","Čeká","gray"],["hotovo","Hotovo","green"]];
+/* ===== v34: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
+const AS_ST=[["nový","Nový úkol","blue"],["rozpracováno","Rozpracováno","orange"],["hotovo","Hotovo","green"]];
 const asLbl=s=>(AS_ST.find(x=>x[0]===s)||AS_ST[0])[1];
+function asNT(t){if(t&&t.st==="čeká")t.st="rozpracováno";return t}   /* starý stav „čeká“ se zobrazuje jako rozpracováno */
+const asStCls=s=>(AS_ST.find(x=>x[0]===s)||AS_ST[0])[2];
+function asIsTmp(t){return String(t&&t.id||"").startsWith("tmp_")}
+let asPending=new Map();                             /* id úkolů, které se právě ukládají na server (lokální stav má přednost před stahováním) */
+let asQ=Promise.resolve();                           /* fronta zápisů – drží pořadí změn */
 const asNorm=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim();
 const asCz=s=>{if(!s)return"";const[y,m,d]=s.slice(0,10).split("-");return String(d).padStart(2,"0")+"."+String(m).padStart(2,"0")+"."+y};
 const asNameOf=(email,name)=>(name||"").trim()||String(email||"").split("@")[0];
 let myTasks=[];                                      // vlastní úkoly poradce (lokálně + Disk)
-let ASD=lsGet("as_adv")||{list:[],tasks:[],at:0};    // poradce: asistentky (stav propojení) + jejich úkoly (ze serveru)
-let ASA=lsGet("as_asst")||{advisors:[],tasks:[],at:0}; // asistentka: poradci (klienti) + úkoly
+let ASD=lsGet("as_adv")||{list:[],tasks:[],at:0};ASD.tasks=(ASD.tasks||[]).filter(t=>!asIsTmp(t)).map(asNT);    // poradce: asistentky (stav propojení) + jejich úkoly (ze serveru)
+let ASA=lsGet("as_asst")||{advisors:[],tasks:[],at:0};ASA.tasks=(ASA.tasks||[]).filter(t=>!asIsTmp(t)).map(asNT); // asistentka: poradci (klienti) + úkoly
 let asFlag=!!lsGet("as_flag");                       // admin mě označil jako asistentku
 let asInv=lsGet("as_invites")||[];
 let asFilter="all", asShowDone=false, asCliQ="", asCliShow=30, asCliAdv="all";
 const asMeMail=()=>Acc.me();
-function asMode(){return asFlag&&!!(settings&&settings.asstMode)}
+function asMode(){ /* čistě asistentské rozhraní: výslovná volba v nastavení, jinak automaticky pro asistentku s prázdnou pipeline */
+  if(!asFlag)return false;
+  if(settings&&settings.asstMode!==undefined)return !!settings.asstMode;
+  return lsGet("as_auto")===true}
+function asAutoMode(){ /* rozhodne se jednou, až po první synchronizaci s Diskem (aby nový přístroj nepřebil skutečné nastavení) */
+  if(!asFlag||lsGet("as_auto")!=null||(settings&&settings.asstMode!==undefined)||!lsGet("g_synced")||typeof leads==="undefined")return;
+  const empty=!leads.some(l=>!l.example)&&!myTasks.length;
+  lsSet("as_auto",empty);
+  if(empty){applyAsMode();const vt=visibleTabs();setView(vt.includes(view)?view:vt[0]);asPull(true);toast("Zapnuto rozhraní asistentky – přepnout zpět jde v nastavení (✓)")}
+}
+const asSave=role=>role==="adv"?lsSet("as_adv",ASD):lsSet("as_asst",ASA);
+const asPend=(id,d)=>{const n=(asPending.get(id)||0)+d;if(n>0)asPending.set(id,n);else asPending.delete(id)};
+const asMerge=(server,local)=>{ /* stažené úkoly + lokální změny, které ještě nedoletěly na server */
+  const loc=new Map((local||[]).map(t=>[t.id,t]));
+  const out=server.map(asNT).map(t=>asPending.has(t.id)&&loc.has(t.id)?loc.get(t.id):t);
+  (local||[]).filter(t=>asIsTmp(t)&&asPending.has(t.id)).forEach(t=>out.unshift(t));
+  return out};
 function asAssistants(){ /* uložené (jména, telefony) + ty, které o sobě ví jen server */
   const own=settings.assistants||[];
   const extra=(ASD.list||[]).filter(x=>!own.some(a=>a.email===x.asst)).map(x=>({email:x.asst,name:(x.name||"").split(" ")[0],phone:""}));
@@ -5304,41 +5336,61 @@ function asPipeTasks(){ /* otevřené + čerstvě hotové (3 dny), seřazené po
 let asPipeShow=5;
 function asTaskRow(t){
   const tag=t.st==="hotovo"?null:asDueTag(t);
-  const sub=[t.client,t.own?"pro mě":"pro "+t.who+" · "+asLbl(t.st).toLowerCase()].filter(Boolean).join(" · ");
-  const lead=t.own?el("span",{class:"tkchk"+(t.st==="hotovo"?" on":""),role:"checkbox","aria-checked":String(t.st==="hotovo"),"aria-label":"Hotovo",onclick:e=>{e.stopPropagation();asMyDone(t)}}):el("span",{class:"tkst "+(AS_ST.find(x=>x[0]===t.st)||AS_ST[0])[2]},asLbl(t.st));
+  const sub=t.client||"";
+  const lead=t.own?el("span",{class:"tkchk"+(t.st==="hotovo"?" on":""),role:"checkbox","aria-checked":String(t.st==="hotovo"),"aria-label":"Hotovo",onclick:e=>{e.stopPropagation();asMyDone(t)}}):el("span",{class:"tkst "+asStCls(t.st)},asLbl(t.st));
+  /* cizí úkoly vždy „Asistentka Jméno: text“, moje bez předpony – na první pohled je poznat, čí úkol to je */
   return el("button",{type:"button",class:"row row-btn tkrow"+(t.st==="hotovo"?" done":""),onclick:()=>asOpenTask(t)},
-    lead,el("span",{class:"main"},el("div",{class:"t"},t.text),sub?el("div",{class:"s"},sub):null),
+    lead,el("span",{class:"main"},el("div",{class:"t"},t.own?null:el("span",{class:"tkwho"},"Asistentka "+t.who+": "),t.text),sub?el("div",{class:"s"},sub):null),
     tag?el("span",{class:"tdtag "+(tag.cls||"")},tag.txt):null,chev());
 }
 /* vloží se do #todayList před volací seznam; vrací pole uzlů */
+function asInvNodes(){ /* čekající pozvánka – vždy viditelná v pipeline, ať se nedá přehlédnout */
+  if(!asFlag)return[];
+  const inv=asInv.filter(x=>x.status==="žádost");if(!inv.length)return[];
+  return [el("button",{type:"button",class:"row row-btn tkrow asinv",onclick:()=>asAsk(inv[0])},el("span",{class:"tkst blue"},"Pozvánka"),
+    el("span",{class:"main"},el("div",{class:"t"},(inv[0].name||inv[0].advisor)+" tě zve jako svou asistentku"),el("div",{class:"s"},"Klepni a schval sdílení úkolů a klientů")),chev())]}
 function asPipeNodes(){
-  const L=asPipeTasks();if(!L.length)return[];
+  const L=asPipeTasks(),inv=asInvNodes();if(!L.length&&!inv.length)return[];
   const shown=L.slice(0,asPipeShow);
-  return [...shown.map(asTaskRow),
+  return [...inv,...shown.map(asTaskRow),
     L.length>asPipeShow?el("button",{type:"button",class:"row row-btn",style:"color:var(--tint);font-weight:500;justify-content:center",onclick:()=>{asPipeShow+=5;render()}},"Další úkoly ("+(L.length-asPipeShow)+")"):null,
     el("div",{class:"tksub"},"Komu zavolat")].filter(Boolean);
 }
 async function asMyDone(t){try{await db.doc("mytasks/"+t.rid).update({done:t.st==="hotovo"?"":new Date().toISOString()})}catch(e){toast("Nepodařilo se uložit")}}
 
 /* setList = výslovný nový seznam e-mailů asistentek (jen při přidání/odebrání); bez něj se server jen čte */
+const asAdvEvery=()=>(ASD.tasks||[]).some(t=>t.st!=="hotovo")?15000:60000;  /* s otevřenými úkoly se stav asistentky obnovuje po 15 s */
+let asAdvBusy=false;
 async function asAdvSync(force,setList){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!Trk.on()||!Acc.ok()||asMode())return false;
   if(!setList&&!asAssistants().length)return false;
-  if(!force&&!setList&&Date.now()-(ASD.at||0)<40000)return false;
-  let j;try{j=await Acc.post({t:"as_team",email:me,tok,...(setList?{assistants:setList}:{})})}catch(e){return false}
+  if(!force&&!setList&&(asAdvBusy||Date.now()-(ASD.at||0)<asAdvEvery()-2000))return false;
+  asAdvBusy=true;let j;try{j=await Acc.post({t:"as_team",email:me,tok,...(setList?{assistants:setList}:{})})}catch(e){asAdvBusy=false;return false}
+  asAdvBusy=false;
   if(j.status!=="ok")return false;
   const old=new Map((ASD.tasks||[]).map(t=>[t.id,t]));
-  j.tasks.forEach(t=>{const o=old.get(t.id);if(o&&o.st!=="hotovo"&&t.st==="hotovo")toast("✓ "+asNameOf(t.asst,((asAssistants().find(a=>a.email===t.asst)||{}).name))+" dokončila: "+t.text.slice(0,50))});
-  const changed=JSON.stringify(j.list)!==JSON.stringify(ASD.list)||JSON.stringify(j.tasks)!==JSON.stringify(ASD.tasks);
-  ASD={list:j.list,tasks:j.tasks,at:Date.now()};lsSet("as_adv",ASD);
-  if(changed){if(view==="pipe"||view==="net"||view==="money")render()}
+  const merged=asMerge(j.tasks,ASD.tasks);
+  merged.forEach(t=>{const o=old.get(t.id);if(o&&o.st!=="hotovo"&&t.st==="hotovo"&&!asPending.has(t.id))toast("✓ "+asNameOf(t.asst,((asAssistants().find(a=>a.email===t.asst)||{}).name))+" dokončila: "+t.text.slice(0,50))});
+  const changed=JSON.stringify(j.list)!==JSON.stringify(ASD.list)||JSON.stringify(merged)!==JSON.stringify(ASD.tasks);
+  ASD={list:j.list,tasks:merged,at:Date.now()};lsSet("as_adv",ASD);
+  if(changed){if(view==="pipe"||view==="net"||view==="money")render();if(!document.querySelector("dialog[open]")&&view==="atasks")renderAsTasks()}
   asPushClients(false);
   return true;
 }
+function asSnapPer(){ /* každé asistentce jen klienti, ke kterým má otevřený (nebo čerstvě hotový) úkol */
+  const by=new Map(asAdvisorClients().map(c=>[asNorm(c.n),c]));const per={},lim=Date.now()-7*864e5;
+  asLinked().forEach(l=>{const seen=new Set(),L=[];
+    (ASD.tasks||[]).forEach(t=>{if(t.asst!==l.asst||!t.client)return;if(t.st==="hotovo"&&!(t.done&&Date.parse(t.done)>=lim))return;
+      const k=asNorm(t.client);if(seen.has(k))return;seen.add(k);const c=by.get(k);if(c)L.push(c)});
+    per[l.asst]=L});
+  return per}
 async function asPushClients(force){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!asLinked().length||asMode())return;
-  if(!force&&Date.now()-(lsGet("as_snap_at")||0)<15*60000)return;
-  try{const j=await Acc.post({t:"as_snap",email:me,tok,clients:asAdvisorClients()});if(j.status==="ok")lsSet("as_snap_at",Date.now())}catch(e){}
+  const per=asSnapPer(),sig=JSON.stringify(Object.keys(per).sort().map(k=>[k,per[k].map(c=>[c.n,c.p,c.e,c.s,c.x,c.d].join("|"))]));
+  if(!force&&sig===lsGet("as_snap_sig")&&Date.now()-(lsGet("as_snap_at")||0)<6*3600000)return;
+  /* clients = sjednocení pro starší verzi serveru; nový server použije per (každá asistentka jen svoje) */
+  const un=[],sn=new Set();Object.values(per).forEach(L=>L.forEach(c=>{const k=asNorm(c.n);if(!sn.has(k)){sn.add(k);un.push(c)}}));
+  try{const j=await Acc.post({t:"as_snap",email:me,tok,per,clients:un});if(j.status==="ok"||j.status==="none"){lsSet("as_snap_at",Date.now());lsSet("as_snap_sig",sig)}}catch(e){}
 }
 async function asSaveAssistants(list){try{await db.doc("settings/main").set({...settings,assistants:list});return true}catch(e){toast("Nepodařilo se uložit");return false}}
 
@@ -5423,7 +5475,7 @@ function asNewTask(preset){
     target.replaceChildren(el("button",{type:"button",role:"tab","aria-selected":String(!forAsst),onclick:()=>{forAsst=false;draw()}},"Pro mě"),
       el("button",{type:"button",role:"tab","aria-selected":String(forAsst),onclick:()=>{if(!linked.length){toast("Nejdřív přidej asistentku v Rozvoji sítě");return}forAsst=true;draw()}},"Pro asistentku"));
     selRow.style.display=forAsst&&linked.length>1?"":"none";
-    hint.textContent=forAsst?"Úkol se asistentce objeví v jejím seznamu hned po uložení (aplikace si ho stahuje každou minutu).":linked.length?"":"Úkol pro asistentku zadáš po přidání asistentky v záložce Rozvoj sítě.";
+    hint.textContent=forAsst?"Úkol se asistentce objeví v jejím seznamu do pár vteřin po uložení. Sdílí se jí jen klient, ke kterému úkol zadáš.":linked.length?"":"Úkol pro asistentku zadáš po přidání asistentky v záložce Rozvoj sítě.";
   };
   save.onclick=async()=>{
     const tx=text.value.trim();if(!tx){toast("Napiš, co je potřeba udělat");text.focus();return}
@@ -5434,63 +5486,108 @@ function asNewTask(preset){
       return;
     }
     const tok=GAuth.token();if(!tok){toast("Nejdřív obnov přihlášení (tlačítko níže)");save.after(el("button",{type:"button",class:"chipbtn",onclick:()=>GAuth.login(true)},"Obnovit přihlášení"));return}
-    save.disabled=true;save.textContent="Ukládám…";
-    let j;try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok,role:"adv",task:{asst:asstEmail,text:tx,client:cn,due:due.value||""}})}catch(e){j=null}
-    if(!j||j.status!=="ok"){save.disabled=false;save.textContent="Uložit";toast(j&&j.status==="noshare"?"Asistentka není propojená":"Nepodařilo se uložit – zkus to znovu");return}
-    ASD={...ASD,tasks:[j.task,...(ASD.tasks||[])]};lsSet("as_adv",ASD);
-    asPushClients(true);
-    $("edDlg").close();render();
-    asTaskAdded(asAssistants().find(a=>a.email===asstEmail)||{email:asstEmail},j.task);
+    const nowI=new Date().toISOString(),tmp={id:"tmp_"+newId(),adv:asMeMail(),asst:asstEmail,text:tx,client:cn,due:due.value||"",st:"nový",an:"",bn:"",by:"adv",at:nowI,up:nowI,done:""};
+    asPend(tmp.id,1);ASD={...ASD,tasks:[tmp,...(ASD.tasks||[])]};lsSet("as_adv",ASD);
+    render();   /* sheet se jen přepíše (zavírání dialogu je animované, otevření hned po close() by ho nechalo zavřené) */
+    asTaskAdded(asAssistants().find(a=>a.email===asstEmail)||{email:asstEmail},tmp);
+    asQ=asQ.then(async()=>{
+      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"adv",task:{asst:asstEmail,text:tx,client:cn,due:tmp.due}})}catch(e){j=null}}
+      asPend(tmp.id,-1);
+      if(j&&j.status==="ok"){ASD={...ASD,tasks:(ASD.tasks||[]).map(x=>x.id===tmp.id?asNT(j.task):x)};lsSet("as_adv",ASD);asPushClients(true)}
+      else{ASD={...ASD,tasks:(ASD.tasks||[]).filter(x=>x.id!==tmp.id)};lsSet("as_adv",ASD);toast(j&&j.status==="noshare"?"Asistentka není propojená – úkol se neuložil":"Úkol se nepodařilo uložit na server – zadej ho prosím znovu")}
+      if(view==="pipe")render();
+    });
   };
   openSheet("Nový úkol",[target,
     el("div",{class:"group"},el("div",{class:"frow col"},el("label",{},"Úkol"),text),selRow,el("div",{class:"frow"},el("label",{},"Deadline"),due)),
     el("h3",{class:"sechead"},"Klient"),pk.node,hint,el("div",{class:"chips"},save)]);
   draw();
 }
-function asFillMsg(a,t){
+function asFillMsg(a,t,kind){
   const jm=a.name||asNameOf(a.email).replace(/^./,c=>c.toUpperCase());
-  let tpl=asTpl();
+  let tpl=kind==="remind"?asTplRemind():asTpl();
   if(!t.due)tpl=tpl.replace(/\s*[^.!?\n]*\{deadline\}[^.!?\n]*[.!?]?/g,"");
   return tpl.replace(/\{(\w+)\}/g,(m,k)=>({jmeno:jm,ukol:t.text,klient:t.client||"",deadline:asCz(t.due),podpis:settings.sign||""}[k]??m)).replace(/ {2,}/g," ").replace(/ ([.,!?])/g,"$1").trim();
 }
+const asTplRemind=()=>settings.asstRemind||"Ahoj {jmeno}, připomínám úkol: {ukol}. Deadline je {deadline}.";
+function asTel(a){let t=(a.phone||"").replace(/[^\d+]/g,"");if(/^\d{9}$/.test(t))t="+420"+t;return t}
+/* zpráva + tlačítka Zprávy / WhatsApp / E-mail – vždy dostupná, telefon se případně doplní rovnou */
+function asMsgNodes(a,t,kind){
+  const ta=el("textarea",{"aria-label":"Text zprávy",rows:"3"});ta.value=asFillMsg(a,t,kind);
+  const ph=a.phone?null:el("input",{inputmode:"tel",placeholder:"Telefon asistentky (pro Zprávy a WhatsApp)","aria-label":"Telefon asistentky",autocomplete:"off"});
+  const savePh=async()=>{const v=ph&&ph.value.trim();if(!v)return;a.phone=v;const list=asAssistants();await asSaveAssistants(list.some(x=>x.email===a.email)?list.map(x=>x.email===a.email?{...x,phone:v}:x):[...list,{...a,phone:v}])};
+  if(ph)ph.onchange=savePh;
+  const tel=()=>{if(ph&&!a.phone&&ph.value.trim())savePh();const x=asTel(a);if(!x){toast("Doplň telefon asistentky");if(ph)ph.focus();return ""}return x};
+  const copy=()=>{try{navigator.clipboard.writeText(ta.value).catch(()=>{})}catch(e){}};
+  return [ta,ph,el("div",{class:"tdbtns"},
+    el("button",{type:"button",onclick:()=>{const n=tel();if(!n)return;copy();location.href="sms:"+n+"?&body="+encodeURIComponent(ta.value)}},"💬 Zprávy"),
+    el("button",{type:"button",class:"sec",onclick:()=>{const n=tel();if(!n)return;window.open("https://wa.me/"+n.replace(/^\+/,"")+"?text="+encodeURIComponent(ta.value),"_blank")}},"WhatsApp"),
+    a.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+a.email+"?subject="+encodeURIComponent(kind==="remind"?"Připomínka úkolu":"Nový úkol")+"&body="+encodeURIComponent(ta.value)}},"✉️ E-mail"):null,
+    el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno")}catch(e){ta.select()}}},"Kopírovat"))].filter(Boolean)}
 function asTaskAdded(a,t){
-  const ta=el("textarea",{"aria-label":"Text zprávy"});ta.value=asFillMsg(a,t);
-  let tel=(a.phone||"").replace(/[^\d+]/g,"");if(/^\d{9}$/.test(tel))tel="+420"+tel;
   openSheet("Úkol zadán",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},"Úkol je v seznamu "+(a.name||"asistentky")+(t.due?" · deadline "+asCz(t.due):"")+". Chceš jí navíc poslat zprávu?")),
-    ta,el("div",{class:"tdbtns"},
-      tel?el("button",{type:"button",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value)}catch(e){}location.href="sms:"+tel+"?&body="+encodeURIComponent(ta.value)}},"💬 Zprávy"):null,
-      tel?el("button",{type:"button",class:"sec",onclick:()=>window.open("https://wa.me/"+tel.replace(/^\+/,"")+"?text="+encodeURIComponent(ta.value),"_blank")},"WhatsApp"):null,
-      a.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+a.email+"?subject="+encodeURIComponent("Nový úkol")+"&body="+encodeURIComponent(ta.value)}},"E-mail"):null,
-      el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno")}catch(e){ta.select()}}},"Kopírovat")),
+    ...asMsgNodes(a,t,"new"),
     el("p",{class:"hint"},"Text zprávy upravíš v nastavení (✓ vpravo nahoře → Asistentka)."),
     el("div",{class:"chips"},el("button",{type:"button",onclick:()=>$("edDlg").close()},"Hotovo, bez zprávy"))]);
 }
 /* ---- detail úkolu (poradce) ---- */
+/* změna úkolu: lokálně hned, na server přes frontu (2 pokusy); při selhání se vrátí původní hodnota */
+function asPatch(role,id,patch){
+  const S=role==="adv"?ASD:ASA,t=(S.tasks||[]).find(x=>x.id===id);
+  if(!t){toast("Úkol už neexistuje");return false}
+  if(asIsTmp(t)){toast("Úkol se ještě ukládá…");return false}
+  const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return false}
+  const before={};Object.keys(patch).forEach(k=>before[k]=t[k]);before.done=t.done;before.up=t.up;
+  Object.assign(t,patch);t.up=new Date().toISOString();if(patch.st)t.done=patch.st==="hotovo"?t.up:"";
+  asSave(role);asBadge();asPend(id,1);
+  asQ=asQ.then(async()=>{
+    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_set",email:asMeMail(),tok:GAuth.token()||tok,id,patch})}catch(e){j=null}}
+    asPend(id,-1);
+    if(!(j&&j.status==="ok")){
+      const cur=((role==="adv"?ASD:ASA).tasks||[]).find(x=>x.id===id);
+      if(cur){Object.keys(patch).forEach(k=>{if(cur[k]===patch[k])cur[k]=before[k]});cur.done=before.done;cur.up=before.up;asSave(role)}
+      toast("Změnu se nepodařilo uložit – vráceno zpět");asRerender();
+    }
+  });
+  return true;
+}
+function asDelTask(role,id){
+  const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return false}
+  const S=role==="adv"?ASD:ASA, keep=S.tasks||[];
+  const upd=l=>{if(role==="adv")ASD={...ASD,tasks:l};else ASA={...ASA,tasks:l};asSave(role)};
+  upd(keep.filter(x=>x.id!==id));asBadge();asPend(id,1);
+  asQ=asQ.then(async()=>{
+    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_del",email:asMeMail(),tok:GAuth.token()||tok,id})}catch(e){j=null}}
+    asPend(id,-1);
+    if(!(j&&j.status==="ok")){toast("Smazání se nepodařilo – úkol se vrací");if(role==="adv")asAdvSync(true);else asPull(true)}
+    asRerender();
+  });
+  return true;
+}
+function asRerender(){ /* překreslí jen to, co se týká úkolů */
+  if(view==="atasks")renderAsTasks();else if(view==="aclients")renderAsClients();else if(view==="pipe"||view==="net"||view==="money")render()}
 function asOpenTask(t){
   if(t.own)return asOpenMine(t);
-  const a=asAssistants().find(x=>x.email===t.asst)||{};
-  const upd=async patch=>{
-    const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return false}
-    let j;try{j=await Acc.post({t:"tk_set",email:asMeMail(),tok,id:t.id,patch})}catch(e){j=null}
-    if(!j||j.status!=="ok"){toast("Nepodařilo se uložit");return false}
-    ASD={...ASD,tasks:(ASD.tasks||[]).map(x=>x.id===t.id?j.task:x)};lsSet("as_adv",ASD);Object.assign(t,j.task);return true};
-  const tx=el("textarea",{rows:"3","aria-label":"Text úkolu"});tx.value=t.text;tx.onchange=async()=>{if(await upd({text:tx.value})){toast("Uloženo");render()}};
-  const dd=el("input",{type:"date","aria-label":"Deadline"});dd.value=t.due||"";dd.onchange=async()=>{if(await upd({due:dd.value})){toast("Uloženo");render()}};
-  const bn=el("textarea",{rows:"2",placeholder:"Můj vzkaz asistentce","aria-label":"Moje poznámka"});bn.value=t.bn||"";bn.onchange=async()=>{if(await upd({bn:bn.value}))toast("Uloženo")};
+  if(asIsTmp(t)){toast("Úkol se ještě ukládá…");return}
+  const a=asAssistants().find(x=>x.email===t.asst)||{email:t.asst,name:t.who};
+  const nm=a.name||t.who||asNameOf(t.asst);
+  const upd=patch=>asPatch("adv",t.id,patch)&&(Object.assign(t,patch),true);
+  const tx=el("textarea",{rows:"3","aria-label":"Text úkolu"});tx.value=t.text;tx.onchange=()=>{if(tx.value.trim()&&upd({text:tx.value.trim()})){toast("Uloženo");render()}};
+  const dd=el("input",{type:"date","aria-label":"Deadline"});dd.value=t.due||"";dd.onchange=()=>{if(upd({due:dd.value})){toast("Uloženo");render()}};
+  const bn=el("textarea",{rows:"2",placeholder:"Můj vzkaz asistentce","aria-label":"Moje poznámka"});bn.value=t.bn||"";bn.onchange=()=>{if(upd({bn:bn.value}))toast("Uloženo")};
   const cl=t.client?(leads.find(l=>asNorm(l.name)===asNorm(t.client))||null):null;
   const del=el("button",{type:"button",class:"danger-row"},"Smazat úkol");
-  del.onclick=async()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}
-    const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return}
-    let j;try{j=await Acc.post({t:"tk_del",email:asMeMail(),tok,id:t.id})}catch(e){j=null}
-    if(j&&j.status==="ok"){ASD={...ASD,tasks:(ASD.tasks||[]).filter(x=>x.id!==t.id)};lsSet("as_adv",ASD);$("edDlg").close();render();toast("Smazáno")}else toast("Nepodařilo se smazat")};
-  const reopen=async st=>{if(await upd({st})){render();$("edDlg").close()}};
-  openSheet("Úkol pro "+(a.name||t.who||"asistentku"),[
-    el("div",{class:"mhero"},el("span",{class:"tkst big "+(AS_ST.find(x=>x[0]===t.st)||AS_ST[0])[2]},asLbl(t.st)),el("div",{},el("div",{class:"mh-v",style:"font-size:17px"},"Stav u asistentky"),el("div",{class:"mh-s"},"změněno "+ago(t.up)+(t.done?" · dokončeno "+asCz(t.done):"")))),
+  del.onclick=()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}
+    if(asDelTask("adv",t.id)){$("edDlg").close();render();toast("Smazáno")}};
+  const reopen=st=>{if(upd({st})){render();$("edDlg").close()}};
+  openSheet("Asistentka "+nm,[
+    el("div",{class:"mhero"},el("span",{class:"tkst big "+asStCls(t.st)},asLbl(t.st)),el("div",{},el("div",{class:"mh-v",style:"font-size:17px"},"Stav u asistentky"),el("div",{class:"mh-s"},"změněno "+ago(t.up)+(t.done&&t.st==="hotovo"?" · dokončeno "+asCz(t.done):"")))),
     el("div",{class:"group"},el("div",{class:"frow col"},el("label",{},"Úkol"),tx),el("div",{class:"frow"},el("label",{},"Deadline"),dd),
       t.client?el("div",{class:"frow"},el("label",{},"Klient"),cl?el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();openEdit(cl)}},t.client+" ›"):el("span",{class:"mrate"},t.client)):null),
     t.an?[el("h3",{class:"sechead"},"Poznámka asistentky"),el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:pre-wrap;font-weight:400"},t.an))))]:null,
     el("div",{class:"group"},el("div",{class:"frow col"},el("label",{},"Můj vzkaz"),bn)),
     el("div",{class:"chips"},t.st==="hotovo"?el("button",{type:"button",class:"chipbtn",onclick:()=>reopen("nový")},"Znovu otevřít"):el("button",{type:"button",class:"chipbtn ok",onclick:()=>reopen("hotovo")},"Označit jako hotové")),
+    t.st!=="hotovo"?[el("h3",{class:"sechead"},"Upozornit asistentku"),...asMsgNodes(a,t,"remind")]:null,
     el("p",{class:"hint"},"Zadáno "+ago(t.at)+(t.by==="asst"?" · zadala asistentka":"")),
     el("div",{class:"group"},del)]);
 }
@@ -5515,32 +5612,40 @@ function asTodayNodes(){
 /* =====================  ASISTENTKA  ===================== */
 async function asCheckInv(force){
   const me=asMeMail();if(!me||!Trk.on()||!Acc.ok())return;
-  if(!force&&Date.now()-(lsGet("as_inv_at")||0)<8*60000)return;
+  if(!force&&Date.now()-(lsGet("as_inv_at")||0)<3*60000)return;
   lsSet("as_inv_at",Date.now());
   let j;try{j=await Acc.post({t:"as_inv",email:me})}catch(e){return}
   if(j.status!=="ok")return;
-  const was=asFlag;asFlag=!!j.flag;lsSet("as_flag",asFlag);asInv=j.list;lsSet("as_invites",asInv);
+  const was=asFlag,oldInv=JSON.stringify(asInv);asFlag=!!j.flag;lsSet("as_flag",asFlag);asInv=j.list;lsSet("as_invites",asInv);
   if(was!==asFlag){renderAsCfgIfOpen();applyAsMode()}
-  const ask=asFlag&&asInv.find(x=>x.status==="žádost"&&lsGet("as_skip_"+x.advisor)!==todayStr());
-  if(ask&&!document.querySelector("dialog[open]"))asAsk(ask);
+  asAutoMode();
+  if(oldInv!==JSON.stringify(asInv)&&view==="pipe"&&!document.querySelector("dialog[open]"))render();
+  asAskPending();
 }
+function asAskPending(){ /* pozvánka vyskočí hned, jakmile se zavře jiné okno (třeba „Co tě dneska čeká“) – a jen jednou denně, jinak ji drží karta v pipeline */
+  if(!asFlag||document.querySelector("dialog[open]"))return;
+  const ask=asInv.find(x=>x.status==="žádost"&&lsGet("as_skip_"+x.advisor)!==todayStr());
+  if(ask)asAsk(ask)}
 function asAsk(x){
+  lsSet("as_skip_"+x.advisor,todayStr());
   const who=x.name?x.name+" ("+x.advisor+")":x.advisor;
   const resp=async allow=>{
     const tok=GAuth.token();if(!tok){toast("Nejdřív obnov přihlášení");GAuth.login(true);return}
     let j;try{j=await Acc.post({t:"as_resp",email:asMeMail(),tok,advisor:x.advisor,allow})}catch(e){j=null}
-    if(!j||j.status!=="ok"){toast("Nepodařilo se uložit");return}
+    if(!j||j.status!=="ok"){toast(j&&j.status==="denied"?"Přihlášení vypršelo – přihlas se znovu":"Nepodařilo se uložit – zkus to znovu");return}
     asInv=asInv.map(i=>i.advisor===x.advisor?{...i,status:allow?"sdílí":"odmítnuto"}:i);lsSet("as_invites",asInv);
+    if(view==="pipe"||view==="atasks")render();
     if(!allow){$("edDlg").close();toast("Odmítnuto");return}
-    if(asMode()){$("edDlg").close();asPull(true);return}
-    openSheet("Propojeno ✓",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},"Teď můžeš přepnout Pipeline do čistého rozhraní asistentky – úkoly od "+(x.name||x.advisor)+" a seznam klientů.")),
-      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>{asSetMode(true);$("edDlg").close()}},"Přepnout do režimu asistentky"),el("button",{type:"button",class:"chipbtn",onclick:()=>$("edDlg").close()},"Až později"))])};
+    asPull(true);
+    if(asMode()){$("edDlg").close();toast("Propojeno ✓");return}
+    openSheet("Propojeno ✓",[el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},"Úkoly od "+(x.name||x.advisor)+" najdeš v záložce Úkoly. Pipeline zůstává tvoje vlastní.")),
+      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>{$("edDlg").close();setView("atasks")}},"Otevřít úkoly"),el("button",{type:"button",class:"chipbtn",onclick:()=>{asSetMode(true);$("edDlg").close()}},"Přepnout na čisté rozhraní asistentky"))])};
   openSheet("Pozvánka do týmu",[el("div",{class:"ucard pend"},
     el("div",{class:"t",style:"font-weight:600;font-size:17px"},who+" tě zve jako svou asistentku"),
-    el("p",{style:"margin:0;color:var(--label2);line-height:1.45"},"Uvidíš jeho klienty (celá jména, telefon, e-mail, fázi a další krok) a úkoly, které ti zadá. U úkolů nastavuješ stav (nový, rozpracováno, čeká, hotovo) a píšeš poznámky – poradce je vidí."),
+    el("p",{style:"margin:0;color:var(--label2);line-height:1.45"},"Uvidíš úkoly, které ti zadá, a jen ty klienty (celé jméno, telefon, e-mail, fáze, další krok), ke kterým ti úkol zadá. U úkolů nastavuješ stav (nový, rozpracováno, hotovo) a píšeš poznámky – poradce je vidí."),
     el("p",{style:"margin:0;color:var(--label2);line-height:1.45"},"Souhlas můžeš kdykoli odvolat (poradce tě pak odebere)."),
     el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>resp(true)},"Přijmout"),el("button",{type:"button",class:"chipbtn no",onclick:()=>resp(false)},"Odmítnout"),
-      el("button",{type:"button",class:"chipbtn",onclick:()=>{lsSet("as_skip_"+x.advisor,todayStr());$("edDlg").close()}},"Později")))]);
+      el("button",{type:"button",class:"chipbtn",onclick:()=>$("edDlg").close()},"Později")))]);
 }
 async function asSetMode(on){
   try{await db.doc("settings/main").set({...settings,asstMode:!!on})}catch(e){toast("Nepodařilo se uložit");return}
@@ -5552,20 +5657,24 @@ function applyAsMode(){
   document.documentElement.classList.toggle("asmode",asMode());
   try{renderTabBar()}catch(e){}
 }
+let asPullBusy=false;
 async function asPull(force){
-  if(!asMode())return;
+  if(!asFlag)return;
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!Trk.on()||!Acc.ok())return;
-  if(!force&&Date.now()-(ASA.at||0)<30000)return;
+  const every=(ASA.advisors||[]).length?20000:120000;
+  if(asPullBusy||(!force&&Date.now()-(ASA.at||0)<every-2000))return;
   const have={};(ASA.advisors||[]).forEach(a=>{if(a.clients)have[a.email]=a.at});
-  let j;try{j=await Acc.post({t:"as_sync",email:me,tok,have})}catch(e){return}
+  asPullBusy=true;let j;try{j=await Acc.post({t:"as_sync",email:me,tok,have})}catch(e){asPullBusy=false;return}
+  asPullBusy=false;
   if(j.status!=="ok"){if(j.status==="noflag"){asFlag=false;lsSet("as_flag",false);applyAsMode()}return}
   const cache=new Map((ASA.advisors||[]).map(a=>[a.email,a]));
   const advisors=j.advisors.map(a=>({...a,clients:a.clients||(cache.get(a.email)||{}).clients||[]}));
+  const tasks=asMerge(j.tasks,ASA.tasks);
   const first=lsGet("as_notified")==null, seen=new Set(lsGet("as_notified")||[]);
-  const fresh=j.tasks.filter(t=>t.st==="nový"&&!seen.has(t.id));
-  const changed=JSON.stringify(j.tasks)!==JSON.stringify(ASA.tasks)||advisors.length!==(ASA.advisors||[]).length;
-  ASA={advisors,tasks:j.tasks,at:Date.now()};lsSet("as_asst",ASA);
-  lsSet("as_notified",[...new Set([...seen,...j.tasks.map(t=>t.id)])].slice(-600));
+  const fresh=tasks.filter(t=>t.st==="nový"&&!seen.has(t.id)&&!asIsTmp(t));
+  const changed=JSON.stringify(tasks)!==JSON.stringify(ASA.tasks)||JSON.stringify(advisors.map(a=>[a.email,a.at]))!==JSON.stringify((ASA.advisors||[]).map(a=>[a.email,a.at]));
+  ASA={advisors,tasks,at:Date.now()};lsSet("as_asst",ASA);
+  lsSet("as_notified",[...new Set([...seen,...tasks.filter(t=>!asIsTmp(t)).map(t=>t.id)])].slice(-600));
   if(fresh.length){
     if(first)toast("Máš "+fresh.length+" "+plural(fresh.length,"nový úkol","nové úkoly","nových úkolů"));
     else{
@@ -5575,12 +5684,12 @@ async function asPull(force){
     }
   }
   asBadge();
-  if(changed&&(view==="atasks"||view==="aclients")&&!document.querySelector("dialog[open]"))render();
+  if(changed&&!document.querySelector("dialog[open]")&&(view==="atasks"||view==="aclients"))asRerender();
 }
 function asBadge(){
-  const n=(ASA.tasks||[]).filter(t=>t.st==="nový").length;
+  const n=asFlag?(ASA.tasks||[]).filter(t=>t.st==="nový"&&!asIsTmp(t)).length:0;
   try{if(navigator.setAppBadge){n?navigator.setAppBadge(n):navigator.clearAppBadge()}}catch(e){}
-  const base=appName();document.title=asMode()&&n?"("+n+") "+base:base;
+  const base=appName();document.title=n?"("+n+") "+base:base;
 }
 async function asNotify(title,body,tag){
   if(!("Notification"in window)||Notification.permission!=="granted")return;
@@ -5588,22 +5697,14 @@ async function asNotify(title,body,tag){
   try{new Notification(title,{body,tag})}catch(e){}
 }
 const asAdvName=e=>{const a=(ASA.advisors||[]).find(x=>x.email===e);return asNameOf(e,a&&a.name)};
-async function asSet(t,patch){
-  const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return false}
-  const before=JSON.stringify(t);
-  Object.assign(t,patch);if(patch.st)t.done=patch.st==="hotovo"?new Date().toISOString():"";
-  lsSet("as_asst",ASA);
-  let j;try{j=await Acc.post({t:"tk_set",email:asMeMail(),tok,id:t.id,patch})}catch(e){j=null}
-  if(!j||j.status!=="ok"){Object.assign(t,JSON.parse(before));toast("Nepodařilo se uložit");return false}
-  Object.assign(t,j.task);lsSet("as_asst",ASA);asBadge();return true;
-}
-const asNext=st=>st==="nový"?[["rozpracováno","▶ Začít"],["hotovo","✓ Hotovo"]]:st==="rozpracováno"?[["hotovo","✓ Hotovo"],["čeká","⏸ Čeká"]]:st==="čeká"?[["rozpracováno","▶ Pokračovat"],["hotovo","✓ Hotovo"]]:[["nový","↺ Znovu otevřít"]];
+const asSet=(t,patch)=>asPatch("asst",t.id,patch);
+const asNext=st=>st==="nový"?[["rozpracováno","▶ Začít"],["hotovo","✓ Hotovo"]]:st==="rozpracováno"?[["hotovo","✓ Hotovo"],["nový","↩ Zpět"]]:[["rozpracováno","↺ Znovu otevřít"]];
 function asCardEl(t){
-  const dt=asDueTag(t);
-  const c=el("article",{class:"akc"+(t.st==="nový"?" new":""),draggable:"true",tabindex:"0","data-id":t.id,onclick:()=>asOpenATask(t)},
+  const dt=asDueTag(t),tmp=asIsTmp(t);
+  const c=el("article",{class:"akc"+(t.st==="nový"?" new":"")+(tmp?" tmp":""),draggable:"true",tabindex:"0","data-id":t.id,onclick:()=>asOpenATask(t)},
     el("div",{class:"akt"},t.text),
     el("div",{class:"akm"},el("span",{class:"akwho"},asAdvName(t.adv)),t.client?el("span",{class:"akcl"},t.client):null,dt&&t.st!=="hotovo"?el("span",{class:"tdtag "+dt.cls},dt.txt):t.due?el("span",{class:"tdtag"},fmtDate(t.due)):null,t.an?el("span",{class:"aknote",title:"Má poznámku"},"📝"):null),
-    el("div",{class:"aka"},...asNext(t.st).map(([k,label])=>el("button",{type:"button",class:"akbtn"+(k==="hotovo"?" ok":""),onclick:async e=>{e.stopPropagation();if(await asSet(t,{st:k}))render()}},label))));
+    tmp?null:el("div",{class:"aka"},...asNext(t.st).map(([k,label])=>el("button",{type:"button",class:"akbtn"+(k==="hotovo"?" ok":""),onclick:e=>{e.stopPropagation();if(asSet(t,{st:k}))renderAsTasks()}},label))));
   c.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",t.id)});
   return c;
 }
@@ -5614,41 +5715,48 @@ function renderAsTasks(){
   $("sub").textContent=all.length?(all.filter(t=>t.st!=="hotovo").length+" otevřených · "+nNew+" "+plural(nNew,"nový","nové","nových")):(asInv.some(x=>x.status==="žádost")?"Čeká na přijetí pozvánky":"Zatím žádné úkoly");
   if(asFilter!=="all"&&!advs.includes(asFilter))asFilter="all";
   const vis=all.filter(t=>asFilter==="all"||t.adv===asFilter);
-  const chips=el("div",{class:"achips",role:"tablist","aria-label":"Od koho"},
-    el("button",{type:"button",role:"tab","aria-selected":String(asFilter==="all"),onclick:()=>{asFilter="all";render()}},"Všichni",el("i",{},String(all.filter(t=>t.st!=="hotovo").length))),
-    ...advs.map(e=>el("button",{type:"button",role:"tab","aria-selected":String(asFilter===e),onclick:()=>{asFilter=e;render()}},asAdvName(e),el("i",{},String(all.filter(t=>t.adv===e&&t.st!=="hotovo").length)))));
+  const chips=advs.length>1?el("div",{class:"achips",role:"tablist","aria-label":"Od koho"},
+    el("button",{type:"button",role:"tab","aria-selected":String(asFilter==="all"),onclick:()=>{asFilter="all";renderAsTasks()}},"Všichni",el("i",{},String(all.filter(t=>t.st!=="hotovo").length))),
+    ...advs.map(e=>el("button",{type:"button",role:"tab","aria-selected":String(asFilter===e),onclick:()=>{asFilter=e;renderAsTasks()}},asAdvName(e),el("i",{},String(all.filter(t=>t.adv===e&&t.st!=="hotovo").length))))):el("span",{});
   const plus=el("button",{type:"button",class:"plus","aria-label":"Nový úkol",title:"Nový úkol",onclick:()=>asNewAsstTask()});
   plus.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
+  const rf=el("button",{type:"button",class:"chipbtn","aria-label":"Obnovit",title:"Obnovit",onclick:async()=>{rf.disabled=true;await asPull(true);rf.disabled=false;renderAsTasks()}},"↻");
   const bar=el("div",{class:"abar"},chips,el("span",{style:"display:flex;gap:10px;align-items:center"},
-    el("label",{class:"adone"},el("input",{type:"checkbox",checked:asShowDone?"":null,onchange:e=>{asShowDone=e.target.checked;render()}}),"Hotové"),plus));
+    el("label",{class:"adone"},el("input",{type:"checkbox",checked:asShowDone?"":null,onchange:e=>{asShowDone=e.target.checked;renderAsTasks()}}),"Starší hotové"),rf,plus));
   const weekAgo=Date.now()-7*864e5;
-  const cols=AS_ST.filter(s=>s[0]!=="hotovo"||asShowDone||vis.some(t=>t.st==="hotovo"&&Date.parse(t.done||t.up)>=weekAgo)).map(([k,label,cls])=>{
+  /* vždy přesně tři sloupce: Nový úkol · Rozpracováno · Hotovo */
+  const cols=AS_ST.map(([k,label,cls])=>{
     let items=vis.filter(t=>t.st===k).sort(asSortT);
-    if(k==="hotovo"&&!asShowDone)items=items.filter(t=>Date.parse(t.done||t.up)>=weekAgo);
+    if(k==="hotovo"){items=items.filter(t=>asShowDone||Date.parse(t.done||t.up)>=weekAgo).sort((a,b)=>(b.done||"").localeCompare(a.done||""))}
     const col=el("section",{class:"akcol","data-st":k},el("div",{class:"akh"},el("span",{class:"tkst "+cls},label),el("span",{class:"akn"},String(items.length))),
       ...(items.length?items.map(asCardEl):[el("div",{class:"akempty"},k==="nový"?"Nic nového 🎉":"—")]));
     col.addEventListener("dragover",e=>{e.preventDefault();col.classList.add("drop")});
     col.addEventListener("dragleave",()=>col.classList.remove("drop"));
-    col.addEventListener("drop",async e=>{e.preventDefault();col.classList.remove("drop");const t=(ASA.tasks||[]).find(x=>x.id===e.dataTransfer.getData("text/plain"));if(t&&t.st!==k&&await asSet(t,{st:k}))render()});
+    col.addEventListener("drop",e=>{e.preventDefault();col.classList.remove("drop");const t=(ASA.tasks||[]).find(x=>x.id===e.dataTransfer.getData("text/plain"));if(t&&t.st!==k&&asSet(t,{st:k}))renderAsTasks()});
     return col;
   });
   const inv=asInv.filter(x=>x.status==="žádost");
-  box.replaceChildren(
+  /* na telefonu přehled stavů s počty – klepnutím se posune na sloupec */
+  const strip=el("div",{class:"akstrip"},...AS_ST.map(([k,label,cls],i)=>el("button",{type:"button",class:"tkst "+cls,onclick:()=>{const c=cols[i];if(c&&c.scrollIntoView)c.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"})}},label+" · "+(cols[i].querySelector(".akn")||{}).textContent)));
+  const keepX=box.querySelector(".akboard");const sx=keepX?keepX.scrollLeft:0;
+  box.replaceChildren(...[
     ...(inv.length?[el("div",{class:"ucard pend",style:"margin-bottom:12px"},el("div",{class:"t",style:"font-weight:600"},"Čeká na tebe pozvánka"),el("p",{style:"margin:0"},inv.map(x=>x.name||x.advisor).join(", ")+" tě zve jako asistentku."),el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:()=>asAsk(inv[0])},"Zobrazit")))]:[]),
-    bar,
-    ASA.advisors&&ASA.advisors.length||all.length?el("div",{class:"akboard"},...cols):el("p",{class:"hint"},"Zatím nemáš žádného poradce. Pozvánka se objeví po schválení administrátorem – pak ji přijmi a úkoly se začnou zobrazovat."),
-    el("p",{class:"secfoot"},"Nový úkol se objeví do minuty (a pípne upozornění, když je aplikace otevřená a máš ji povolenou v nastavení). Stav měníš tlačítky na kartě nebo přetažením mezi sloupci."));
+    bar,strip,
+    el("div",{class:"akboard"},...cols),
+    ASA.advisors&&ASA.advisors.length||all.length?null:el("p",{class:"hint"},"Zatím nemáš žádného poradce. Pozvánka se objeví po schválení administrátorem – pak ji přijmi a úkoly se začnou zobrazovat."),
+    el("p",{class:"secfoot"},"Změna stavu se uloží hned a poradce ji vidí do pár vteřin. Nový úkol se objeví do 20 s (pípne, když je aplikace otevřená a máš povolená upozornění v nastavení).")].filter(Boolean));
+  const nb=box.querySelector(".akboard");if(nb&&sx)nb.scrollLeft=sx;
 }
 function asOpenATask(t){
+  if(asIsTmp(t)){toast("Úkol se ještě ukládá…");return}
   const cl=t.client?asFindClient(t.client):null;
   const dt=asDueTag(t);
   const an=el("textarea",{rows:"3",placeholder:"Moje poznámky k úkolu (vidí je i poradce)","aria-label":"Moje poznámka"});an.value=t.an||"";
-  an.onchange=async()=>{if(await asSet(t,{an:an.value}))toast("Uloženo")};
-  const stBtns=el("div",{class:"chips"},AS_ST.map(([k,label])=>el("button",{type:"button",class:"chipbtn"+(t.st===k?" on":""),onclick:async()=>{if(await asSet(t,{st:k})){render();$("edDlg").close()}}},label)));
+  an.onchange=()=>{if(asSet(t,{an:an.value}))toast("Uloženo")};
+  const stBtns=el("div",{class:"chips"},AS_ST.map(([k,label])=>el("button",{type:"button",class:"chipbtn"+(t.st===k?" on":""),onclick:()=>{if(t.st===k){$("edDlg").close();return}if(asSet(t,{st:k})){renderAsTasks();$("edDlg").close()}}},label)));
   const del=t.by==="asst"?el("button",{type:"button",class:"danger-row"},"Smazat úkol"):null;
-  if(del)del.onclick=async()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}
-    const tok=GAuth.token();if(!tok)return;let j;try{j=await Acc.post({t:"tk_del",email:asMeMail(),tok,id:t.id})}catch(e){j=null}
-    if(j&&j.status==="ok"){ASA={...ASA,tasks:ASA.tasks.filter(x=>x.id!==t.id)};lsSet("as_asst",ASA);$("edDlg").close();render()}else toast("Nepodařilo se smazat")};
+  if(del)del.onclick=()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}
+    if(asDelTask("asst",t.id)){$("edDlg").close();renderAsTasks()}};
   openSheet("Úkol od "+asAdvName(t.adv),[
     el("div",{class:"group"},el("div",{class:"row"},el("span",{class:"main"},el("div",{class:"t",style:"white-space:pre-wrap;font-size:17px"},t.text),el("div",{class:"s"},"zadal/a "+asAdvName(t.adv)+" · "+ago(t.at)))),
       t.due?el("div",{class:"frow"},el("label",{},"Deadline"),el("span",{class:"tdtag "+(dt&&dt.cls||"")},asCz(t.due)+(dt&&dt.cls?" · "+dt.txt:""))):null,
@@ -5670,7 +5778,7 @@ function asClientSheet(c,adv){
       el("div",{class:"frow"},el("label",{},"Fáze"),el("span",{class:"mrate"},c.s||"–")),
       c.x||c.d?el("div",{class:"frow"},el("label",{},"Další krok"),el("span",{class:"mrate"},(c.x||"")+(c.d?" ("+fmtDate(c.d)+")":""))):null),
     el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>asNewAsstTask({adv,client:c.n})},"+ Úkol k tomuto klientovi")),
-    tasks.length?[el("h3",{class:"sechead"},"Úkoly k tomuto klientovi"),el("div",{class:"group"},tasks.map(t=>el("button",{type:"button",class:"row row-btn tkrow"+(t.st==="hotovo"?" done":""),onclick:()=>asOpenATask(t)},el("span",{class:"tkst "+(AS_ST.find(x=>x[0]===t.st)||AS_ST[0])[2]},asLbl(t.st)),el("span",{class:"main"},el("div",{class:"t"},t.text),el("div",{class:"s"},t.due?"do "+fmtDate(t.due):"")),chev())))]:null,
+    tasks.length?[el("h3",{class:"sechead"},"Úkoly k tomuto klientovi"),el("div",{class:"group"},tasks.map(t=>el("button",{type:"button",class:"row row-btn tkrow"+(t.st==="hotovo"?" done":""),onclick:()=>asOpenATask(t)},el("span",{class:"tkst "+asStCls(t.st)},asLbl(t.st)),el("span",{class:"main"},el("div",{class:"t"},t.text),el("div",{class:"s"},t.due?"do "+fmtDate(t.due):"")),chev())))]:null,
     el("p",{class:"hint"},"Údaje pochází z aplikace poradce, aktualizováno "+ago(((ASA.advisors||[]).find(a=>a.email===adv)||{}).at)+".")]);
 }
 function asNewAsstTask(preset){
@@ -5689,10 +5797,15 @@ function asNewAsstTask(preset){
   save.onclick=async()=>{
     const tx=text.value.trim();if(!tx){toast("Napiš text úkolu");return}
     const tok=GAuth.token();if(!tok){toast("Obnov přihlášení");return}
-    save.disabled=true;
-    let j;try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok,role:"asst",task:{adv,text:tx,client:client?client.n:"",due:due.value||""}})}catch(e){j=null}
-    if(!j||j.status!=="ok"){save.disabled=false;toast("Nepodařilo se uložit");return}
-    ASA={...ASA,tasks:[j.task,...(ASA.tasks||[])]};lsSet("as_asst",ASA);$("edDlg").close();render();toast("Úkol uložen")};
+    const nowI=new Date().toISOString(),cn=client?client.n:"",tmp={id:"tmp_"+newId(),adv,asst:asMeMail(),text:tx,client:cn,due:due.value||"",st:"nový",an:"",bn:"",by:"asst",at:nowI,up:nowI,done:""};
+    asPend(tmp.id,1);ASA={...ASA,tasks:[tmp,...(ASA.tasks||[])]};lsSet("as_asst",ASA);$("edDlg").close();asRerender();toast("Úkol uložen");
+    asQ=asQ.then(async()=>{
+      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"asst",task:{adv,text:tx,client:cn,due:tmp.due}})}catch(e){j=null}}
+      asPend(tmp.id,-1);
+      if(j&&j.status==="ok")ASA={...ASA,tasks:(ASA.tasks||[]).map(x=>x.id===tmp.id?asNT(j.task):x)};
+      else{ASA={...ASA,tasks:(ASA.tasks||[]).filter(x=>x.id!==tmp.id)};toast("Úkol se nepodařilo uložit na server – zadej ho prosím znovu")}
+      lsSet("as_asst",ASA);asRerender();
+    });};
   openSheet("Nový úkol",[el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Poradce"),sel),el("div",{class:"frow col"},el("label",{},"Úkol"),text),el("div",{class:"frow"},el("label",{},"Deadline"),due)),
     el("h3",{class:"sechead"},"Klient"),wrap,el("div",{class:"chips"},save)]);
   mountPicker();
@@ -5719,30 +5832,35 @@ function renderAsCfgIfOpen(){if($("dataDlg")&&$("dataDlg").open)renderAsCfg()}
 function renderAsCfg(){
   const box=$("asCfg");if(!box)return;
   const save=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}};
-  const msg=el("textarea",{rows:"3","aria-label":"Text zprávy asistentce"});msg.value=asTpl();msg.onchange=()=>save({asstMsg:msg.value.trim()||null});
-  const days=el("input",{type:"number",min:"0",max:"60",inputmode:"numeric","aria-label":"Výchozí deadline ve dnech",style:"width:70px"});days.value=asDefDays();days.onchange=()=>save({asstDays:Math.max(0,Math.min(60,+days.value||0))});
-  const nodes=[el("label",{},"Asistentka"),
-    el("label",{},"Zpráva o novém úkolu"),msg,
-    el("p",{class:"hint"},"Proměnné: {jmeno} (oslovení asistentky), {ukol}, {klient}, {deadline}, {podpis}. Zprávu pošleš (SMS, WhatsApp, e-mail) po zadání úkolu – před odesláním ji můžeš upravit. Když úkol nemá deadline, věta s {deadline} se vynechá."),
-    el("label",{},"Výchozí deadline za (pracovních dnů)",days)];
+  const nodes=[];
+  if(!asMode()){ /* poradcovy šablony zpráv asistentce – čistá asistentka je nepotřebuje */
+    const msg=el("textarea",{rows:"3","aria-label":"Text zprávy asistentce"});msg.value=asTpl();msg.onchange=()=>save({asstMsg:msg.value.trim()||null});
+    const rem=el("textarea",{rows:"2","aria-label":"Text připomínky asistentce"});rem.value=asTplRemind();rem.onchange=()=>save({asstRemind:rem.value.trim()||null});
+    const days=el("input",{type:"number",min:"0",max:"60",inputmode:"numeric","aria-label":"Výchozí deadline ve dnech",style:"width:70px"});days.value=asDefDays();days.onchange=()=>save({asstDays:Math.max(0,Math.min(60,+days.value||0))});
+    nodes.push(el("label",{},"Asistentka"),el("label",{},"Zpráva o novém úkolu"),msg,
+      el("label",{},"Zpráva – připomínka úkolu"),rem,
+      el("p",{class:"hint"},"Proměnné: {jmeno} (oslovení asistentky), {ukol}, {klient}, {deadline}, {podpis}. Zprávu pošleš (Zprávy, WhatsApp, e-mail) po zadání úkolu nebo později z detailu úkolu – před odesláním ji můžeš upravit. Když úkol nemá deadline, věta s {deadline} se vynechá."),
+      el("label",{},"Výchozí deadline za (pracovních dnů)",days));
+  }
   if(asFlag){
     const sw=el("input",{type:"checkbox",role:"switch",class:"switch"});sw.checked=asMode();sw.onchange=()=>asSetMode(sw.checked);
     const perm="Notification"in window?Notification.permission:"unsupported";
-    nodes.push(el("div",{class:"frow",style:"padding:0;min-height:0"},el("label",{style:"flex:1"},"Režim asistentky"),sw),
-      el("p",{class:"hint"},"Přepne Pipeline do čistého rozhraní asistentky: úkoly od poradců a jejich klienti. Zpět se vrátíš vypnutím tady v nastavení."),
+    nodes.push(el("div",{class:"frow",style:"padding:0;min-height:0"},el("label",{style:"flex:1"},"Čisté rozhraní asistentky"),sw),
+      el("p",{class:"hint"},"Zapnuto: jen úkoly od poradců a jejich klienti, nic jiného. Vypnuto: běžná Pipeline + záložka Úkoly. Přepíná se tady v nastavení."),
       perm==="granted"?el("p",{class:"hint"},"🔔 Upozornění na nové úkoly jsou zapnutá (fungují, když je aplikace otevřená nebo běží na pozadí)."):perm==="denied"?el("p",{class:"hint"},"Upozornění jsou v prohlížeči zablokovaná – povol je v nastavení webu."):perm==="unsupported"?null:
         el("button",{type:"button",class:"dbtn",onclick:async()=>{try{const r=await Notification.requestPermission();toast(r==="granted"?"Upozornění zapnuta":"Upozornění nepovolena")}catch(e){}renderAsCfg()}},"🔔 Zapnout upozornění na nové úkoly"));
   }
   box.replaceChildren(...nodes);
 }
-
 /* =====================  START  ===================== */
 function asStart(){
   db.collection("mytasks").onSnapshot(snap=>{myTasks=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pipe")render()});
-  const tick=()=>{if(document.visibilityState!=="visible")return;if(asMode())asPull();else asAdvSync()};
-  setTimeout(()=>{asCheckInv(true).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else asAdvSync(true)})},3500);
-  setInterval(tick,45000);
+  const tick=()=>{if(document.visibilityState!=="visible")return;asAutoMode();if(asFlag)asPull();if(!asMode())asAdvSync()};
+  setTimeout(()=>{asCheckInv(true).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else{if(asFlag)asPull(true);asAdvSync(true)}})},3500);
+  setInterval(tick,5000);
+  setInterval(()=>{if(document.visibilityState==="visible")asCheckInv()},60000);
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){asCheckInv();tick()}else if(!asMode())asPushClients(false)});
+  document.addEventListener("close",e=>{if(e.target&&e.target.tagName==="DIALOG")setTimeout(()=>{if(view==="pipe"&&asFlag&&asInv.some(x=>x.status==="žádost"))render();asAskPending()},500)},true);
   $("addTask").onclick=()=>asNewTask();
   applyAsMode();
   if(asMode()&&!["atasks","aclients"].includes(view))setView("atasks");
