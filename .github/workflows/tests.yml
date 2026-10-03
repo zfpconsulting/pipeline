@@ -16,6 +16,8 @@ jobs:
         run: |
           npm i --no-save --no-package-lock playwright@1.56.1
           npx playwright install --with-deps chromium
+      - name: Test ikon
+        run: node tests/icons.run.mjs
       - name: Testy kalkulačky a editoru fotek
         run: node tests/fincalc.run.mjs
       - name: Testy v prohlížeči

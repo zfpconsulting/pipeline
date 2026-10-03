@@ -459,5 +459,5 @@ function mount(root,opts={}){
   return{redraw:draw,state:()=>st};
 }
 
-window.FinCalc={mount,math:{iMonth,valueAt,solve,series,totals,FIELDS},fmt:{fmtKc,yrsTxt,parseNum}};
+window.FinCalc={mount,math:{iMonth,valueAt,solve,series,totals,FIELDS},fmt:{fmtKc,yrsTxt,parseNum},logo:{svg:zfpLogo,w:LOGO_W,h:LOGO_H}};
 })();
