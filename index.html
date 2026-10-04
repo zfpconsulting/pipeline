@@ -810,6 +810,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
 .shl #itemsList,.shl #addItemWrap,.shl #manWrap,.shl #calcSum,.shl #signedWrap{display:none!important}
 .dealres{min-height:0;padding:0 16px 4px;color:var(--label2)}.dealres:empty{display:none}.dealres.ok{color:var(--green)}
 .dealrow{align-items:center;gap:8px;flex-wrap:wrap}.dealrow>div:first-child{flex:1 1 170px}.dealrow .t{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dealrow .s{color:var(--label2);font-size:13px}
+.dealrow-x{display:none}
 </style>
 </head>
 <body>
@@ -6310,9 +6311,13 @@ const Deals=(()=>{
   const pendingIn=()=>[...M.dr.values()].filter(d=>d.st==="žádost");
 
   /* ---------- kontakty a výběr poradce (e-mail nebo jméno) ---------- */
+  function pretty(n,e){   /* „tomanek.jonas“ / prázdné jméno → „Tomanek Jonas“ (bez teček a podtržítek) */
+    n=String(n||"").trim();
+    if(n&&!/[._]/.test(n))return n;
+    return guessName(e)||n.replace(/[._]+/g," ").replace(/^./,c=>c.toUpperCase())}
   function contacts(team){
     const out=[],seen=new Set([me()]);
-    const add=(e,n)=>{e=low(e);if(!EM.test(e)||seen.has(e))return;seen.add(e);out.push({email:e,name:String(n||"").trim()})};
+    const add=(e,n)=>{e=low(e);if(!EM.test(e)||seen.has(e))return;seen.add(e);out.push({email:e,name:pretty(n,e)})};
     (team||[]).forEach(m=>add(m.gmail,m.name));
     lsA(K_RC).forEach(x=>add(x.email,x.name));
     [...M.do.values()].forEach(d=>add(d.r,d.rName));
@@ -6329,40 +6334,57 @@ const Deals=(()=>{
 
   /* ---------- formulář položky: komu jde zbytek provize ---------- */
   function splitBlock(it,id,team,upd){
-    const OTHER="__other__",ADV="__adv__",known=contacts(team);
-    if(it.splitTo&&it.splitTo.startsWith("adv:")&&!known.some(k=>"adv:"+k.email===it.splitTo))known.push({email:it.splitTo.slice(4),name:""});
-    const sel=el("select",{id:id+"_splitTo","aria-label":"Komu jde zbytek provize"},
+    const OTHER="__other__",ADV="__adv__",EV="__ev__";
+    const known=contacts(team);
+    if(it.splitTo&&it.splitTo.startsWith("adv:")&&!known.some(k=>"adv:"+k.email===it.splitTo)){const e=it.splitTo.slice(4);known.push({email:e,name:pretty(it.splitToName,e)})}
+    const evId=v=>v===OTHER||team.some(m=>m.id===v);
+    const main=el("select",{id:id+"_splitTo","aria-label":"Komu jde zbytek provize"},
       el("option",{value:""},"— vyber —"),
-      ...(known.length?[el("optgroup",{label:"Poradce v Pipeline – obchod se mu propíše"},...known.map(k=>el("option",{value:"adv:"+k.email},(k.name?k.name+" · ":"")+k.email)))]:[]),
-      el("option",{value:ADV},"Kdokoli v Pipeline (nadřízený, kolega mimo tým) – zadat e-mail…"),
-      el("optgroup",{label:"Jen evidence (nic se neposílá)"},...team.map(m=>el("option",{value:m.id},m.name||"Bez jména")),el("option",{value:OTHER},"Jiná osoba…")));
-    const other=el("input",{type:"text",placeholder:"Jméno kolegy mimo Pipeline",id:id+"_splitToName"});
-    const mail=el("input",{type:"text",placeholder:"e-mail (nebo jméno z týmu)",id:id+"_splitMail",autocomplete:"off",autocapitalize:"off","aria-label":"E-mail nebo jméno poradce"});
+      ...known.map(k=>el("option",{value:"adv:"+k.email},k.name||k.email)),
+      el("option",{value:ADV},"Jiný poradce – zadat e-mail…"),
+      el("option",{value:EV},"Jen evidence (bez propojení)…"));
+    const evSel=el("select",{id:id+"_splitEv","aria-label":"Jen evidence"},el("option",{value:""},"— vyber —"),...team.map(m=>el("option",{value:m.id},m.name||"Bez jména")),el("option",{value:OTHER},"Jiná osoba…"));
+    const other=el("input",{type:"text",placeholder:"Jméno kolegy",id:id+"_splitToName"});
+    const mail=el("input",{type:"text",placeholder:"e-mail kolegy",id:id+"_splitMail",autocomplete:"off",autocapitalize:"off","aria-label":"E-mail poradce"});
+    const nm=el("input",{type:"text",placeholder:"jméno a příjmení",id:id+"_splitNm","aria-label":"Jméno příjemce"});
     const res=el("div",{class:"hint dealres"},"");
     const info=el("p",{class:"hint",style:"padding:4px 16px 12px"},"");
-    const nm=el("input",{type:"text",placeholder:"jméno a příjmení",id:id+"_splitNm","aria-label":"Jméno příjemce"});
-    const nmRow=el("div",{class:"frow"},el("label",{for:id+"_splitNm"},"Jméno"),nm);nm.value=it.splitToName||"";let nmTouched=!!it.splitToName;
-    other.value=it.splitToName||"";mail.value=it.splitMail||"";
-    const valid=it.splitTo&&(it.splitTo===OTHER||it.splitTo===ADV||String(it.splitTo).startsWith("adv:")||team.some(m=>m.id===it.splitTo));
-    sel.value=valid?it.splitTo:"";
+    const evRow=el("div",{class:"frow"},el("label",{for:id+"_splitEv"},"Kdo"),evSel);
+    const otherRow=el("div",{class:"frow"},el("label",{for:id+"_splitToName"},"Jméno"),other);
+    const mailRow=el("div",{class:"frow"},el("label",{for:id+"_splitMail"},"E-mail"),mail);
+    const nmRow=el("div",{class:"frow"},el("label",{for:id+"_splitNm"},"Jméno"),nm);
+    let nmTouched=false;
+    const t=it.splitTo||"";
+    if(t.startsWith("adv:")){main.value=t;nm.value=it.splitToName||"";nmTouched=!!nm.value}
+    else if(t===ADV){main.value=ADV;mail.value=it.splitMail||"";nm.value=it.splitToName||"";nmTouched=!!nm.value}
+    else if(evId(t)){main.value=EV;evSel.value=t;other.value=it.splitToName||""}
     const refresh=()=>{
-      const v=sel.value;other.hidden=v!==OTHER;mailRow.hidden=v!==ADV;res.hidden=v!==ADV;
-      let em="";
+      const v=main.value;let em="";
+      mailRow.hidden=v!==ADV;evRow.hidden=v!==EV;otherRow.hidden=!(v===EV&&evSel.value===OTHER);
       if(v===ADV){const r=resolve(mail.value,team);it.splitMail=r.email||"";em=r.email;
-        res.textContent=r.email?"→ "+(r.name?r.name+" · ":"")+r.email:(mail.value.trim()?r.err:"");res.className="hint dealres"+(r.email?" ok":"");
+        res.textContent=r.email?"→ "+r.email:(mail.value.trim()?r.err:"");
         if(r.email&&!nmTouched){nm.value=r.name||r.guess||"";it.splitToName=nm.value||null}}
-      else if(v.startsWith("adv:")){em=v.slice(4);const k=known.find(x=>x.email===em);if(!nmTouched){nm.value=k&&k.name||guessName(em);it.splitToName=nm.value||null}}
+      else if(v.startsWith("adv:")){em=v.slice(4);res.textContent="→ "+em;
+        if(!nmTouched){const k=known.find(x=>x.email===em);nm.value=k&&k.name||guessName(em);it.splitToName=nm.value||null}}
+      res.hidden=!(v===ADV||v.startsWith("adv:"))||!res.textContent;res.className="hint dealres"+(em?" ok":"");
       nmRow.hidden=!em;
-      const adv=!!em;
-      info.textContent=adv?"Po uložení dostane kolega žádost (musí mít přístup do Pipeline a přihlásit se tímto Gmailem; jinak žádost počká). Navržené jméno si můžeš upravit, po přijetí se doplní skutečné. Jméno klienta, fázi, produkty a svůj podíl bodů uvidí až po přijetí. Stav obchodu měníš jen ty. Ověř si, že dělení provize a předání jména klienta dovolují pravidla ZFP a že s tím klient souhlasí.":
-        v===ADV?"Zadej e-mail kolegy (Gmail, kterým se přihlašuje do Pipeline), nebo jméno kolegy z týmu.":
-        "Uloží se u tohoto obchodu jen jako evidence – nikomu se nic neposílá a v jeho Pipeline se nic neobjeví."};
-    const mailRow=el("div",{class:"frow"},el("label",{for:id+"_splitMail"},"Kolega"),mail);
-    sel.addEventListener("change",()=>{it.splitTo=sel.value||null;if(!sel.value.startsWith("adv:")&&sel.value!==ADV&&sel.value!==OTHER){it.splitToName=null;nm.value="";nmTouched=false}if(sel.value!==ADV)it.splitMail=null;if(sel.value===OTHER){nm.value="";nmTouched=false;it.splitToName=other.value.trim()||null}refresh();upd&&upd()});
+      info.hidden=!(em||v===ADV||v===EV);
+      info.textContent=em?"Kolega dostane žádost (musí se do Pipeline přihlásit tímto Gmailem). Údaje o klientovi uvidí až po přijetí, stav obchodu měníš jen ty. Ověř, že dělení provize povolují pravidla ZFP a klient souhlasí.":
+        v===ADV?"Zadej Gmail, kterým se kolega přihlašuje do Pipeline (nadřízený, kolega mimo tým…).":
+        "Uloží se jen jako evidence – nikomu se nic neposílá a v jeho Pipeline se nic neobjeví."};
+    main.addEventListener("change",()=>{
+      const v=main.value;nmTouched=false;
+      if(v==="")it.splitTo=null;
+      else if(v===EV)it.splitTo=evSel.value||null;
+      else it.splitTo=v;
+      if(v!==ADV)it.splitMail=null;
+      if(!(v.startsWith("adv:")||v===ADV)){nm.value="";it.splitToName=v===EV&&evSel.value===OTHER?(other.value.trim()||null):null}
+      refresh();upd&&upd()});
+    evSel.addEventListener("change",()=>{it.splitTo=evSel.value||null;it.splitToName=evSel.value===OTHER?(other.value.trim()||null):null;refresh();upd&&upd()});
+    other.addEventListener("input",()=>{it.splitToName=other.value.trim()||null});
+    mail.addEventListener("input",refresh);
     nm.addEventListener("input",()=>{nmTouched=!!nm.value.trim();it.splitToName=nm.value.trim()||null});
-    other.addEventListener("input",()=>{it.splitToName=other.value});
-    mail.addEventListener("input",()=>{refresh()});
-    const wrap=el("div",{class:"group",style:"margin-top:8px"},el("div",{class:"frow"},el("label",{for:id+"_splitTo"},"Komu jde zbytek provize"),sel),other,mailRow,res,nmRow,info);
+    const wrap=el("div",{class:"group",style:"margin-top:8px"},el("div",{class:"frow"},el("label",{for:id+"_splitTo"},"Komu jde zbytek provize"),main),mailRow,res,nmRow,evRow,otherRow,info);
     refresh();return wrap}
 
   /* ---------- panel „Sdílení“ v kartě obchodu ---------- */
