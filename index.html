@@ -6157,6 +6157,7 @@ function renderAsCfg(){
 }
 /* =====================  START  ===================== */
 function asStart(){
+  if(AsNet.enabled())AsNet.start();   /* připojení k databázi hned po startu (načtení knihovny trvá pár vteřin) */
   db.collection("mytasks").onSnapshot(snap=>{myTasks=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pipe")render()});
   const tick=()=>{if(AsNet.enabled()&&!AsNet.on)AsNet.start();if(document.visibilityState!=="visible")return;asAutoMode();if(asFlag)asPull();if(!asMode())asAdvSync()};
   setTimeout(()=>{(AsNet.enabled()?AsNet.start():Promise.resolve()).then(()=>asCheckInv(true)).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else{if(asFlag)asPull(true);asAdvSync(true)}})},3500);
