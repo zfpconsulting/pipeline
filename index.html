@@ -6563,7 +6563,13 @@ const AsNet=(()=>{
   const M={la:new Map(),ta:new Map(),ls:new Map(),ts:new Map(),ss:new Map(),do:new Map(),dr:new Map(),dc:new Map(),dd:new Map()};   /* do/dr = sdílené obchody, které jsem založil / které mi někdo sdílí */   /* la/ta = moje propojení/úkoly jako poradce, ls/ts/ss = jako asistentka */
   let flag=false, tm=null;
   const enabled=()=>!!(window.__FS||AS_FB);
-  const myName=()=>asPretty(lsGet("g_name"),asMeMail())||asNameOf(asMeMail());
+  const myName=()=>{   /* jméno, které uvidí kolega: z Google účtu → z podpisu → z názvu appky („Pipeline – Jméno Příjmení“) → z e-mailu */
+    const g=lsGet("g_name");if(g)return asPretty(g,asMeMail());
+    const st=(typeof settings!=="undefined"&&settings)||{};
+    let n=String(st.sign||"").split(",")[0].trim();
+    if(!/\S\s+\S/.test(n))n=String(st.appName||"").replace(/^\s*pipeline\s*[-–—:]?\s*/i,"").trim();
+    if(/\S\s+\S/.test(n)&&n.length<=60&&!/\d/.test(n))return n;
+    return asPretty("",asMeMail())||asNameOf(asMeMail()).replace(/^./,c=>c.toUpperCase())};
   const taskObj=d=>({id:d.id,adv:d.adv,asst:d.asst,text:d.text,client:d.client||"",due:d.due||"",st:d.st||"nový",an:d.an||"",bn:d.bn||"",by:d.by||"adv",at:d.at||"",up:d.ut||"",done:d.done||""});
   const W=(p,ms=12000)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj(new Error("timeout")),ms))]);
   function emit(){S.ver++;clearTimeout(tm);tm=setTimeout(()=>{try{reconcile()}catch(e){}if(typeof asNetChanged==="function")asNetChanged()},120)}
