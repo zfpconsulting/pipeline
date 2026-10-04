@@ -6034,9 +6034,25 @@ function demoBuild(real){
   const zf="zfpi-czk", wi=["wi-dynamicke","wi-akciove","wi-vyvazene"].find(addF)||fk.find(s=>s.startsWith("wi-")), cq=fk.find(s=>!/^(zfpi-|wi-|ps-)/.test(s));
   addF(zf);
   const inv=(ci,name,items,reg,cra)=>put("pfinv/demop"+ci,{name,client:cids[ci],items,tgt:items.length===1?items[0].tgt:"",dep:[],reg:reg||null,cra:cra||0,rebal:null,dip:false,emp:null,fee:{mode:"each",base:0,per:{}},createdAt:iso,updatedAt:iso});
-  if(has(zf)){inv(1,"Investice volných peněz",[{tgt:"f:"+zf,dep:[{d:"2023-04-12",a:650000}],ra:0}]);inv(7,"Renta",[{tgt:"f:"+zf,dep:[{d:"2018-06-20",a:2400000}],ra:0}]);inv(5,"Rezerva a zhodnocení",[{tgt:"f:"+zf,dep:[{d:"2022-03-01",a:300000}],ra:0}])}
-  if(wi){inv(0,"Spoření pro děti",[{tgt:"f:"+wi,dep:[],ra:3000}],{freq:"m",from:"2022-02-15",to:""});inv(8,"První investice",[{tgt:"f:"+wi,dep:[{d:"2025-02-10",a:20000}],ra:1500}],{freq:"m",from:"2025-03-10",to:""})}
-  if(cq){inv(2,"Důchodové portfolio",[{tgt:"f:"+cq,dep:[{d:"2019-09-05",a:1800000}],ra:0}]);inv(4,"Dynamické portfolio",[{tgt:"f:"+cq,dep:[{d:"2024-01-20",a:50000}],ra:0}],{freq:"m",from:"2024-02-20",to:""},8000)}
+  /* každý klient má modelované portfolio z ZFPI, ZFP WI a Conseq (co appka zná) – vklady v čase + případné pravidelné spoření */
+  addF("wi-vyvazene");addF("wi-akciove");
+  const wiL=fk.filter(s=>s.startsWith("wi-")), FK={zf:has(zf)?zf:null,wi:wiL[0]||null,wi2:wiL[1]||wiL[0]||null,cq:cq||null}, fb=FK.zf||FK.wi||FK.cq;
+  const mkPf=(ci,name,deps,regs,regFrom)=>{
+    const by={};
+    (deps||[]).forEach(([k,d,a])=>{const t="f:"+(FK[k]||fb);(by[t]=by[t]||{tgt:t,dep:[],ra:0}).dep.push({d,a})});
+    Object.entries(regs||{}).forEach(([k,a])=>{const t="f:"+(FK[k]||fb);(by[t]=by[t]||{tgt:t,dep:[],ra:0}).ra+=a});
+    const items=Object.values(by);items.forEach(x=>x.dep.sort((p,q)=>p.d<q.d?-1:1));
+    if(items.length&&items[0].tgt!=="f:null")inv(ci,name,items,regFrom?{freq:"m",from:regFrom,to:""}:null)};
+  mkPf(0,"Spoření pro děti a renta",[["zf","2022-03-10",150000],["wi","2022-02-15",50000],["cq","2022-06-01",100000]],{wi:3000},"2022-02-15");
+  mkPf(1,"Investice volných peněz",[["zf","2023-04-12",400000],["wi","2023-04-12",150000],["cq","2023-09-05",100000]]);
+  mkPf(2,"Důchodové portfolio",[["cq","2019-09-05",1000000],["zf","2019-10-01",600000],["wi","2021-03-02",200000]]);
+  mkPf(3,"Rezerva a větší byt",[["zf","2023-02-01",100000],["cq","2023-02-01",50000]],{wi:1500},"2023-03-01");
+  mkPf(4,"Dynamické portfolio",[["wi2","2024-01-20",30000],["cq","2024-01-20",20000],["zf","2024-03-04",20000]],{wi2:3000,cq:5000},"2024-02-20");
+  mkPf(5,"Rezerva a zhodnocení",[["zf","2022-03-01",180000],["wi","2022-03-01",70000],["cq","2023-01-10",50000]]);
+  mkPf(6,"Firemní rezerva a investice",[["zf","2023-06-15",300000],["cq","2023-06-15",150000],["wi2","2024-02-01",100000]],{wi2:5000},"2024-03-01");
+  mkPf(7,"Renta",[["zf","2018-06-20",1500000],["cq","2018-06-20",600000],["wi","2019-02-12",300000]]);
+  mkPf(8,"První investice",[["wi","2025-02-10",20000],["cq","2025-03-10",5000]],{wi:1000,cq:500},"2025-03-10");
+  mkPf(9,"Investice vedle nemovitosti",[["wi","2022-04-20",300000],["cq","2022-04-20",400000],["zf","2022-09-01",200000]]);
   return docs;
 }
 /* on: true = prezentační, "clean" = čistý režim, false = zpět na skutečná data; regen = začít znovu (zahodit úpravy v režimu) */
@@ -6562,6 +6578,7 @@ function asGuessName(e){
   return w.map(x=>x[0].toUpperCase()+x.slice(1).toLowerCase()).join(" ")}
 function asPretty(n,e){   /* jméno k zobrazení: skutečné jméno nechá být, „jmeno.prijmeni“ nebo prázdné odvodí z e-mailu */
   n=String(n||"").trim();
+  if(/pipeline/i.test(n))n="";   /* název appky („Johnyho pipeline“) není jméno člověka → odvodit z e-mailu */
   if(n&&!/^\S*[._]\S*$/.test(n))return n;   /* skutečné jméno (s mezerou, bez teček) se nemění */
   const g=asGuessName(e||(/@/.test(n)?n:""))||(/^\S+[._]\S+$/.test(n)?asGuessName(n):"");
   return g||n.replace(/[._]+/g," ").replace(/\d+/g," ").replace(/\s+/g," ").trim().replace(/(^|\s)(\S)/g,(m,p,c)=>p+c.toUpperCase())}
@@ -6576,7 +6593,7 @@ const AsNet=(()=>{
     const st=(typeof settings!=="undefined"&&settings)||{};
     let n=String(st.sign||"").split(",")[0].trim();
     if(!/\S\s+\S/.test(n))n=String(st.appName||"").replace(/^\s*pipeline\s*[-–—:]?\s*/i,"").trim();
-    if(/\S\s+\S/.test(n)&&n.length<=60&&!/\d/.test(n))return n;
+    if(/\S\s+\S/.test(n)&&n.length<=60&&!/\d/.test(n)&&!/pipeline/i.test(n))return n;
     return asPretty("",asMeMail())||asNameOf(asMeMail()).replace(/^./,c=>c.toUpperCase())};
   const taskObj=d=>({id:d.id,adv:d.adv,asst:d.asst,text:d.text,client:d.client||"",due:d.due||"",st:d.st||"nový",an:d.an||"",bn:d.bn||"",by:d.by||"adv",at:d.at||"",up:d.ut||"",done:d.done||""});
   const W=(p,ms=12000)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj(new Error("timeout")),ms))]);
