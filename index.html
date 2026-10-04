@@ -5380,6 +5380,39 @@ function pfItemFlows(it,reg,lastDay){
   return out.sort((a,b)=>a.d-b.d);
 }
 function pfFlows(x,lastDay){return pfItems(x).flatMap(it=>pfItemFlows(it,x.reg,lastDay)).sort((a,b)=>a.d-b.d)}
+/* vklady z Portfolia → produkty klienta: za každého poskytovatele (ZFP Investments, ZFP World Index, Conseq…) se u klienta
+   udržuje „Investice“ (součet jednorázových vkladů k dnešku) a „Pravidelná investice“ (měsíční částka); u produktu, který už
+   klient má, se přepíše částka, jinak se založí nový (označený pf). Penzijní fondy (DPS) a ručně zadané produkty se nemění. */
+let _pfSyncT=null;
+function pfSyncClientsSoon(){clearTimeout(_pfSyncT);_pfSyncT=setTimeout(()=>{pfSyncClients().catch(()=>{})},700)}
+async function pfSyncClients(){
+  if(typeof pfInv==="undefined"||!clients.length||!pfInv.length)return;
+  const day=new Date().toISOString().slice(0,10),today=pfDnum(day),byC=new Map();
+  pfInv.forEach(x=>{const cl=x.client&&clients.find(c=>c.id===x.client);if(!cl)return;
+    pfItems(x).forEach(it=>{
+      let parts;
+      if(it.tgt&&it.tgt[0]==="m"){const mi=((pfModels.find(m=>m.id===it.tgt.slice(2))||{}).items||[]).filter(i=>+i.w>0),tw=mi.reduce((a,i)=>a+(+i.w),0)||1;parts=mi.map(i=>({slug:i.key,k:+i.w/tw}))}
+      else parts=[{slug:String(it.tgt||"").slice(2),k:1}];
+      parts.forEach(pt=>{const f=pfFund(pt.slug);if(!f||pfIsPens(f)||f.zfpf)return;const co=pfMgr(f);if(!co||co==="Ostatní")return;
+        const a=byC.get(cl.id)||{},o=a[co]=a[co]||{dep:0,first:"",reg:0,regFrom:""};byC.set(cl.id,a);
+        (it.dep||[]).filter(v=>v&&v.d&&+v.a>0&&pfDnum(v.d)<=today).forEach(v=>{o.dep+=+v.a*pt.k;const d=String(v.d).slice(0,10);if(!o.first||d<o.first)o.first=d});
+        if(+it.ra>0&&x.reg&&x.reg.from&&(!x.reg.to||x.reg.to>=day)){const st=x.reg.freq==="q"?3:x.reg.freq==="y"?12:1;o.reg+=+it.ra*pt.k/st;const d=String(x.reg.from).slice(0,10);if(!o.regFrom||d<o.regFrom)o.regFrom=d}
+      })})});
+  const nz=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+  const same=(p,co)=>{const a=nz(p.company),b=nz(co);return !!a&&(a===b||a.includes(b)||b.includes(a))};
+  for(const [cid,agg] of byC){
+    const cl=clients.find(c=>c.id===cid),old=cl.products||[];let prods=old.map(p=>({...p}));
+    const want=new Set();
+    Object.entries(agg).forEach(([co,o])=>{
+      [["Investice",Math.round(o.dep),"Kč",o.first],["Pravidelná investice",Math.round(o.reg),"Kč/měs",o.regFrom]].forEach(([type,amt,unit,from])=>{
+        const id="pf-"+(type==="Investice"?"i":"r")+"-"+nz(co);
+        if(amt>0){want.add(id);const p=prods.find(q=>q.type===type&&(q.id===id||same(q,co)));
+          if(p){p.amt=amt;p.pf=1;want.add(p.id)}
+          else prods.push({id,type,company:co,amt,unit,from:from||day,status:"active",no:"",pf:1})}})});
+    prods=prods.filter(p=>!p.pf||want.has(p.id));
+    if(JSON.stringify(prods)!==JSON.stringify(old)){
+      try{await db.doc("clients/"+cid).update({products:prods})}catch(e){}}}
+}
 function pfInvTgtName(x){return pfItems(x).map(i=>pfTgtName(i.tgt)).join(" + ")}
 function pfCatF(key,extra){const f=pfFund(key);if(f)return f;const c=[...PF_CAT,...(extra||[])].find(c=>c.key===key);return c?{slug:key,...c}:null}
 /* název fondu: uložený, jinak ze stažených dat; když je to jen slug (s pomlčkami), udělá z něj čitelný název */
@@ -6231,11 +6264,11 @@ async function updateEurRate(){
   db=LStore.api;
   updateEurRate();
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
-  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="cli")render()});
+  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="cli")render();pfSyncClientsSoon()});
   db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
-  db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
-  db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf()});
-  db.collection("pfinv").onSnapshot(snap=>{pfInv=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf()});
+  db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
+  db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf")renderPf()});
+  db.collection("pfinv").onSnapshot(snap=>{pfInv=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf();pfSyncClientsSoon()});
   db.collection("recruits").onSnapshot(snap=>{recruits=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="net")render()});
   db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};clLoaded.settings=true;setTimeout(clMigrate,0);applyAppName();if(typeof applyAsMode==="function")applyAsMode();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks()});
   $("todayBtn").onclick=openToday;maybeOpenToday();
