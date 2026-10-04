@@ -6033,26 +6033,27 @@ function demoBuild(real){
     put("funds/demof"+key,{url:c.url,slug:c.key,name:c.name||"",fixed:!!c.name,cur:"",hidden:true,createdAt:iso});fk.push(key);return true};
   const zf="zfpi-czk", wi=["wi-dynamicke","wi-akciove","wi-vyvazene"].find(addF)||fk.find(s=>s.startsWith("wi-")), cq=fk.find(s=>!/^(zfpi-|wi-|ps-)/.test(s));
   addF(zf);
-  const inv=(ci,name,items,reg,cra)=>put("pfinv/demop"+ci,{name,client:cids[ci],items,tgt:items.length===1?items[0].tgt:"",dep:[],reg:reg||null,cra:cra||0,rebal:null,dip:false,emp:null,fee:{mode:"each",base:0,per:{}},createdAt:iso,updatedAt:iso});
+  const inv=(ci,name,items,reg,cra,sfx)=>put("pfinv/demop"+ci+(sfx||""),{name,client:cids[ci],items,tgt:items.length===1?items[0].tgt:"",dep:[],reg:reg||null,cra:cra||0,rebal:null,dip:false,emp:null,fee:{mode:"each",base:0,per:{}},createdAt:iso,updatedAt:iso});
   /* každý klient má modelované portfolio z ZFPI, ZFP WI a Conseq (co appka zná) – vklady v čase + případné pravidelné spoření */
   addF("wi-vyvazene");addF("wi-akciove");
   const wiL=fk.filter(s=>s.startsWith("wi-")), FK={zf:has(zf)?zf:null,wi:wiL[0]||null,wi2:wiL[1]||wiL[0]||null,cq:cq||null}, fb=FK.zf||FK.wi||FK.cq;
-  const mkPf=(ci,name,deps,regs,regFrom)=>{
+  /* klient má víc samostatných investic najednou; každá je z jednoho či dvou nástrojů */
+  const mkPf=(ci,list)=>list.forEach(([name,deps,regs,regFrom],n)=>{
     const by={};
     (deps||[]).forEach(([k,d,a])=>{const t="f:"+(FK[k]||fb);(by[t]=by[t]||{tgt:t,dep:[],ra:0}).dep.push({d,a})});
     Object.entries(regs||{}).forEach(([k,a])=>{const t="f:"+(FK[k]||fb);(by[t]=by[t]||{tgt:t,dep:[],ra:0}).ra+=a});
     const items=Object.values(by);items.forEach(x=>x.dep.sort((p,q)=>p.d<q.d?-1:1));
-    if(items.length&&items[0].tgt!=="f:null")inv(ci,name,items,regFrom?{freq:"m",from:regFrom,to:""}:null)};
-  mkPf(0,"Spoření pro děti a renta",[["zf","2022-03-10",150000],["wi","2022-02-15",50000],["cq","2022-06-01",100000]],{wi:3000},"2022-02-15");
-  mkPf(1,"Investice volných peněz",[["zf","2023-04-12",400000],["wi","2023-04-12",150000],["cq","2023-09-05",100000]]);
-  mkPf(2,"Důchodové portfolio",[["cq","2019-09-05",1000000],["zf","2019-10-01",600000],["wi","2021-03-02",200000]]);
-  mkPf(3,"Rezerva a větší byt",[["zf","2023-02-01",100000],["cq","2023-02-01",50000]],{wi:1500},"2023-03-01");
-  mkPf(4,"Dynamické portfolio",[["wi2","2024-01-20",30000],["cq","2024-01-20",20000],["zf","2024-03-04",20000]],{wi2:3000,cq:5000},"2024-02-20");
-  mkPf(5,"Rezerva a zhodnocení",[["zf","2022-03-01",180000],["wi","2022-03-01",70000],["cq","2023-01-10",50000]]);
-  mkPf(6,"Firemní rezerva a investice",[["zf","2023-06-15",300000],["cq","2023-06-15",150000],["wi2","2024-02-01",100000]],{wi2:5000},"2024-03-01");
-  mkPf(7,"Renta",[["zf","2018-06-20",1500000],["cq","2018-06-20",600000],["wi","2019-02-12",300000]]);
-  mkPf(8,"První investice",[["wi","2025-02-10",20000],["cq","2025-03-10",5000]],{wi:1000,cq:500},"2025-03-10");
-  mkPf(9,"Investice vedle nemovitosti",[["wi","2022-04-20",300000],["cq","2022-04-20",400000],["zf","2022-09-01",200000]]);
+    if(items.length&&items[0].tgt!=="f:null")inv(ci,name,items,regFrom?{freq:"m",from:regFrom,to:""}:null,0,"_"+n)});
+  mkPf(0,[["Spoření pro děti",[["wi","2022-02-15",50000]],{wi:3000},"2022-02-15"],["Renta od 60 let",[["zf","2022-03-10",150000],["cq","2022-06-01",100000]]]]);
+  mkPf(1,[["Investice volných peněz",[["zf","2023-04-12",400000]]],["Dlouhodobý růst",[["wi","2023-04-12",150000]]],["Dynamická část",[["cq","2023-09-05",100000]]]]);
+  mkPf(2,[["Důchodové portfolio",[["cq","2019-09-05",1000000],["wi","2021-03-02",200000]]],["Stabilní výnos",[["zf","2019-10-01",600000]]]]);
+  mkPf(3,[["Rezerva",[["zf","2023-02-01",100000]]],["Pravidelné spoření",[["cq","2023-02-01",50000]],{wi:1500},"2023-03-01"]]);
+  mkPf(4,[["Dynamické portfolio",[["wi2","2024-01-20",30000],["cq","2024-01-20",20000]],{wi2:3000,cq:5000},"2024-02-20"],["Rezervní část",[["zf","2024-03-04",20000]]]]);
+  mkPf(5,[["Rezerva",[["zf","2022-03-01",180000]]],["Zhodnocení",[["wi","2022-03-01",70000],["cq","2023-01-10",50000]]]]);
+  mkPf(6,[["Firemní rezerva",[["zf","2023-06-15",300000]]],["Investice",[["cq","2023-06-15",150000],["wi2","2024-02-01",100000]],{wi2:5000},"2024-03-01"]]);
+  mkPf(7,[["Renta",[["zf","2018-06-20",1500000]]],["Doplňkové portfolio",[["cq","2018-06-20",600000],["wi","2019-02-12",300000]]]]);
+  mkPf(8,[["První investice",[["wi","2025-02-10",20000]],{wi:1000},"2025-03-10"],["Doplněk",[["cq","2025-03-10",5000]],{cq:500},"2025-03-10"]]);
+  mkPf(9,[["Investice vedle nemovitosti",[["wi","2022-04-20",300000]]],["Konzervativní část",[["cq","2022-04-20",400000]]],["ZFP Investments",[["zf","2022-09-01",200000]]]]);
   return docs;
 }
 /* on: true = prezentační, "clean" = čistý režim, false = zpět na skutečná data; regen = začít znovu (zahodit úpravy v režimu) */
