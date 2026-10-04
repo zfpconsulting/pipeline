@@ -4318,7 +4318,7 @@ function ctWeekLabel(a){const b=addDaysFrom(a,6),da=new Date(a+"T00:00:00"),db=n
 function ctIsMine(ev){const re=prefixRe();if(!re)return true;if(!re.test(ev.title))return false;
   const rest=ev.title.replace(re,"").trim();return !!rest&&!/^úkoly?$/i.test(rest)}
 /* barva události v kalendáři – tvoje (podle prefixu) vždy modře, ostatní šedě, bez ohledu na to, ze kterého vybraného kalendáře pochází */
-function evColor(ev){return ctIsMine(ev)?"var(--tint)":"var(--gray)"}
+function evColor(ev){return "var(--orange)"}
 /* klíč klienta z názvu události (příjmení za prefixem), pro rozpoznání „poprvé v kalendáři“ */
 function ctClientKey(ev){if(!ctIsMine(ev))return null;const re=prefixRe();const rest=ev.title.replace(re,"").trim();
   const w=rest.split(/\s+/)[0];return w?norm(w):null}
