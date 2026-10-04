@@ -1242,7 +1242,7 @@ const GAuth={
     const owner=lsGet("g_owner");
     if(owner&&owner!==email){wipeLocal();toast("Přihlášen jiný účet – načítám jeho data")}
     lsSet("g_owner",email);lsSet("g_hint",email);localStorage.removeItem("g_check");
-    Trk.login(email,r.name||"");
+    if(r.name)lsSet("g_name",r.name);Trk.login(email,r.name||"");
   },
   handleRedirect(){
     const h=location.hash;if(!/access_token=|error=/.test(h))return;
@@ -5037,7 +5037,7 @@ const Acc={
 /* ---- správa uživatelů (jen admin) ---- */
 const U_ST=[["čeká","Čeká"],["aktivní","Aktivní"],["zkušební","Zkušební"],["blokován","Blokován"]];
 function usersBadge(list){const n=(list||[]).filter(u=>u.status==="čeká").length;$("usersBtn").textContent=n?"Uživatelé · "+n:"Uživatelé";$("usersBtn").classList.toggle("hot",n>0)}
-async function adminCall(p){const tok=GAuth.token();if(!tok)throw Object.assign(new Error("login"),{code:"login"});const j=await Acc.post({t:"admin",email:ADMIN,tok,...p});if(j.status!=="ok")throw new Error(j.status);lsSet("adm_list",j.list);usersBadge(j.list);return j.list}
+async function adminCall(p){const tok=GAuth.token();if(!tok)throw Object.assign(new Error("login"),{code:"login"});const j=await Acc.post({t:"admin",email:ADMIN,tok,...p});if(j.status!=="ok")throw new Error(j.status);lsSet("adm_list",j.list);usersBadge(j.list);if(typeof AsNet!=="undefined")AsNet.syncFlags(j.list);return j.list}
 /* vykreslí seznam uživatelů (tiles + čekající + karty) do daného kontejneru – sdíleno mezi
    rychlým náhledem (usersBtn) a plnou záložkou „Uživatelé“; síťové načtení dělá volající. */
 function drawUsersInto(container,list){
@@ -5046,7 +5046,7 @@ function drawUsersInto(container,list){
   const act=async(p,msg)=>{try{drawUsersInto(container,await adminCall(p));if(msg)toast(msg)}catch(e){toast(e.code==="login"?"Přihlášení vypršelo – obnov ho":"Nepovedlo se uložit")}};
   const pend=list.filter(u=>u.status==="čeká"), others=list.filter(u=>u.status!=="čeká").sort((a,b)=>(b.last||"").localeCompare(a.last||""));
   const tile=(k,v)=>el("div",{class:"tile"},el("div",{class:"k"},k),el("div",{class:"v"},String(v)));
-  const asCb=u=>{const c=el("input",{type:"checkbox","aria-label":"Asistentka"});c.checked=!!u.assistant;c.onchange=()=>act({op:"set",email:u.email,assistant:c.checked},c.checked?"Označena jako asistentka":"Asistentka zrušena");return c};
+  const asCb=u=>{const c=el("input",{type:"checkbox","aria-label":"Asistentka"});c.checked=!!u.assistant;c.onchange=()=>{act({op:"set",email:u.email,assistant:c.checked},c.checked?"Označena jako asistentka":"Asistentka zrušena");if(typeof AsNet!=="undefined")AsNet.setFlag(u.email,c.checked)};return c};
   const card=u=>{const me=u.email===ADMIN;
     const s=el("select",{disabled:me?"":null},U_ST.map(([v,t])=>el("option",{value:v},t)));s.value=u.status;s.onchange=()=>act({op:"set",email:u.email,status:s.value},"Stav: "+s.selectedOptions[0].textContent);
     const pd=el("input",{type:"date"});pd.value=u.paid||"";pd.onchange=()=>act({op:"set",email:u.email,paid:pd.value},"Uloženo");
@@ -5262,6 +5262,147 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
 </script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
+/* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */
+const AS_FB={apiKey:"AIzaSyDfS0FJx1EtbgqJSUUOK722PB_5Zo6hCuI",authDomain:"zfp-pipeline.firebaseapp.com",projectId:"zfp-pipeline",appId:"1:866234331328:web:b3f4701a310829df1bfd25"};   /* veřejná konfigurace webové aplikace (není tajná, chrání ji pravidla databáze); null = starý server (Apps Script) */
+const AsNet=(()=>{
+  const low=s=>String(s||"").toLowerCase().trim(), isoNow=()=>new Date().toISOString();
+  const S={on:false,starting:false,fs:null,me:"",ver:0,got:new Set(),unsub:[],tried:new Map(),err:null,reads:0};
+  const M={la:new Map(),ta:new Map(),ls:new Map(),ts:new Map(),ss:new Map()};   /* la/ta = moje propojení/úkoly jako poradce, ls/ts/ss = jako asistentka */
+  let flag=false, tm=null;
+  const enabled=()=>!!(window.__FS||AS_FB);
+  const myName=()=>lsGet("g_name")||asNameOf(asMeMail()).replace(/^./,c=>c.toUpperCase());
+  const taskObj=d=>({id:d.id,adv:d.adv,asst:d.asst,text:d.text,client:d.client||"",due:d.due||"",st:d.st||"nový",an:d.an||"",bn:d.bn||"",by:d.by||"adv",at:d.at||"",up:d.ut||"",done:d.done||""});
+  const W=(p,ms=12000)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj(new Error("timeout")),ms))]);
+  function emit(){S.ver++;clearTimeout(tm);tm=setTimeout(()=>{try{reconcile()}catch(e){}if(typeof asNetChanged==="function")asNetChanged()},120)}
+  async function realFS(){
+    const B="https://www.gstatic.com/firebasejs/12.19.0/";
+    const [A,Au,F]=await Promise.all([import(B+"firebase-app.js"),import(B+"firebase-auth.js"),import(B+"firebase-firestore.js")]);
+    const app=A.initializeApp(AS_FB);
+    let db;try{db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})})}catch(e){db=F.getFirestore(app)}
+    const au=Au.getAuth(app), D=(c,id)=>F.doc(db,c,id);
+    return {
+      async signIn(tok,me){await au.authStateReady();const u=au.currentUser;if(u&&low(u.email)===me)return;if(!tok)throw new Error("notok");await Au.signInWithCredential(au,Au.GoogleAuthProvider.credential(null,tok))},
+      listen(c,w,cb,eb){return F.onSnapshot(F.query(F.collection(db,c),...w.map(x=>F.where(x[0],x[1],x[2]))),s=>cb(s.docs.map(d=>({id:d.id,...d.data()})),s.metadata.fromCache),eb)},
+      listenDoc(c,id,cb,eb){return F.onSnapshot(D(c,id),s=>cb(s.exists()?{id:s.id,...s.data()}:null),eb)},
+      newId(c){return F.doc(F.collection(db,c)).id},
+      set:(c,id,d)=>F.setDoc(D(c,id),d), update:(c,id,p)=>F.updateDoc(D(c,id),p), del:(c,id)=>F.deleteDoc(D(c,id)),
+      async batch(ops){const b=F.writeBatch(db);ops.forEach(o=>{if(o.s)b.set(D(o.s[0],o.s[1]),o.s[2]);else if(o.u)b.update(D(o.u[0],o.u[1]),o.u[2]);else if(o.d)b.delete(D(o.d[0],o.d[1]))});await b.commit()},
+      signOut:()=>Au.signOut(au)
+    }}
+  async function start(){
+    const me=low(asMeMail());
+    if(!enabled()||!me||S.starting||(S.on&&S.me===me))return S.on;
+    if(!Trk.on()||!Acc.ok())return false;
+    S.starting=true;
+    try{
+      if(S.on){stop()}
+      S.fs=window.__FS||await realFS();
+      await S.fs.signIn(GAuth.token(),me);
+      S.me=me;
+      const on=(c,w,map,key)=>S.unsub.push(S.fs.listen(c,w,docs=>{map.clear();docs.forEach(d=>map.set(d.id,d));S.reads+=docs.length;S.got.add(key);emit()},e=>{S.err=e;S.got.add(key)}));
+      on("links",[["adv","==",me]],M.la,"la");on("tasks",[["adv","==",me]],M.ta,"ta");
+      on("links",[["asst","==",me]],M.ls,"ls");on("tasks",[["asst","==",me],["sh","==",true]],M.ts,"ts");on("snaps",[["asst","==",me],["sh","==",true]],M.ss,"ss");
+      S.unsub.push(S.fs.listenDoc("flags",me,d=>{flag=!!(d&&d.asst);S.got.add("fl");emit()},e=>{S.err=e;S.got.add("fl")}));
+      S.on=true;
+      if(S.pend){const p=S.pend;S.pend=null;syncFlags(p)}
+    }catch(e){S.err=e;S.fs=null}
+    S.starting=false;return S.on}
+  function stop(){S.unsub.forEach(u=>{try{u()}catch(e){}});S.unsub=[];Object.values(M).forEach(m=>m.clear());S.got.clear();S.on=false;flag=false}
+  const ready=()=>new Promise(res=>{const t0=Date.now();const w=()=>{if(S.got.size>=6||Date.now()-t0>5000)res();else setTimeout(w,60)};w()});
+  /* poradce: úkoly k asistentce, kterou schválila, se jí odemknou (sh), po odebrání zamknou; staré hotové se mažou */
+  function reconcile(){
+    if(!S.on)return;const ops=[],now=Date.now();
+    M.ta.forEach(t=>{
+      const l=M.la.get(S.me+"__"+t.asst), want=!!l&&l.status==="sdílí", k=t.id+(t.sh!==want?"s":"d");
+      if(S.tried.get(k)>now-60000)return;
+      if(t.sh!==want){ops.push({u:["tasks",t.id,{sh:want}]});S.tried.set(k,now)}
+      else if(t.st==="hotovo"&&t.done&&Date.parse(t.done)<now-30*864e5){ops.push({d:["tasks",t.id]});S.tried.set(k,now)}
+    });
+    if(ops.length)W(S.fs.batch(ops.slice(0,400))).catch(()=>{});
+  }
+  async function post(b){
+    if(!S.on)return {status:"offline"};
+    if(b.t==="as_ver")return {status:"ok",v:String(S.ver)};
+    await ready();
+    const me=S.me;
+    try{switch(b.t){
+      case "as_team":{
+        if(Array.isArray(b.assistants)){
+          const want=[...new Set(b.assistants.map(low).filter(x=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)&&x!==me))].slice(0,5);
+          const names={};(settings.assistants||[]).forEach(a=>names[low(a.email)]=a.name||"");
+          const ops=[],nowI=isoNow();
+          want.forEach(a=>{const id=me+"__"+a,l=M.la.get(id);
+            if(!l)ops.push({s:["links",id,{adv:me,asst:a,status:"žádost",advName:myName().slice(0,80),asstName:(names[a]||"").slice(0,80),at:nowI}]});
+            else if(l.status==="odmítnuto")ops.push({u:["links",id,{status:"žádost",at:nowI,advName:myName().slice(0,80),asstName:(names[a]||l.asstName||"").slice(0,80)}]})});
+          M.la.forEach(l=>{if(!want.includes(l.asst)){ops.push({d:["links",l.id]});ops.push({d:["snaps",l.id]});M.ta.forEach(t=>{if(t.asst===l.asst&&t.sh)ops.push({u:["tasks",t.id,{sh:false}]})})}});
+          if(ops.length)await W(S.fs.batch(ops));
+        }
+        return {status:"ok",list:[...M.la.values()].map(l=>({asst:l.asst,status:l.status,uses:l.status!=="žádost",flag:l.status!=="žádost",name:l.asstName||"",at:l.at||""})),tasks:[...M.ta.values()].map(taskObj)}}
+      case "as_snap":{
+        const per=b.per||{};let n=0;const ops=[],nowI=isoNow();
+        M.la.forEach(l=>{if(l.status!=="sdílí")return;const js=JSON.stringify(Array.isArray(per[l.asst])?per[l.asst]:[]);if(js.length>800000)return;
+          ops.push({s:["snaps",l.id,{adv:me,asst:l.asst,sh:true,at:nowI,clients:js}]});n++});
+        if(ops.length)await W(S.fs.batch(ops));
+        return {status:n?"ok":"none"}}
+      case "as_inv":
+        return {status:"ok",flag,list:[...M.ls.values()].map(l=>({advisor:l.adv,name:l.advName||"",status:l.status}))};
+      case "as_resp":{
+        const id=low(b.advisor)+"__"+me, l=M.ls.get(id);if(!l)return {status:"unknown"};
+        const ops=[{u:["links",id,{status:b.allow?"sdílí":"odmítnuto",at:isoNow(),asstName:myName().slice(0,80)}]}];
+        if(!b.allow){ops.push({d:["snaps",id]});M.ts.forEach(t=>{if(t.adv===l.adv)ops.push({u:["tasks",t.id,{sh:false}]})})}
+        await W(S.fs.batch(ops));return {status:"ok"}}
+      case "as_sync":{
+        if(!flag)return {status:"noflag"};
+        const advs=[],ok=new Set(),lim=Date.now()-45*864e5;
+        M.ls.forEach(l=>{if(l.status!=="sdílí")return;ok.add(l.adv);const sn=M.ss.get(l.id);let cl=[];if(sn){try{cl=JSON.parse(sn.clients||"[]")}catch(e){}}
+          advs.push({email:l.adv,name:l.advName||"",at:sn?sn.at||"":"",clients:cl})});
+        return {status:"ok",advisors:advs,tasks:[...M.ts.values()].filter(t=>ok.has(t.adv)&&!(t.st==="hotovo"&&t.done&&Date.parse(t.done)<lim)).map(taskObj)}}
+      case "tk_add":{
+        const t=b.task||{}, text=String(t.text||"").trim().slice(0,500);if(!text)return {status:"bad"};
+        const role=b.role==="asst"?"asst":"adv", adv=role==="adv"?me:low(t.adv), asst=role==="adv"?low(t.asst):me, lid=adv+"__"+asst;
+        const l=role==="adv"?M.la.get(lid):M.ls.get(lid);
+        if(role==="asst"&&!flag)return {status:"noflag"};
+        if(!l||l.status==="odmítnuto"||(role==="asst"&&l.status!=="sdílí"))return {status:"noshare"};
+        const nowI=isoNow(), id=String(t.rid||"").replace(/[^A-Za-z0-9]/g,"").slice(0,24)||S.fs.newId("tasks");
+        const had=(role==="adv"?M.ta:M.ts).get(id);if(had)return {status:"ok",task:taskObj(had)};   /* opakování po ztracené odpovědi */
+        const d={adv,asst,text,client:String(t.client||"").slice(0,120),due:/^\d{4}-\d{2}-\d{2}$/.test(t.due||"")?t.due:"",st:"nový",an:"",bn:"",by:role,at:nowI,ut:nowI,done:"",sh:l.status==="sdílí"};
+        await W(S.fs.set("tasks",id,d));return {status:"ok",task:taskObj({id,...d})}}
+      case "tk_set":{
+        const isAdv=M.ta.has(b.id), t=isAdv?M.ta.get(b.id):M.ts.get(b.id);if(!t)return {status:"unknown"};
+        const p=b.patch||{},u={};
+        if(isAdv){
+          if(p.text!=null){const x=String(p.text).trim().slice(0,500);if(x)u.text=x}
+          if(p.client!=null)u.client=String(p.client).slice(0,120);
+          if(p.due!=null)u.due=/^\d{4}-\d{2}-\d{2}$/.test(p.due)?p.due:"";
+          if(p.bn!=null)u.bn=String(p.bn).slice(0,1000);
+        }else if(p.an!=null)u.an=String(p.an).slice(0,1000);
+        if(p.st!=null){const st=p.st==="čeká"?"rozpracováno":p.st;if(["nový","rozpracováno","hotovo"].includes(st)){u.st=st;u.done=st==="hotovo"?isoNow():""}}
+        u.ut=isoNow();
+        await W(S.fs.update("tasks",b.id,u));return {status:"ok",task:taskObj({...t,...u})}}
+      case "tk_del":{
+        const own=M.ta.has(b.id), t=own?M.ta.get(b.id):M.ts.get(b.id);if(!t)return {status:"unknown"};
+        if(!own&&t.by!=="asst")return {status:"denied"};
+        await W(S.fs.del("tasks",b.id));return {status:"ok"}}
+    }}catch(e){return {status:/permission|denied/i.test(String(e&&(e.code||e.message)))?"denied":"err"}}
+    return {status:"bad"}}
+  /* správce: příznak „Asistentka“ v databázi (stejně jako zaškrtnutí v seznamu uživatelů) */
+  async function setFlag(email,on){
+    if(!S.on||S.me!==low(ADMIN))return;email=low(email);
+    lsSet("fl_"+email,on?1:0);try{if(on)await W(S.fs.set("flags",email,{asst:true}));else await W(S.fs.del("flags",email))}catch(e){lsSet("fl_"+email,on?0:1)}}
+  function syncFlags(list){
+    if(!S.on){S.pend=list;return}
+    if(S.me!==low(ADMIN))return;
+    (list||[]).forEach(u=>{const want=!!u.assistant&&["aktivní","zkušební"].includes(u.status), have=lsGet("fl_"+u.email)===1;
+      if(want&&!have){lsSet("fl_"+u.email,1);setFlag(u.email,true)}else if(!want&&have){lsSet("fl_"+u.email,0);setFlag(u.email,false)}})}
+  return {enabled,start,stop,post,setFlag,syncFlags,get on(){return S.on},settled:()=>S.got.size>=6,get ver(){return S.ver},get err(){return S.err},get reads(){return S.reads},
+    advLinks:()=>M.la.size, _M:M};
+})();
+const asPost=b=>AsNet.enabled()?AsNet.post(b):Acc.post(b);
+let asNetFirst=true;
+async function asNetChanged(){ /* změna v databázi → okamžitě přepočítat obrazovky (vše z místní paměti, bez sítě) */
+  try{await asRefreshAll()}catch(e){}
+  if(asNetFirst&&AsNet.settled()){asNetFirst=false;applyAsMode();if(asMode()&&!["atasks","aclients"].includes(view))setView("atasks")}}
+
 const AS_ST=[["nový","Nový úkol","blue"],["rozpracováno","Rozpracováno","orange"],["hotovo","Hotovo","green"]];
 const asLbl=s=>(AS_ST.find(x=>x[0]===s)||AS_ST[0])[1];
 function asNT(t){if(t&&t.st==="čeká")t.st="rozpracováno";return t}   /* starý stav „čeká“ se zobrazuje jako rozpracováno */
@@ -5294,12 +5435,14 @@ const asPend=(id,d)=>{const n=(asPending.get(id)||0)+d;if(n>0)asPending.set(id,n
 const asMerge=(server,local)=>{ /* stažené úkoly + lokální změny, které ještě nedoletěly na server */
   const loc=new Map((local||[]).map(t=>[t.id,t]));
   const out=server.map(asNT).map(t=>asPending.has(t.id)&&loc.has(t.id)?loc.get(t.id):t);
-  (local||[]).filter(t=>asIsTmp(t)&&asPending.has(t.id)).forEach(t=>out.unshift(t));
+  const sv=new Set(server.map(t=>t.id));
+  (local||[]).filter(t=>asIsTmp(t)&&asPending.has(t.id)&&!sv.has(t.id.slice(4))).forEach(t=>out.unshift(t));
   return out};
 function asAssistants(){ /* uložené (jména, telefony) + ty, které o sobě ví jen server */
   const own=settings.assistants||[];
   const extra=(ASD.list||[]).filter(x=>!own.some(a=>a.email===x.asst)).map(x=>({email:x.asst,name:(x.name||"").split(" ")[0],phone:""}));
   return [...own,...extra]}
+const asHasAsst=()=>asAssistants().length>0||(AsNet.on&&AsNet.advLinks()>0);
 function asLinked(){return (ASD.list||[]).filter(x=>x.status==="sdílí")}
 function asDefDays(){const n=+settings.asstDays;return isFinite(n)&&n>=0?n:3}
 function asTpl(){return settings.asstMsg||"Ahoj {jmeno}, do to-do listu jsem Vám přidal novou položku. Deadline je {deadline}."}
@@ -5376,9 +5519,9 @@ const asAdvEvery=()=>asVerOK?90000:((ASD.tasks||[]).some(t=>t.st!=="hotovo")?150
 let asAdvBusy=false;
 async function asAdvSync(force,setList){
   const me=asMeMail(),tok=GAuth.token();if(!me||!tok||!Trk.on()||!Acc.ok()||asMode())return false;
-  if(!setList&&!asAssistants().length)return false;
+  if(!setList&&!asHasAsst())return false;
   if(!force&&!setList&&(asAdvBusy||Date.now()-(ASD.at||0)<asAdvEvery()-2000))return false;
-  asAdvBusy=true;let j;try{j=await Acc.post({t:"as_team",email:me,tok,...(setList?{assistants:setList}:{})})}catch(e){asAdvBusy=false;return false}
+  asAdvBusy=true;let j;try{j=await asPost({t:"as_team",email:me,tok,...(setList?{assistants:setList}:{})})}catch(e){asAdvBusy=false;return false}
   asAdvBusy=false;
   if(j.status!=="ok")return false;
   const old=new Map((ASD.tasks||[]).map(t=>[t.id,t]));
@@ -5420,7 +5563,7 @@ async function asPushClients(force){
   if(!force&&sig===lsGet("as_snap_sig")&&Date.now()-(lsGet("as_snap_at")||0)<6*3600000)return;
   /* clients = sjednocení pro starší verzi serveru; nový server použije per (každá asistentka jen svoje) */
   const un=[],sn=new Set();Object.values(per).forEach(L=>L.forEach(c=>{const k=asNorm(c.n);if(!sn.has(k)){sn.add(k);un.push(c)}}));
-  try{const j=await Acc.post({t:"as_snap",email:me,tok,per,clients:un});if(j.status==="ok"||j.status==="none"){lsSet("as_snap_at",Date.now());lsSet("as_snap_sig",sig)}}catch(e){}
+  try{const j=await asPost({t:"as_snap",email:me,tok,per,clients:un});if(j.status==="ok"||j.status==="none"){lsSet("as_snap_at",Date.now());lsSet("as_snap_sig",sig)}}catch(e){}
 }
 async function asSaveAssistants(list){try{await db.doc("settings/main").set({...settings,assistants:list});return true}catch(e){toast("Nepodařilo se uložit");return false}}
 
@@ -5521,9 +5664,9 @@ function asNewTask(preset){
     render();   /* sheet se jen přepíše (zavírání dialogu je animované, otevření hned po close() by ho nechalo zavřené) */
     asTaskAdded(asAssistants().find(a=>a.email===asstEmail)||{email:asstEmail},tmp);
     asQ=asQ.then(async()=>{
-      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"adv",task:{asst:asstEmail,text:tx,client:cn,due:tmp.due}})}catch(e){j=null}}
+      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await asPost({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"adv",task:{asst:asstEmail,text:tx,client:cn,due:tmp.due,rid:tmp.id.slice(4)}})}catch(e){j=null}}
       asPend(tmp.id,-1);
-      if(j&&j.status==="ok"){ASD={...ASD,tasks:(ASD.tasks||[]).map(x=>x.id===tmp.id?asNT(j.task):x)};lsSet("as_adv",ASD);asPushClients(true)}
+      if(j&&j.status==="ok"){ASD={...ASD,tasks:(ASD.tasks||[]).map(x=>x.id===tmp.id?asNT(j.task):x).filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i)};lsSet("as_adv",ASD);asPushClients(true)}
       else{ASD={...ASD,tasks:(ASD.tasks||[]).filter(x=>x.id!==tmp.id)};lsSet("as_adv",ASD);toast(j&&j.status==="noshare"?"Asistentka není propojená – úkol se neuložil":"Úkol se nepodařilo uložit na server – zadej ho prosím znovu")}
       if(view==="pipe")render();
     });
@@ -5615,7 +5758,7 @@ function asPatch(role,id,patch){
   Object.assign(t,patch);t.up=new Date().toISOString();if(patch.st)t.done=patch.st==="hotovo"?t.up:"";
   asSave(role);asBadge();asPend(id,1);
   asQ=asQ.then(async()=>{
-    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_set",email:asMeMail(),tok:GAuth.token()||tok,id,patch})}catch(e){j=null}}
+    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await asPost({t:"tk_set",email:asMeMail(),tok:GAuth.token()||tok,id,patch})}catch(e){j=null}}
     asPend(id,-1);
     if(!(j&&j.status==="ok")){
       const cur=((role==="adv"?ASD:ASA).tasks||[]).find(x=>x.id===id);
@@ -5631,7 +5774,7 @@ function asDelTask(role,id){
   const upd=l=>{if(role==="adv")ASD={...ASD,tasks:l};else ASA={...ASA,tasks:l};asSave(role)};
   upd(keep.filter(x=>x.id!==id));asBadge();asPend(id,1);
   asQ=asQ.then(async()=>{
-    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_del",email:asMeMail(),tok:GAuth.token()||tok,id})}catch(e){j=null}}
+    let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await asPost({t:"tk_del",email:asMeMail(),tok:GAuth.token()||tok,id})}catch(e){j=null}}
     asPend(id,-1);
     if(!(j&&j.status==="ok")){toast("Smazání se nepodařilo – úkol se vrací");if(role==="adv")asAdvSync(true);else asPull(true)}
     asRerender();
@@ -5688,7 +5831,7 @@ async function asCheckInv(force){
   const me=asMeMail();if(!me||!Trk.on()||!Acc.ok())return;
   if(!force&&Date.now()-(lsGet("as_inv_at")||0)<3*60000)return;
   lsSet("as_inv_at",Date.now());
-  let j;try{j=await Acc.post({t:"as_inv",email:me})}catch(e){return}
+  let j;try{j=await asPost({t:"as_inv",email:me})}catch(e){return}
   if(j.status!=="ok")return;
   const was=asFlag,oldInv=JSON.stringify(asInv);asFlag=!!j.flag;lsSet("as_flag",asFlag);asInv=j.list;lsSet("as_invites",asInv);
   if(was!==asFlag){renderAsCfgIfOpen();applyAsMode()}
@@ -5705,7 +5848,7 @@ function asAsk(x){
   const who=x.name?x.name+" ("+x.advisor+")":x.advisor;
   const resp=async allow=>{
     const tok=GAuth.token();if(!tok){toast("Nejdřív obnov přihlášení");GAuth.login(true);return}
-    let j;try{j=await Acc.post({t:"as_resp",email:asMeMail(),tok,advisor:x.advisor,allow})}catch(e){j=null}
+    let j;try{j=await asPost({t:"as_resp",email:asMeMail(),tok,advisor:x.advisor,allow})}catch(e){j=null}
     if(!j||j.status!=="ok"){toast(j&&j.status==="denied"?"Přihlášení vypršelo – přihlas se znovu":"Nepodařilo se uložit – zkus to znovu");return}
     asInv=asInv.map(i=>i.advisor===x.advisor?{...i,status:allow?"sdílí":"odmítnuto"}:i);lsSet("as_invites",asInv);
     if(view==="pipe"||view==="atasks")render();
@@ -5738,7 +5881,7 @@ async function asPull(force){
   const every=asVerOK?90000:((ASA.advisors||[]).length?20000:120000);
   if(asPullBusy||(!force&&Date.now()-(ASA.at||0)<every-2000))return;
   const have={};(ASA.advisors||[]).forEach(a=>{if(a.clients)have[a.email]=a.at});
-  asPullBusy=true;let j;try{j=await Acc.post({t:"as_sync",email:me,tok,have})}catch(e){asPullBusy=false;return}
+  asPullBusy=true;let j;try{j=await asPost({t:"as_sync",email:me,tok,have})}catch(e){asPullBusy=false;return}
   asPullBusy=false;
   if(j.status!=="ok"){if(j.status==="noflag"){asFlag=false;lsSet("as_flag",false);applyAsMode()}return}
   const cache=new Map((ASA.advisors||[]).map(a=>[a.email,a]));
@@ -5813,18 +5956,19 @@ function asBanner({title,body,tag,onTap,sound=true}){
 async function asRefreshAll(skipInv){
   const jobs=[];if(!skipInv)jobs.push(asCheckInv(true));
   if(asFlag)jobs.push(asPull(true));
-  if(!asMode()&&asAssistants().length)jobs.push(asAdvSync(true));
+  if(!asMode()&&asHasAsst())jobs.push(asAdvSync(true));
   await Promise.all(jobs);
 }
 async function asPoll(){
+  if(AsNet.enabled())return;   /* s databází se nic nedotazuje – změny přicházejí samy */
   const me=asMeMail();if(!me||!Trk.on()||!Acc.ok())return;
-  const vis=document.visibilityState==="visible",active=asFlag||asAssistants().length>0;
+  const vis=document.visibilityState==="visible",active=asFlag||asHasAsst();
   const every=vis?(active?(Date.now()-asAct>300000?15000:3000):20000):30000;
   if(asVerBusy||Date.now()-asVerAt<every-250)return;
   asVerBusy=true;asVerAt=Date.now();
   try{
     if(asVerOK){
-      let j=null;try{j=await Acc.post({t:"as_ver",email:me})}catch(e){}
+      let j=null;try{j=await asPost({t:"as_ver",email:me})}catch(e){}
       if(j&&j.status==="ok"&&j.v!==undefined){
         if(asVerSeen===null)asVerSeen=j.v;
         else if(j.v!==asVerSeen){asVerSeen=j.v;await asRefreshAll()}
@@ -5954,7 +6098,7 @@ function asNewAsstTask(preset){
     const nowI=new Date().toISOString(),cn=client?client.n:"",tmp={id:"tmp_"+newId(),adv,asst:asMeMail(),text:tx,client:cn,due:due.value||"",st:"nový",an:"",bn:"",by:"asst",at:nowI,up:nowI,done:""};
     asPend(tmp.id,1);ASA={...ASA,tasks:[tmp,...(ASA.tasks||[])]};lsSet("as_asst",ASA);$("edDlg").close();asRerender();toast("Úkol uložen");
     asQ=asQ.then(async()=>{
-      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await Acc.post({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"asst",task:{adv,text:tx,client:cn,due:tmp.due}})}catch(e){j=null}}
+      let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await asPost({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"asst",task:{adv,text:tx,client:cn,due:tmp.due,rid:tmp.id.slice(4)}})}catch(e){j=null}}
       asPend(tmp.id,-1);
       if(j&&j.status==="ok")ASA={...ASA,tasks:(ASA.tasks||[]).map(x=>x.id===tmp.id?asNT(j.task):x)};
       else{ASA={...ASA,tasks:(ASA.tasks||[]).filter(x=>x.id!==tmp.id)};toast("Úkol se nepodařilo uložit na server – zadej ho prosím znovu")}
@@ -6014,8 +6158,8 @@ function renderAsCfg(){
 /* =====================  START  ===================== */
 function asStart(){
   db.collection("mytasks").onSnapshot(snap=>{myTasks=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pipe")render()});
-  const tick=()=>{if(document.visibilityState!=="visible")return;asAutoMode();if(asFlag)asPull();if(!asMode())asAdvSync()};
-  setTimeout(()=>{asCheckInv(true).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else{if(asFlag)asPull(true);asAdvSync(true)}})},3500);
+  const tick=()=>{if(AsNet.enabled()&&!AsNet.on)AsNet.start();if(document.visibilityState!=="visible")return;asAutoMode();if(asFlag)asPull();if(!asMode())asAdvSync()};
+  setTimeout(()=>{(AsNet.enabled()?AsNet.start():Promise.resolve()).then(()=>asCheckInv(true)).then(()=>{applyAsMode();if(asMode()){asPull(true);if(!["atasks","aclients"].includes(view))setView("atasks")}else{if(asFlag)asPull(true);asAdvSync(true)}})},3500);
   setInterval(tick,5000);
   setInterval(asPoll,1000);
   setInterval(()=>{if(document.visibilityState==="visible")asCheckInv()},60000);
