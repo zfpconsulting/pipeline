@@ -5113,7 +5113,7 @@ function pfCard(f){
   const cur=d.cur||f.cur||"",age=Math.round((Date.now()-(d.fetched||0))/36e5);
   const meta=[f.manual?f.mgr:"",d.isin,d.kind==="index"?"vývoj portfolia v "+cur:cur,f.manual?"ručně zadané ceny ("+(f.vals||[]).length+")":d.freq==="m"?"měsíční ocenění":""].filter(Boolean).join(" · ");
   return el("div",{class:"pfcard"},
-    el("div",{class:"pfhead"},el("div",{},el("div",{class:"pfname"},f.name||d.name||f.slug),el("div",{class:"pfmeta"},meta),tag),pfHeadRight({...d,cur})),
+    el("div",{class:"pfhead"},el("div",{},el("div",{class:"pfname"},pfFName(f)),el("div",{class:"pfmeta"},meta),tag),pfHeadRight({...d,cur})),
     ...pfBody(f.slug,{...d,cur}),
     el("div",{class:"pfmeta pffoot"},f.manual?"Data do "+pfDate(d.pts[d.pts.length-1][0])+" – aktualizuj přes Zadat vývoj":(busy?"Aktualizuji… · ":"")+"Staženo "+(age<1?"před chvílí":"před "+age+" h")+(err?" · "+errTxt:"")),
     actions);
@@ -5215,12 +5215,12 @@ function pfFactsheet(o){
       o.url?el("div",{class:"chips"},el("a",{class:"chipbtn",href:o.url,target:"_blank",rel:"noopener"},"Web správce ↗")):null]);
   };draw();
 }
-function pfFsFund(f){pfFactsheet({id:f.slug,name:f.name||pfData(f.slug)?.name||f.slug,url:f.url,get:()=>{const d=pfData(f.slug);return d&&{...d,cur:d.cur||f.cur}}})}
+function pfFsFund(f){pfFactsheet({id:f.slug,name:pfFName(f),url:f.url,get:()=>{const d=pfData(f.slug);return d&&{...d,cur:d.cur||f.cur}}})}
 function pfFsModel(m){pfFactsheet({id:"m:"+m.id,name:m.name||"Modelové portfolio",note:"Modelové portfolio: vývoj investice rozložené podle nastavených podílů"+(m.rebal==="n"?" bez rebalancování.":" s ročním rebalancováním."),get:()=>{const r=pfModelSeries(m);return r.pts&&{pts:r.pts,kind:"index",cur:r.curs.length===1?r.curs[0]:"",freq:r.monthly?"m":"d"}}})}
 /* ---------- modelová portfolia: kombinace nástrojů v procentním poměru ---------- */
 function pfModelSeries(m){
   const items=(m.items||[]).filter(x=>+x.w>0),miss=[],ser=[];
-  items.forEach(x=>{const d=pfData(x.key),f=funds.find(f=>f.slug===x.key);if(!f||!d||!d.pts||d.pts.length<2)miss.push(f?f.name||f.slug:x.key);else ser.push({w:+x.w,pts:d.pts,cur:d.cur,freq:d.freq,name:f.name||d.name})});
+  items.forEach(x=>{const d=pfData(x.key),f=funds.find(f=>f.slug===x.key);if(!f||!d||!d.pts||d.pts.length<2)miss.push(f?pfFName(f):x.key);else ser.push({w:+x.w,pts:d.pts,cur:d.cur,freq:d.freq,name:pfFName(f)})});
   if(!ser.length)return {miss};
   const wsum=ser.reduce((a,s)=>a+s.w,0);
   /* měsíčně oceňovaný fond drží hodnotu do dalšího ocenění → jeho poslední hodnotu lze protáhnout až ~35 dní, denní řady max. o týden */
@@ -5242,7 +5242,7 @@ function pfModelSeries(m){
 }
 function pfModelCard(m){
   const r=pfModelSeries(m),key="m:"+m.id;
-  const comp=(m.items||[]).filter(x=>+x.w>0).map(x=>{const f=funds.find(f=>f.slug===x.key),t=cz(+x.w)+" % "+(f?(f.name||f.slug).replace(/^ZFP WI – /,"WI "):"(odebráno)")+(f&&(x.fee||x.fin!=null)?" · "+pfFeeTxt(f,pfFeeClean(f,x.fee||{in:x.fin,run:x.frun})):"");
+  const comp=(m.items||[]).filter(x=>+x.w>0).map(x=>{const f=funds.find(f=>f.slug===x.key),t=cz(+x.w)+" % "+(f?pfFName(f).replace(/^ZFP WI – /,"WI "):"(odebráno)")+(f&&(x.fee||x.fin!=null)?" · "+pfFeeTxt(f,pfFeeClean(f,x.fee||{in:x.fin,run:x.frun})):"");
     return f?el("button",{type:"button",class:"pfcomp pfcompb",title:"Factsheet",onclick:()=>pfFsFund(f)},t):el("span",{class:"pfcomp"},t)});
   const actions=el("div",{class:"chips"},r.pts?el("button",{type:"button",class:"chipbtn",onclick:()=>pfFsModel(m)},"Factsheet"):null,
     el("button",{type:"button",class:"chipbtn",onclick:()=>pfInvEdit(null,{tgt:"m:"+m.id})},"+ Investice"),
@@ -5383,7 +5383,7 @@ function pfFlows(x,lastDay){return pfItems(x).flatMap(it=>pfItemFlows(it,x.reg,l
 function pfInvTgtName(x){return pfItems(x).map(i=>pfTgtName(i.tgt)).join(" + ")}
 function pfCatF(key,extra){const f=pfFund(key);if(f)return f;const c=[...PF_CAT,...(extra||[])].find(c=>c.key===key);return c?{slug:key,...c}:null}
 /* název fondu: uložený, jinak ze stažených dat; když je to jen slug (s pomlčkami), udělá z něj čitelný název */
-function pfPretty(s){const W=String(s||"").split(/[-_\s]+/).filter(Boolean),CUR=/^(usd|eur|czk|gbp|chf|pln|huf|jpy)$/i,ACR=/^(bgf|bnppf|msci|sp|esg|etf|ftse|usa|eu|em|jpm|ubs|axa|ing|kbc|nn|zfp|wi)$/i;
+function pfPretty(s){const W=String(s||"").split(/[-_\s]+/).filter(Boolean),CUR=/^(usd|eur|czk|gbp|chf|pln|huf|jpy)$/i,ACR=/^(ii|iii|iv|bgf|bnppf|msci|sp|esg|etf|ftse|usa|eu|em|jpm|ubs|axa|ing|kbc|nn|zfp|wi)$/i;
   return W.map((w,i)=>i===W.length-1&&CUR.test(w)?"("+w.toUpperCase()+")":ACR.test(w)||!/[aeiouy]/i.test(w)?w.toUpperCase():w.charAt(0).toUpperCase()+w.slice(1)).join(" ")}
 const pfSlugLike=s=>/^[a-z0-9]+(-[a-z0-9]+)+$/.test(String(s||""));
 function pfFName(f){if(!f)return "";const d=f.slug&&pfData(f.slug);const n=f.name&&!pfSlugLike(f.name)?f.name:d&&d.name&&!pfSlugLike(d.name)?d.name:"";return n||pfPretty(f.name||f.slug)}
