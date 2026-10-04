@@ -853,6 +853,10 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
 .dealres{min-height:0;padding:0 16px 4px;color:var(--label2)}.dealres:empty{display:none}.dealres.ok{color:var(--green)}
 .dealrow{align-items:center;gap:8px;flex-wrap:wrap}.dealrow>div:first-child{flex:1 1 170px}.dealrow .t{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dealrow .s{color:var(--label2);font-size:13px}
 .dealrow-x{display:none}
+.tksend{flex:none;font-size:12px;font-weight:600;color:var(--tint);background:var(--tint-soft);border-radius:999px;padding:5px 10px;cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}
+.tksend:active{opacity:.6}
+.row .end+.tksend{margin-left:-4px}
+@media (max-width:560px){.row .end:has(+ .tksend){display:none}}
 </style>
 </head>
 <body>
@@ -1918,16 +1922,17 @@ function renderPipe(cur){
   ];
   $("tiles").replaceChildren(...T.map(([k,v,h,c,a])=>el("div",{class:"tile"+(a?" alert":"")},el("div",{class:"k"},el("i",{style:"background:"+c}),k),el("div",{class:"v"},String(v)),h?el("div",{class:"h"},h):null)));
 
-  const hot=active.filter(l=>["late","today","none"].includes(dueState(l))||isCold(l)).sort((a,b)=>(a.nextDate||"0").localeCompare(b.nextDate||"0"));
+  const hot=active.filter(l=>["late","today","none"].includes(dueState(l))||isCold(l)||String(l.nextStep||"").trim()).sort((a,b)=>(a.nextDate||"0").localeCompare(b.nextDate||"0"));
   const showAll=window.__todayAll, shown=showAll?hot:hot.slice(0,6);
   const tkNodes=typeof asPipeNodes==="function"?asPipeNodes():[];
   $("todayList").replaceChildren(...tkNodes,...(hot.length?[...shown.map(l=>{
     const s=dueState(l);
-    const why=s==="none"?"Chybí další krok":s==="late"?"Po termínu od "+fmtDate(l.nextDate)+(l.nextStep?" · "+l.nextStep:""):s==="today"?"Dnes"+(l.nextStep?" · "+l.nextStep:""):daysSince(lastTouch(l))+" dní bez kontaktu";
+    const stp=String(l.nextStep||"").trim(), dd=l.nextDate?dDiff(l.nextDate,todayStr()):null;
+    const why=s==="none"?(stp?"Bez termínu · "+stp:"Chybí další krok"):s==="late"?"Po termínu od "+fmtDate(l.nextDate)+(stp?" · "+stp:""):s==="today"?"Dnes"+(stp?" · "+stp:""):stp&&dd!=null&&dd>0?(dd===1?"Zítra":"Za "+dd+" "+plural(dd,"den","dny","dní"))+" · "+stp:daysSince(lastTouch(l))+" dní bez kontaktu";
     return el("button",{class:"row row-btn",type:"button",onclick:()=>openEdit(l)},
       el("span",{class:"avatar",style:"background:"+ST(l.stage).c},initials(l.name)),
-      el("span",{class:"main"},el("div",{class:"t"},l.name),el("div",{class:"s"+(s==="today"?"":" bad")},why)),
-      el("span",{class:"end"},l.phone||ST(l.stage).t),chev());
+      el("span",{class:"main"},el("div",{class:"t"},l.name),el("div",{class:"s"+(s==="today"||(s===""&&stp&&dd!=null&&dd>0)?"":" bad")},why)),
+      el("span",{class:"end"},l.phone||ST(l.stage).t),(typeof asSendChip==="function"?asSendChip({text:l.nextStep||"",client:l.name,due:l.nextDate&&l.nextDate>=todayStr()?l.nextDate:""}):null),chev());
   }),hot.length>6?el("button",{class:"row row-btn",type:"button",style:"color:var(--tint);font-weight:500;justify-content:center",onclick:()=>{window.__todayAll=!showAll;render()}},showAll?"Zobrazit méně":"Zobrazit všech "+hot.length):null].filter(Boolean):[el("div",{class:"row"},el("span",{class:"empty"},"Nic nehoří. Každý rozjednaný lead má naplánovaný další krok."))]));
 
   renderCal();
@@ -4094,7 +4099,7 @@ function runFlip(){
   const c=document.querySelector(`.card[data-id="${CSS.escape(f.id)}"]`);
   const col=document.querySelector(`.col[data-stage="${f.stage}"]`);
   if(col){col.classList.remove("landed","podpis");void col.offsetWidth;col.classList.add("landed");if(f.stage==="podpis")col.classList.add("podpis");setTimeout(()=>col.classList.remove("landed","podpis"),1300)}
-  if(!c)return;
+  if(!c){landFx(null,f);return}
   const to=c.getBoundingClientRect();
   if(!REDUCED&&f.rect&&c.animate){
     const dx=f.rect.left-to.left, dy=f.rect.top-to.top, fwd=STAGES.findIndex(s=>s.k===f.stage)>=STAGES.findIndex(s=>s.k===f.from);
@@ -4105,12 +4110,15 @@ function runFlip(){
       {transform:"translate(0,0) scale(.98) rotate(0deg)",boxShadow:"0 2px 6px rgba(0,0,0,.08)",offset:.85},
       {transform:"translate(0,0) scale(1)",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}
     ],{duration:720,easing:"cubic-bezier(.3,.7,.2,1)"});
-    a.onfinish=()=>{c.classList.remove("flying");landFx(c,f)};
+    a.onfinish=()=>{c.classList.remove("flying");landFx(c,f)};a.oncancel=()=>{c.classList.remove("flying");landFx(c,f)};
   }else landFx(c,f);
   if(c.scrollIntoView)setTimeout(()=>c.scrollIntoView({behavior:REDUCED?"auto":"smooth",block:"nearest",inline:"nearest"}),REDUCED?0:500);
 }
 function landFx(c,f){
-  const r=c.getBoundingClientRect(), x=r.left+r.width/2, y=r.top+r.height/2;
+  if(!c||!c.isConnected)c=document.querySelector(`.card[data-id="${CSS.escape(f.id)}"]`);   /* během animace se pipeline mohla překreslit – karta je nová */
+  const W=innerWidth,H=innerHeight, r=c?c.getBoundingClientRect():{left:W/2,width:0,top:H*.45,height:0};
+  let x=r.left+r.width/2, y=r.top+r.height/2;
+  if(x<90||x>W-90||y<130||y>H-70){x=Math.min(Math.max(x,90),W-90);y=Math.min(Math.max(y,200),H-130)}   /* karta je mimo obrazovku → bublina je aspoň vidět */
   if(f.stage==="podpis"){
     if(!REDUCED)confetti(x,y);
     {const rate=f.signedAt?quarterRow(qOf(f.signedAt)).rate:quarterRow(CURQ()).rate;
@@ -4120,7 +4128,7 @@ function landFx(c,f){
   }else if(f.stage==="vyplaceno"){
     if(!REDUCED)sparkle(x,r.top,"var(--teal)");
   }else if(DEAD(f.stage)){
-    if(!REDUCED&&c.animate)c.animate([{filter:"grayscale(0)",transform:"translateX(0)"},{transform:"translateX(-6px)"},{transform:"translateX(5px)"},{transform:"translateX(-3px)"},{filter:"grayscale(1)",transform:"translateX(0)"},{filter:"grayscale(0)"}],{duration:900,easing:"ease-out"});
+    if(!REDUCED&&c&&c.animate)c.animate([{filter:"grayscale(0)",transform:"translateX(0)"},{transform:"translateX(-6px)"},{transform:"translateX(5px)"},{transform:"translateX(-3px)"},{filter:"grayscale(1)",transform:"translateX(0)"},{filter:"grayscale(0)"}],{duration:900,easing:"ease-out"});
   }else if(!REDUCED){
     sparkle(x,r.top,ST(f.stage).c);
   }
@@ -6810,7 +6818,8 @@ function asTaskRow(t){
   /* cizí úkoly vždy „Asistentka Jméno: text“, moje bez předpony – na první pohled je poznat, čí úkol to je */
   return el("button",{type:"button",class:"row row-btn tkrow"+(t.st==="hotovo"?" done":""),onclick:()=>asOpenTask(t)},
     lead,el("span",{class:"main"},el("div",{class:"t"},t.own?null:el("span",{class:"tkwho"},"Asistentka "+t.who+": "),t.text),sub?el("div",{class:"s"},sub):null),
-    tag?el("span",{class:"tdtag "+(tag.cls||"")},tag.txt):null,chev());
+    tag?el("span",{class:"tdtag "+(tag.cls||"")},tag.txt):null,
+    t.own&&t.st!=="hotovo"?asSendChip({text:t.text,client:t.client,due:t.due},()=>{db.doc("mytasks/"+t.rid).delete().catch(()=>{})}):null,chev());
 }
 /* vloží se do #todayList před volací seznam; vrací pole uzlů */
 function asInvNodes(){ /* čekající pozvánka – vždy viditelná v pipeline, ať se nedá přehlédnout */
@@ -6945,6 +6954,14 @@ function asManage(a){
     el("div",{class:"group"},del)]);
 }
 /* ---- nový úkol (poradce): pro mě / pro asistentku ---- */
+/* „→ asistentce“: z řádku úkolu / leadu v pipeline otevře nový úkol rovnou pro asistentku (předvyplněný) */
+function asSendPreset(p,after){
+  const l=asAssistants();if(!l.length){toast("Nejdřív přidej asistentku v Rozvoji sítě");return}
+  asNewTask({asst:l[0].email,text:p.text||"",client:p.client||"",due:p.due||"",after})}
+function asSendChip(p,after){
+  if(asMode()||!asHasAsst())return null;
+  const go=e=>{e.stopPropagation();asSendPreset(p,after)};
+  return el("span",{class:"tksend",role:"button",tabindex:"0","aria-label":"Poslat asistentce",title:"Poslat asistentce",onclick:go,onkeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go(e)}}},"→ asistentce")}
 function asNewTask(preset){
   preset=preset||{};
   const linked=asAssistants();
@@ -6977,6 +6994,7 @@ function asNewTask(preset){
     asPend(tmp.id,1);ASD={...ASD,tasks:[tmp,...(ASD.tasks||[])]};lsSet("as_adv",ASD);
     render();   /* sheet se jen přepíše (zavírání dialogu je animované, otevření hned po close() by ho nechalo zavřené) */
     asTaskAdded(asAssistants().find(a=>a.email===asstEmail)||{email:asstEmail},tmp);
+    if(typeof preset.after==="function"){try{preset.after()}catch(e){}}   /* např. původní můj úkol se po odeslání asistentce smaže */
     asQ=asQ.then(async()=>{
       let j=null;for(let i=0;i<2&&!(j&&j.status==="ok");i++){try{j=await asPost({t:"tk_add",email:asMeMail(),tok:GAuth.token()||tok,role:"adv",task:{asst:asstEmail,text:tx,client:cn,due:tmp.due,rid:tmp.id.slice(4)}})}catch(e){j=null}}
       asPend(tmp.id,-1);
@@ -7130,7 +7148,8 @@ function asOpenMine(t){
   del.onclick=async()=>{if(del.dataset.sure!=="1"){del.dataset.sure="1";del.textContent="Opravdu smazat?";return}try{await db.doc("mytasks/"+t.rid).delete();$("edDlg").close();toast("Smazáno")}catch(e){}};
   openSheet("Můj úkol",[el("div",{class:"group"},el("div",{class:"frow col"},el("label",{},"Úkol"),tx),el("div",{class:"frow"},el("label",{},"Deadline"),dd),
       t.client?el("div",{class:"frow"},el("label",{},"Klient"),cl?el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();openEdit(cl)}},t.client+" ›"):el("span",{class:"mrate"},t.client)):null),
-    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:async()=>{await asMyDone(t);$("edDlg").close()}},t.st==="hotovo"?"Znovu otevřít":"Označit jako hotové")),
+    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:async()=>{await asMyDone(t);$("edDlg").close()}},t.st==="hotovo"?"Znovu otevřít":"Označit jako hotové"),
+      t.st!=="hotovo"&&!asMode()&&asHasAsst()?el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();setTimeout(()=>asSendPreset({text:t.text,client:t.client,due:t.due},()=>{db.doc("mytasks/"+t.rid).delete().catch(()=>{})}),340)}},"Poslat asistentce"):null),
     el("div",{class:"group"},del)]);
 }
 /* úkoly po termínu a na dnes v okně „Co tě dneska čeká“ */
