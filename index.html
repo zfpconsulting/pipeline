@@ -2973,6 +2973,7 @@ function openClient(e0){
   const add=el("div",{class:"chips"},Object.keys(PTYPES).map(t=>el("button",{type:"button",class:"chipbtn",onclick:()=>{prods.push({id:newId(),type:t,company:"",amt:"",unit:PTYPES[t].unit,from:todayStr(),status:"active",_open:true});renderProds();saveProds()}},"+ "+t)));
   const meets=[...(e.cal?.meets||[]),...((e.lead?.meetings)||[])].map(m=>m.start).filter((v,i,a)=>a.indexOf(v)===i).sort().reverse();
   const log=(rec?.log||[]).slice().reverse();
+  sheetEnter=true;
   openSheet(e.name||"Klient",[
     el("div",{class:"mhero"},el("span",{class:"avatar big",style:"background:"+BAND[e.band][0]},initials(e.name)),el("div",{},el("div",{class:"mh-v",style:"font-size:20px;color:"+BAND[e.band][0]},daysTxt(e)),el("div",{class:"mh-s"},(e.active.length?e.active.length+" "+plural(e.active.length,"aktivní smlouva","aktivní smlouvy","aktivních smluv"):"bez smluv")+(e.lead?" · z pipeline":e.calOnly?" · z kalendáře":"")))),
     el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jméno"),nm),el("div",{class:"frow"},el("label",{},"Telefon"),ph),el("div",{class:"frow"},el("label",{},"E-mail"),em),el("div",{class:"frow"},el("label",{},"Datum narození"),bd),el("div",{class:"frow"},el("label",{},"Poslední schůzka"),lm)),
@@ -4095,7 +4096,8 @@ async function weeklyDriveBackup(){try{
   const r=await(await gfetch("https://www.googleapis.com/drive/v3/files?q="+q+"&spaces=drive&fields=files(id,name)&orderBy=name desc&pageSize=50")).json();
   for(const f of (r.files||[]).slice(8))await gfetch("https://www.googleapis.com/drive/v3/files/"+f.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({trashed:true})});
 }catch(e){console.warn("backup",e)}}
-function openSheet(title,nodes){$("edTitle").textContent=title;$("edBody").replaceChildren(...nodes.flat().filter(Boolean));const d=$("edDlg");if(!d.open)d.showModal();$("edBody").scrollTop=0}
+let sheetEnter=false;
+function openSheet(title,nodes){if(sheetEnter)$("edDlg").dataset.enter="close";else delete $("edDlg").dataset.enter;sheetEnter=false;$("edTitle").textContent=title;$("edBody").replaceChildren(...nodes.flat().filter(Boolean));const d=$("edDlg");if(!d.open)d.showModal();$("edBody").scrollTop=0}
 /* animované zavírání <dialog> – funguje pro všechna stávající .close() volání beze změny */
 (function(){
   ["edDlg","dlg","dataDlg"].forEach(id=>{
@@ -4114,6 +4116,17 @@ function openSheet(title,nodes){$("edTitle").textContent=title;$("edBody").repla
   });
 })();
 $("edClose").onclick=()=>$("edDlg").close();
+/* Enter v editačním okně = uložit a zavřít (textarea si nechává Enter pro nový řádek) */
+$("edDlg").addEventListener("keydown",e=>{
+  if(e.key!=="Enter"||e.defaultPrevented||e.isComposing||e.shiftKey||e.ctrlKey||e.metaKey)return;
+  const t=e.target;if(!t||!/^(INPUT|SELECT)$/.test(t.tagName)||/^(button|submit|checkbox|radio|file)$/.test(t.type||""))return;
+  const body=$("edBody");
+  const sv=[...body.querySelectorAll("button.chipbtn.ok")].find(b=>/^Uložit/.test(b.textContent.trim()));
+  if(!sv&&$("edDlg").dataset.enter!=="close")return;
+  e.preventDefault();
+  t.blur();/* spustí change → uložení pole */
+  setTimeout(()=>{if(sv&&sv.isConnected)sv.click();else $("edDlg").close()},60);
+});
 
 /* ---------- sazebník ---------- */
 function renderPP(){
@@ -4947,6 +4960,7 @@ $("callNo").onclick=async()=>{
 };
 $("callYes").onclick=()=>addLog("Volal · hovor proběhl",{call:"yes"});
 $("msgBtn").onclick=()=>{if(!editing){toast("Nejdřív lead ulož");return}const l={...editing,name:$("f_name").value.trim()||editing.name,phone:$("f_phone").value.trim(),email:$("f_email").value.trim()};openMsg(leadMsgCtx(l),null,r=>{if(r.meetId)setTodo("conf:"+r.meetId,{s:"done",d:todayStr()});addLog("Poslána zpráva ("+r.ch+"): "+r.tpl+(r.start?" · schůzka "+fmtMeet(r.start):""),{msg:r.ch})})};
+$("form").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.defaultPrevented&&!e.isComposing&&e.target.tagName==="SELECT"){e.preventDefault();$("form").requestSubmit()}});
 $("f_log").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("logBtn").click()}});
 $("addBtn").onclick=()=>openEdit(null);
 $("cancelBtn").onclick=()=>$("dlg").close();
