@@ -2802,12 +2802,19 @@ function calPeople(){
     let p=map.get(ev.key);if(!p){p={key:ev.key,names:{},meets:[]};map.set(ev.key,p)}p.names[ev.name]=(p.names[ev.name]||0)+1;p.meets.push({id:e.id,start:ev.start,title:ev.title,podpis:ev.podpis})});
   return [...map.values()].map(p=>({...p,name:Object.entries(p.names).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0],meets:p.meets.sort((a,b)=>a.start.localeCompare(b.start))}));
 }
+/* stejná osoba i při jiném pořadí jmen („Veselý Michal“ = „Michal Veselý“) nebo když je v kalendáři jen příjmení („Šikulová“ = „Šikulová Soňa“) */
+const nameToks=n=>String(n||"").replace(/\(.*?\)/g," ").split(/\s+/).map(norm).filter(w=>w.length>=3);
+function sameName(a,b){const A=nameToks(a),B=nameToks(b);if(!A.length||!B.length)return false;
+  const [S,L]=A.length<=B.length?[A,B]:[B,A];
+  return S.length===1?L.some(t=>sameSurname(S[0],t)):S.every(t=>L.some(u=>sameSurname(t,u)))}
 function clientEntries(){
   const hidden=new Set(settings.hiddenClients||[]), out=[];
   clients.filter(c=>c.hidden).forEach(c=>hidden.add(c.calKey||surnameOf(c.name)));
   clients.filter(c=>!c.hidden).forEach(c=>{const l=c.leadId?leads.find(x=>x.id===c.leadId):null;out.push({id:"c:"+c.id,rec:c,lead:l,name:c.name||"Bez jména",key:c.calKey||surnameOf(c.name),phone:c.phone||l?.phone||"",products:c.products||[]})});
-  leads.filter(l=>SIGNED(l.stage)&&!clients.some(c=>c.leadId===l.id)&&!hidden.has("l:"+l.id)).forEach(l=>{const k=surnameOf(l.name);out.push({id:"l:"+l.id,lead:l,name:l.name,key:k,phone:l.phone||"",products:leadProducts(l),virtual:true})});
-  calPeople().forEach(p=>{if(hidden.has(p.key))return;const e=out.find(x=>sameSurname(x.key,p.key)&&(!x.cal));if(e){e.cal=p;return}
+  leads.filter(l=>SIGNED(l.stage)&&!clients.some(c=>c.leadId===l.id)&&!hidden.has("l:"+l.id)).forEach(l=>{const k=surnameOf(l.name);
+    const ex=out.find(x=>x.rec&&sameName(x.name,l.name));if(ex){if(!ex.lead)ex.lead=l;if(!ex.products.length)ex.products=leadProducts(l);return}   /* už je zapsaný ručně pod jiným pořadím jména */
+    out.push({id:"l:"+l.id,lead:l,name:l.name,key:k,phone:l.phone||"",products:leadProducts(l),virtual:true})});
+  calPeople().forEach(p=>{if(hidden.has(p.key))return;const e=out.find(x=>sameSurname(x.key,p.key)&&(!x.cal))||out.find(x=>!x.cal&&!x.calOnly&&sameName(x.name,p.name));if(e){e.cal=p;return}
     if(DEMO&&!CLEAN)return; /* prezentace: lidé jen z tvého skutečného kalendáře se do klientely fiktivního poradce nepřidávají */
     const ids=new Set(p.meets.map(m=>m.id)), ld=leads.find(l=>!SIGNED(l.stage)&&(l.meetings||[]).some(m=>ids.has(m.id)));
     out.push({id:"k:"+p.key,cal:p,lead:ld||null,prospect:ld?ST(ld.stage).t:null,name:p.name,key:p.key,phone:ld?.phone||"",products:[],virtual:true,calOnly:true})});
@@ -2879,8 +2886,12 @@ function stafleKey(e){return e.rec?.id||e.id}
 function stafleMonth(e){const k=stafleKey(e),o=stafleOv.has(k)?stafleOv.get(k):e.rec?.stafleM;
   if(o>=1&&o<=12)return {m:+o,manual:true};
   const m=e.last?+String(e.last).slice(5,7):0;return {m:m>=1&&m<=12?m:0,manual:false}}
-function stafleData(){const by=Array.from({length:13},()=>[]);
-  clientEntries().forEach(e=>by[stafleMonth(e).m].push(e));
+let stafleMerged=0;
+function stafleData(){const by=Array.from({length:13},()=>[]),list=[];stafleMerged=0;
+  const rank=e=>(e.rec?4:0)+(e.products?.length?2:0)+(e.last?1:0);
+  clientEntries().sort((a,b)=>rank(b)-rank(a)).forEach(e=>{const k=list.find(x=>sameName(x.name,e.name));
+    if(k){stafleMerged++;if(String(e.last||"")>String(k.last||""))k.last=e.last}else list.push(e)});
+  list.forEach(e=>by[stafleMonth(e).m].push(e));
   by.forEach(l=>l.sort((a,b)=>String(a.last||"").slice(8,10).localeCompare(String(b.last||"").slice(8,10))||surnameOf(a.name).localeCompare(surnameOf(b.name),"cs")));
   return by}
 async function stafleSet(e,m,done){
@@ -2902,7 +2913,7 @@ function openStafle(){
     if(by[0].length)sec.push(el("h3",{class:"sechead"},"Bez měsíce · "+by[0].length),el("div",{class:"group"},...by[0].map(e=>row(e,draw))));
     openSheet("Štafle · "+n+" "+plural(n,"klient","klienti","klientů"),[
       el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:stafleExport},"Výstup do Numbers")),
-      el("p",{class:"hint"},"Klient je v měsíci své poslední schůzky – tehdy se mu ozvi na další servis. Měsíc přehodíš v seznamu vedle jména, ↺ vrátí automatiku."),
+      el("p",{class:"hint"},"Klient je v měsíci své poslední schůzky – tehdy se mu ozvi na další servis. Měsíc přehodíš v seznamu vedle jména, ↺ vrátí automatiku."+(stafleMerged?" Sloučeno "+stafleMerged+" "+plural(stafleMerged,"duplicita","duplicity","duplicit")+" (stejné jméno v jiném pořadí nebo jen příjmení).":"")),
       ...sec]);
     $("edBody").scrollTop=st};
   draw()}
@@ -2910,19 +2921,19 @@ function openStafle(){
 async function stafleExport(){
   const by=stafleData(),t=todayStr(),rows=[];
   const dt=s=>{const m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?new Date(+m[1],+m[2]-1,+m[3]):null};
-  by.slice(1).concat([by[0]]).forEach((L,i)=>L.forEach(e=>rows.push([i<12?stafleCap(MONL[i]):"Bez měsíce",e.name,e.phone||"",dt(e.last),(e.active||[]).map(p=>p.type+(p.company?" ("+p.company+")":"")).join(", "),stafleMonth(e).manual?"ručně":""])));
-  const head=["Měsíc","Klient","Telefon","Poslední schůzka","Smlouvy","Přehozeno"];
+  by.slice(1).concat([by[0]]).forEach((L,i)=>L.forEach(e=>rows.push([i<12?stafleCap(MONL[i]):"Bez měsíce",e.name,dt(e.last)])));
+  const head=["Měsíc","Klient","Poslední schůzka"];
   if(!rows.length){toast("Není co exportovat");return}
   try{
     if(typeof XLSX==="undefined")await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js").catch(()=>loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"));
     const ws=XLSX.utils.aoa_to_sheet([head,...rows],{cellDates:true});
-    rows.forEach((r,i)=>{const c=ws[XLSX.utils.encode_cell({r:i+1,c:3})];if(c&&c.t==="d")c.z="d. m. yyyy"});
-    ws["!cols"]=[{wch:12},{wch:26},{wch:16},{wch:16},{wch:44},{wch:11}];
+    rows.forEach((r,i)=>{const c=ws[XLSX.utils.encode_cell({r:i+1,c:2})];if(c&&c.t==="d")c.z="d. m. yyyy"});
+    ws["!cols"]=[{wch:12},{wch:28},{wch:16}];
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Štafle");
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array",cellDates:true});
     dl("stafle-klienti-"+t+".xlsx",out,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");toast("Staženo – otevři v Numbers")
   }catch(err){
-    dl("stafle-klienti-"+t+".csv",csv([head,...rows.map(r=>r.map((v,i)=>i===3&&v?fmtDate(t.slice(0,4)+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0"))+" "+v.getFullYear():v))]),"text/csv;charset=utf-8");toast("Staženo jako CSV (Excel knihovna se nenačetla)")}
+    dl("stafle-klienti-"+t+".csv",csv([head,...rows.map(r=>r.map((v,i)=>i===2&&v?fmtDate(t.slice(0,4)+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0"))+" "+v.getFullYear():v))]),"text/csv;charset=utf-8");toast("Staženo jako CSV (Excel knihovna se nenačetla)")}
 }
 async function ensureClient(e){
   if(e.rec)return e.rec;
