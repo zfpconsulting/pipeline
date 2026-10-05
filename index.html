@@ -986,7 +986,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
         <div class="group" id="cliList"></div>
       </div>
       <div class="cli-col">
-        <div class="chips" style="margin:0 0 10px"><button type="button" class="chipbtn" id="stafleBtn">Štafle</button><button type="button" class="chipbtn" id="stafleBtnPdf">PDF výstup</button></div>
+        <div class="chips" style="margin:0 0 10px"><button type="button" class="chipbtn" id="stafleBtn">Štafle</button><button type="button" class="chipbtn" id="stafleBtnX">Výstup do Numbers</button></div>
         <h3 class="sechead">Servis podle poslední schůzky</h3>
         <div class="seg fseg" id="sFilter" role="tablist" aria-label="Filtr servisu"></div>
         <div class="srvcol" id="srvList"></div>
@@ -2829,7 +2829,7 @@ function prodChip(p){const T=ptype(p);return el("span",{class:"pchip"+(p.status=
 const BAND={red:["var(--red)","var(--red-soft)"],orange:["var(--orange)","var(--orange-soft)"],green:["var(--green)","var(--green-soft)"],none:["var(--gray)","var(--fill)"]};
 function daysTxt(e){return e.next?"schůzka "+fmtMeet(e.next):e.days==null?"bez schůzky":e.days+" "+plural(e.days,"den","dny","dní")+" od poslední schůzky"}
 function renderClients(){
-  {const b=$("stafleBtn");if(b){b.onclick=openStafle;$("stafleBtnPdf").onclick=staflePDF}}
+  {const b=$("stafleBtn");if(b){b.onclick=openStafle;$("stafleBtnX").onclick=stafleExport}}
   const E=clientEntries();
   const red=E.filter(e=>e.band==="red"&&!e.snooze).length, orange=E.filter(e=>e.band==="orange"&&!e.snooze).length;
   if(view==="cli")$("sub").textContent=E.length+" "+plural(E.length,"klient","klienti","klientů")+" · servis podle poslední schůzky v kalendáři";
@@ -2901,23 +2901,29 @@ function openStafle(){
       sec.push(el("h3",{class:"sechead"},stafleCap(MONL[m-1])+" · "+L.length+(m===nowM?" · tento měsíc":"")),el("div",{class:"group"},...L.map(e=>row(e,draw))))}
     if(by[0].length)sec.push(el("h3",{class:"sechead"},"Bez měsíce · "+by[0].length),el("div",{class:"group"},...by[0].map(e=>row(e,draw))));
     openSheet("Štafle · "+n+" "+plural(n,"klient","klienti","klientů"),[
-      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:staflePDF},"PDF výstup")),
+      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:stafleExport},"Výstup do Numbers")),
       el("p",{class:"hint"},"Klient je v měsíci své poslední schůzky – tehdy se mu ozvi na další servis. Měsíc přehodíš v seznamu vedle jména, ↺ vrátí automatiku."),
       ...sec]);
     $("edBody").scrollTop=st};
   draw()}
-function staflePDF(){
-  const esc=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])),by=stafleData(),t=todayStr(),n=by.flat().length;
-  const tbl=(L,h)=>"<h2>"+esc(h)+" <span class=s>("+L.length+")</span></h2><table><tr><th>Klient</th><th>Telefon</th><th>Poslední schůzka</th><th>Smlouvy</th></tr>"+
-    L.map(e=>"<tr><td>"+esc(e.name)+"</td><td>"+esc(e.phone)+"</td><td>"+esc(e.last?fmtDate(e.last)+" "+String(e.last).slice(0,4):"–")+"</td><td>"+esc((e.active||[]).map(p=>p.type+(p.company?" ("+p.company+")":"")).join(", "))+"</td></tr>").join("")+"</table>";
-  const body=by.slice(1).map((L,i)=>L.length?tbl(L,stafleCap(MONL[i])):"").join("")+(by[0].length?tbl(by[0],"Bez měsíce"):"");
-  const html=`<!doctype html><html lang=cs><head><meta charset=utf-8><title>Štafle klientů ${esc(t)}</title><style>
-  body{font:13px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;color:#111;margin:28px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 6px;break-after:avoid}.s{color:#666;font-weight:400}
-  table{width:100%;border-collapse:collapse;break-inside:auto}tr{break-inside:avoid}td,th{border-bottom:1px solid #e5e5e5;padding:5px 8px;text-align:left;vertical-align:top}th{font-size:12px;color:#666;font-weight:600}
-  @media print{body{margin:14mm}}</style></head><body>
-  <h1>Štafle klientů – ${esc(fmtDate(t))} ${esc(t.slice(0,4))}</h1><div class=s>${n} ${plural(n,"klient","klienti","klientů")} podle měsíce poslední schůzky</div>${body}
-  <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`;
-  const w=window.open("","_blank");if(!w){toast("Povol vyskakovací okna pro PDF");return}w.document.open();w.document.write(html);w.document.close()}
+/* výstup pro Apple Numbers: .xlsx (Numbers ho otevře dvojklikem); když se knihovna nenačte (offline), stáhne se CSV */
+async function stafleExport(){
+  const by=stafleData(),t=todayStr(),rows=[];
+  const dt=s=>{const m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?new Date(+m[1],+m[2]-1,+m[3]):null};
+  by.slice(1).concat([by[0]]).forEach((L,i)=>L.forEach(e=>rows.push([i<12?stafleCap(MONL[i]):"Bez měsíce",e.name,e.phone||"",dt(e.last),(e.active||[]).map(p=>p.type+(p.company?" ("+p.company+")":"")).join(", "),stafleMonth(e).manual?"ručně":""])));
+  const head=["Měsíc","Klient","Telefon","Poslední schůzka","Smlouvy","Přehozeno"];
+  if(!rows.length){toast("Není co exportovat");return}
+  try{
+    if(typeof XLSX==="undefined")await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js").catch(()=>loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"));
+    const ws=XLSX.utils.aoa_to_sheet([head,...rows],{cellDates:true});
+    rows.forEach((r,i)=>{const c=ws[XLSX.utils.encode_cell({r:i+1,c:3})];if(c&&c.t==="d")c.z="d. m. yyyy"});
+    ws["!cols"]=[{wch:12},{wch:26},{wch:16},{wch:16},{wch:44},{wch:11}];
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Štafle");
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array",cellDates:true});
+    dl("stafle-klienti-"+t+".xlsx",out,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");toast("Staženo – otevři v Numbers")
+  }catch(err){
+    dl("stafle-klienti-"+t+".csv",csv([head,...rows.map(r=>r.map((v,i)=>i===3&&v?fmtDate(t.slice(0,4)+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0"))+" "+v.getFullYear():v))]),"text/csv;charset=utf-8");toast("Staženo jako CSV (Excel knihovna se nenačetla)")}
+}
 async function ensureClient(e){
   if(e.rec)return e.rec;
   const data={name:e.name,phone:e.phone||"",email:e.lead?.email||"",note:"",calKey:e.cal?.key||e.key||surnameOf(e.name),leadId:e.lead?.id||null,products:(e.products||[]).map(p=>({...p,id:newId()})),log:[],createdAt:new Date().toISOString()};
