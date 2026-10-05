@@ -2918,6 +2918,46 @@ function openStafle(){
     $("edBody").scrollTop=st};
   draw()}
 /* výstup pro Apple Numbers: .xlsx (Numbers ho otevře dvojklikem); když se knihovna nenačte (offline), stáhne se CSV */
+/* SheetJS neumí nastavení tisku → do hotového (nekomprimovaného) xlsx dopíšu A4 + "přizpůsobit na 1 stránku" */
+function stafleFitA4(buf){
+  const u=new Uint8Array(buf),dv=new DataView(u.buffer,u.byteOffset,u.byteLength),dec=new TextDecoder(),enc=new TextEncoder();
+  const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+  const crc=d=>{let c=0xFFFFFFFF;for(let i=0;i<d.length;i++)c=crcT[(c^d[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0};
+  let eocd=-1;for(let i=u.length-22;i>=0;i--)if(dv.getUint32(i,true)===0x06054b50){eocd=i;break}
+  if(eocd<0)throw new Error("eocd");
+  const cnt=dv.getUint16(eocd+10,true),cdOff=dv.getUint32(eocd+16,true);
+  let p=cdOff,ent=null;
+  for(let i=0;i<cnt;i++){
+    const nl=dv.getUint16(p+28,true),el_=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),name=dec.decode(u.subarray(p+46,p+46+nl));
+    if(name==="xl/worksheets/sheet1.xml")ent={cd:p,lh:dv.getUint32(p+42,true),method:dv.getUint16(p+10,true)};
+    p+=46+nl+el_+cl;
+  }
+  if(!ent||ent.method!==0)throw new Error("sheet1/compressed");
+  const lh=ent.lh,lnl=dv.getUint16(lh+26,true),lel=dv.getUint16(lh+28,true),ds=lh+30+lnl+lel,size=dv.getUint32(lh+22,true);
+  let x=dec.decode(u.subarray(ds,ds+size));
+  x=x.replace(/<sheetPr[^>]*\/>|<sheetPr[^>]*>[\s\S]*?<\/sheetPr>/,"");
+  x=x.replace(/<dimension/,'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension');
+  const ps='<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="1"/>';
+  x=/<pageMargins[^>]*\/>/.test(x)?x.replace(/(<pageMargins[^>]*\/>)/,"$1"+ps):x.replace("</worksheet>",ps+"</worksheet>");
+  const nb=enc.encode(x),c=crc(nb);
+  const out=new Uint8Array(u.length+nb.length-size),delta=nb.length-size;
+  out.set(u.subarray(0,ds),0);out.set(nb,ds);out.set(u.subarray(ds+size),ds+nb.length);
+  const o=new DataView(out.buffer);
+  const fix=(off)=>{o.setUint32(off+14,c,true);o.setUint32(off+18,nb.length,true);o.setUint32(off+22,nb.length,true)};
+  /* local header */o.setUint32(lh+14,c,true);o.setUint32(lh+18,nb.length,true);o.setUint32(lh+22,nb.length,true);
+  /* offsety za upravenou položkou se posunou */
+  const shift=off=>off>ds?off+delta:off;
+  const cd2=cdOff+(cdOff>ds?delta:0);
+  let q=cd2;
+  for(let i=0;i<cnt;i++){
+    const nl=o.getUint16(q+28,true),el_=o.getUint16(q+30,true),cl=o.getUint16(q+32,true),lo=o.getUint32(q+42,true);
+    if(lo===lh){o.setUint32(q+16,c,true);o.setUint32(q+20,nb.length,true);o.setUint32(q+24,nb.length,true)}
+    else if(lo>lh)o.setUint32(q+42,lo+delta,true);
+    q+=46+nl+el_+cl;
+  }
+  const e2=eocd+delta;o.setUint32(e2+16,cd2,true);
+  return out.buffer;
+}
 async function stafleExport(){
   const by=stafleData(),t=todayStr(),rows=[];
   const dt=s=>{const m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?new Date(+m[1],+m[2]-1,+m[3]):null};
@@ -2930,7 +2970,9 @@ async function stafleExport(){
     rows.forEach((r,i)=>{const c=ws[XLSX.utils.encode_cell({r:i+1,c:2})];if(c&&c.t==="d")c.z="d. m. yyyy"});
     ws["!cols"]=[{wch:12},{wch:28},{wch:16}];
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Štafle");
-    const out=XLSX.write(wb,{bookType:"xlsx",type:"array",cellDates:true});
+    ws["!margins"]={left:.4,right:.4,top:.5,bottom:.5,header:.3,footer:.3};
+    let out=XLSX.write(wb,{bookType:"xlsx",type:"array",cellDates:true,compression:false});
+    try{out=stafleFitA4(out)}catch(e){console.warn("A4",e)}
     dl("stafle-klienti-"+t+".xlsx",out,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");toast("Staženo – otevři v Numbers")
   }catch(err){
     dl("stafle-klienti-"+t+".csv",csv([head,...rows.map(r=>r.map((v,i)=>i===2&&v?fmtDate(t.slice(0,4)+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0"))+" "+v.getFullYear():v))]),"text/csv;charset=utf-8");toast("Staženo jako CSV (Excel knihovna se nenačetla)")}
