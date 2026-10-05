@@ -986,6 +986,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
         <div class="group" id="cliList"></div>
       </div>
       <div class="cli-col">
+        <div class="chips" style="margin:0 0 10px"><button type="button" class="chipbtn" id="stafleBtn">Štafle</button><button type="button" class="chipbtn" id="stafleBtnPdf">PDF výstup</button></div>
         <h3 class="sechead">Servis podle poslední schůzky</h3>
         <div class="seg fseg" id="sFilter" role="tablist" aria-label="Filtr servisu"></div>
         <div class="srvcol" id="srvList"></div>
@@ -2828,6 +2829,7 @@ function prodChip(p){const T=ptype(p);return el("span",{class:"pchip"+(p.status=
 const BAND={red:["var(--red)","var(--red-soft)"],orange:["var(--orange)","var(--orange-soft)"],green:["var(--green)","var(--green-soft)"],none:["var(--gray)","var(--fill)"]};
 function daysTxt(e){return e.next?"schůzka "+fmtMeet(e.next):e.days==null?"bez schůzky":e.days+" "+plural(e.days,"den","dny","dní")+" od poslední schůzky"}
 function renderClients(){
+  {const b=$("stafleBtn");if(b){b.onclick=openStafle;$("stafleBtnPdf").onclick=staflePDF}}
   const E=clientEntries();
   const red=E.filter(e=>e.band==="red"&&!e.snooze).length, orange=E.filter(e=>e.band==="orange"&&!e.snooze).length;
   if(view==="cli")$("sub").textContent=E.length+" "+plural(E.length,"klient","klienti","klientů")+" · servis podle poslední schůzky v kalendáři";
@@ -2870,6 +2872,52 @@ function srvCard(e){
       el("button",{type:"button",class:"no",onclick:()=>srvCall(e,false)},"Nedovolal"),
       el("span",{class:"sep"}),el("span",{class:"lbl"},"Odložit"),pp("w","týden"),pp("m","měsíc"),pp("q","kvartál"),pp("y","rok")));
 }
+/* ===== Štafle: klienti po měsících podle poslední schůzky; měsíc jde u každého ručně přehodit (pole stafleM u klienta) ===== */
+const stafleOv=new Map();   /* čerstvé změny, než se vrátí z databáze */
+const stafleCap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+function stafleKey(e){return e.rec?.id||e.id}
+function stafleMonth(e){const k=stafleKey(e),o=stafleOv.has(k)?stafleOv.get(k):e.rec?.stafleM;
+  if(o>=1&&o<=12)return {m:+o,manual:true};
+  const m=e.last?+String(e.last).slice(5,7):0;return {m:m>=1&&m<=12?m:0,manual:false}}
+function stafleData(){const by=Array.from({length:13},()=>[]);
+  clientEntries().forEach(e=>by[stafleMonth(e).m].push(e));
+  by.forEach(l=>l.sort((a,b)=>String(a.last||"").slice(8,10).localeCompare(String(b.last||"").slice(8,10))||surnameOf(a.name).localeCompare(surnameOf(b.name),"cs")));
+  return by}
+async function stafleSet(e,m,done){
+  try{const k0=stafleKey(e),rec=await ensureClient(e);
+    await db.doc("clients/"+rec.id).update({stafleM:m||null});
+    stafleOv.set(k0,m||null);stafleOv.set(rec.id,m||null);toast("Uloženo")}catch(err){toast("Nepodařilo se uložit")}
+  done&&done()}
+function openStafle(){
+  const row=(e,draw)=>{const {m,manual}=stafleMonth(e);
+    const sel=el("select",{"aria-label":"Měsíc – "+e.name},el("option",{value:"0"},"— vyber —"),...MONL.map((t,i)=>el("option",{value:String(i+1)},stafleCap(t))));sel.value=String(m);
+    sel.onchange=()=>stafleSet(e,+sel.value||null,draw);
+    return el("div",{class:"frow",style:"gap:8px;align-items:center"},
+      el("div",{style:"flex:1;min-width:0"},el("div",{style:"font-weight:600"},e.name),
+        el("div",{class:"pfmeta"},(e.last?"poslední schůzka "+fmtDate(e.last)+" "+String(e.last).slice(0,4):"bez schůzky")+(manual?" · ručně přehozeno":""))),
+      manual?el("button",{type:"button",class:"chipbtn",title:"Vrátit podle poslední schůzky",onclick:()=>stafleSet(e,null,draw)},"↺"):null,sel)};
+  const draw=()=>{const st=$("edBody").scrollTop,by=stafleData(),n=by.flat().length,nowM=new Date().getMonth()+1,sec=[];
+    for(let m=1;m<=12;m++){const L=by[m];if(!L.length)continue;
+      sec.push(el("h3",{class:"sechead"},stafleCap(MONL[m-1])+" · "+L.length+(m===nowM?" · tento měsíc":"")),el("div",{class:"group"},...L.map(e=>row(e,draw))))}
+    if(by[0].length)sec.push(el("h3",{class:"sechead"},"Bez měsíce · "+by[0].length),el("div",{class:"group"},...by[0].map(e=>row(e,draw))));
+    openSheet("Štafle · "+n+" "+plural(n,"klient","klienti","klientů"),[
+      el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:staflePDF},"PDF výstup")),
+      el("p",{class:"hint"},"Klient je v měsíci své poslední schůzky – tehdy se mu ozvi na další servis. Měsíc přehodíš v seznamu vedle jména, ↺ vrátí automatiku."),
+      ...sec]);
+    $("edBody").scrollTop=st};
+  draw()}
+function staflePDF(){
+  const esc=x=>String(x??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])),by=stafleData(),t=todayStr(),n=by.flat().length;
+  const tbl=(L,h)=>"<h2>"+esc(h)+" <span class=s>("+L.length+")</span></h2><table><tr><th>Klient</th><th>Telefon</th><th>Poslední schůzka</th><th>Smlouvy</th></tr>"+
+    L.map(e=>"<tr><td>"+esc(e.name)+"</td><td>"+esc(e.phone)+"</td><td>"+esc(e.last?fmtDate(e.last)+" "+String(e.last).slice(0,4):"–")+"</td><td>"+esc((e.active||[]).map(p=>p.type+(p.company?" ("+p.company+")":"")).join(", "))+"</td></tr>").join("")+"</table>";
+  const body=by.slice(1).map((L,i)=>L.length?tbl(L,stafleCap(MONL[i])):"").join("")+(by[0].length?tbl(by[0],"Bez měsíce"):"");
+  const html=`<!doctype html><html lang=cs><head><meta charset=utf-8><title>Štafle klientů ${esc(t)}</title><style>
+  body{font:13px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;color:#111;margin:28px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 6px;break-after:avoid}.s{color:#666;font-weight:400}
+  table{width:100%;border-collapse:collapse;break-inside:auto}tr{break-inside:avoid}td,th{border-bottom:1px solid #e5e5e5;padding:5px 8px;text-align:left;vertical-align:top}th{font-size:12px;color:#666;font-weight:600}
+  @media print{body{margin:14mm}}</style></head><body>
+  <h1>Štafle klientů – ${esc(fmtDate(t))} ${esc(t.slice(0,4))}</h1><div class=s>${n} ${plural(n,"klient","klienti","klientů")} podle měsíce poslední schůzky</div>${body}
+  <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`;
+  const w=window.open("","_blank");if(!w){toast("Povol vyskakovací okna pro PDF");return}w.document.open();w.document.write(html);w.document.close()}
 async function ensureClient(e){
   if(e.rec)return e.rec;
   const data={name:e.name,phone:e.phone||"",email:e.lead?.email||"",note:"",calKey:e.cal?.key||e.key||surnameOf(e.name),leadId:e.lead?.id||null,products:(e.products||[]).map(p=>({...p,id:newId()})),log:[],createdAt:new Date().toISOString()};
@@ -6264,7 +6312,7 @@ async function updateEurRate(){
   db=LStore.api;
   updateEurRate();
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
-  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="cli")render();pfSyncClientsSoon()});
+  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));stafleOv.clear();if(view==="cli")render();pfSyncClientsSoon()});
   db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
   db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
   db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf")renderPf()});
