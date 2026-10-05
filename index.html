@@ -4119,10 +4119,12 @@ $("edClose").onclick=()=>$("edDlg").close();
 /* Enter v editačním okně = uložit a zavřít (textarea si nechává Enter pro nový řádek) */
 $("edDlg").addEventListener("keydown",e=>{
   if(e.key!=="Enter"||e.defaultPrevented||e.isComposing||e.shiftKey||e.ctrlKey||e.metaKey)return;
-  const t=e.target;if(!t||!/^(INPUT|SELECT)$/.test(t.tagName)||/^(button|submit|checkbox|radio|file)$/.test(t.type||""))return;
+  const t=e.target;if(!t)return;
+  const task=t.tagName==="TEXTAREA"&&t.getAttribute("aria-label")==="Text úkolu";/* úkol: Enter uloží, Shift+Enter = nový řádek */
+  if(!task&&(!/^(INPUT|SELECT)$/.test(t.tagName)||/^(button|submit|checkbox|radio|file)$/.test(t.type||"")))return;
   const body=$("edBody");
-  const sv=[...body.querySelectorAll("button.chipbtn.ok")].find(b=>/^Uložit/.test(b.textContent.trim()));
-  if(!sv&&$("edDlg").dataset.enter!=="close")return;
+  const sv=[...body.querySelectorAll("button.chipbtn.ok,button.g")].find(b=>/^Uložit/.test(b.textContent.trim()));
+  if(!sv&&!task&&$("edDlg").dataset.enter!=="close")return;
   e.preventDefault();
   t.blur();/* spustí change → uložení pole */
   setTimeout(()=>{if(sv&&sv.isConnected)sv.click();else $("edDlg").close()},60);
