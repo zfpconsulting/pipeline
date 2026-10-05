@@ -6588,7 +6588,13 @@ const PP_ENC="v1.GG_alntvaznrBNSjFP00yQ.zN8bLnGgq_5dH1jA.RVSZSe9s-Ls_Fa3V6pjt1rn
     return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:b64(i)},key,b64(d))))}
   function run(pp){let src=document.getElementById("appMain").textContent;for(const k in pp)src=src.replace("/*@@PP:"+k+"@@*/",()=>pp[k]);
     [src,document.getElementById("appAcc").textContent].forEach(t=>{const e=document.createElement("script");e.textContent=t;document.body.appendChild(e)})}
-  const save=c=>{try{localStorage.setItem("pp_key",c)}catch(e){}};
+  /* kód se pamatuje dvakrát (localStorage + IndexedDB) a prohlížeč se žádá o trvalé úložiště – když ho jedno místo ztratí,
+     obnoví se z druhého. Záměrně ne v cookie: ta by se posílala s každým požadavkem na hosting. */
+  const idb=(mode,val)=>new Promise(res=>{try{const r=indexedDB.open("pp_gate",1);r.onupgradeneeded=()=>r.result.createObjectStore("k");r.onerror=()=>res(null);
+    r.onsuccess=()=>{try{const db=r.result,tx=db.transaction("k",mode==="set"?"readwrite":"readonly"),st=tx.objectStore("k");
+      if(mode==="set"){st.put(val,"pp_key");tx.oncomplete=()=>{db.close();res(true)};tx.onerror=()=>res(null)}
+      else{const g=st.get("pp_key");g.onsuccess=()=>{db.close();res(g.result||null)};g.onerror=()=>res(null)}}catch(e){res(null)}}}catch(e){res(null)}});
+  const save=c=>{try{localStorage.setItem("pp_key",c)}catch(e){}idb("set",c);try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}};
   function ask(msg){
     const box=document.createElement("div");box.id="ppGate";
     box.innerHTML='<div class="ppg"><h2>Přístupový kód</h2><p></p><input type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX"><button type="button">Pokračovat</button></div>';
@@ -6600,9 +6606,11 @@ const PP_ENC="v1.GG_alntvaznrBNSjFP00yQ.zN8bLnGgq_5dH1jA.RVSZSe9s-Ls_Fa3V6pjt1rn
     document.body.appendChild(box);setTimeout(()=>inp.focus(),50)}
   let code=null;const m=location.hash.match(/(?:^#|&)klic=([^&]+)/);
   if(m){code=decodeURIComponent(m[1]);save(code);history.replaceState(null,"",location.pathname+location.search)}
-  if(!code)try{code=localStorage.getItem("pp_key")}catch(e){}
-  if(!code)return ask();
-  dec(code).then(run,()=>ask("Přístupový kód se změnil nebo nesedí – zadej aktuální kód od správce."));
+  (async()=>{
+    if(!code)try{code=localStorage.getItem("pp_key")}catch(e){}
+    if(!code)code=await idb("get");   /* localStorage se ztratil → obnovit ze zálohy */
+    if(!code)return ask();
+    dec(code).then(pp=>{save(code);run(pp)},()=>ask("Přístupový kód se změnil nebo nesedí – zadej aktuální kód od správce."))})();
 })();
 </script>
 <script src="photoedit.js?v=1" defer></script>
