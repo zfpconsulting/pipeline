@@ -3189,7 +3189,9 @@ function openToday(preserve){
   if(dow===5||dow===6||dow===0)btns.push(el("button",{type:"button",class:"sec",onclick:weekReportPDF},"📄 PDF týdne pro nadřízeného"));
   if(btns.length)nodes.push(el("div",{class:"tdbtns"},btns));
   if(typeof asTodayNodes==="function")nodes.push(...asTodayNodes());
-  nodes.push(...tdSection("Dnešní schůzky",D.meets.map(ev=>tdRow(ev.name||ev.title||"Schůzka",fmtMeet(ev.start)+(ev.online?" · online":""),new Date(ev.start)<new Date()?"proběhla":"dnes","green",()=>{const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));if(l){$("edDlg").close();openEdit(l)}})),calState==="ok"?"Dnes nemáš žádnou schůzku.":"Kalendář se ještě načítá nebo není připojený."));
+  nodes.push(...tdSection("Dnešní schůzky",D.meets.map(ev=>{const row=tdRow(ev.name||ev.title||"Schůzka",fmtMeet(ev.start)+(ev.online?" · online":""),new Date(ev.start)<new Date()?"proběhla":"dnes","green",()=>{const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));if(l){$("edDlg").close();openEdit(l)}});
+    if(!ev.online)return row;row.style.flex="1";row.style.minWidth="0";
+    return el("div",{style:"display:flex;align-items:center;gap:8px;padding-right:10px"},row,el("button",{type:"button",class:"chipbtn",style:"background:var(--tint);color:#fff;white-space:nowrap",onclick:()=>joinMeet(ev.id)},"📹 Připojit"))}),calState==="ok"?"Dnes nemáš žádnou schůzku.":"Kalendář se ještě načítá nebo není připojený."));
   if(D.bday.length)nodes.push(...tdTasks("🎂 Narozeniny dnes",D.bday.map(e=>tdTask("bday:"+e.id+":"+t.slice(0,4),true,e.name,e.phone?e.phone:"popřej mu k narozeninám","popřát ›","orange",()=>{$("edDlg").close();openMsg({name:e.name,phone:e.phone,email:e.rec?.email||e.lead?.email||""},"narozeniny",()=>setTodo("bday:"+e.id+":"+t.slice(0,4),{s:"done",d:todayStr()}))})),""));
   const pk=p=>(p.id||p.no||p.type)+"";
   const tmr=addDaysFrom(t,1),soon=st=>st.slice(0,10)===tmr||(st.slice(0,10)===t&&new Date(st)>new Date());
@@ -4042,15 +4044,25 @@ async function ensureMeet(id){
   const i=id.indexOf(":"),pre=i>0?id.slice(0,i):"",split=pre.includes("@")||pre==="primary";
   const cal=split?pre:calCfg().id,gid=split?id.slice(i+1):id;
   const url="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cal)+"/events/"+encodeURIComponent(gid);
-  const get=async()=>(await gfetch(url+"?fields=hangoutLink")).json();
+  const get=async()=>(await gfetch(url+"?fields=hangoutLink,description")).json();
   let e=await get();
   if(!e.hangoutLink){
     e=await(await gfetch(url+"?conferenceDataVersion=1&sendUpdates=none&fields=hangoutLink",{method:"PATCH",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({conferenceData:{createRequest:{requestId:"pl"+Date.now().toString(36)+Math.random().toString(36).slice(2,8),conferenceSolutionKey:{type:"hangoutsMeet"}}}})})).json();
     for(let k=0;k<8&&!e.hangoutLink;k++){await new Promise(r=>setTimeout(r,700));e=await get()}
   }
-  if(e.hangoutLink){meetCache[id]=e.hangoutLink;lsSet("meet_links",meetCache)}
-  return e.hangoutLink||null}
+  if(!e.hangoutLink)return null;
+  /* odkaz i do poznámek události, ať je po ruce přímo v kalendáři */
+  if(!(e.description||"").includes(e.hangoutLink)){try{await gfetch(url+"?sendUpdates=none&fields=id",{method:"PATCH",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({description:(e.description?e.description.replace(/\s+$/,"")+"\n\n":"")+"Připojit se přes Google Meet: "+e.hangoutLink})})}catch(err){}}
+  meetCache[id]=e.hangoutLink;lsSet("meet_links",meetCache);
+  return e.hangoutLink}
+/* „Připojit“ u dnešní online schůzky – okno se otevře hned (jinak by ho Safari po čekání zablokoval), adresa se doplní po vytvoření odkazu */
+function joinMeet(id){
+  if(meetCache[id]){window.open(meetCache[id],"_blank");return}
+  const w=window.open("about:blank","_blank");toast("Připravuju Google Meet…");
+  ensureMeet(id).then(link=>{if(!link)throw 0;if(w)w.location.href=link;else location.href=link})
+    .catch(()=>{try{w&&w.close()}catch(e){}toast("Odkaz na Google Meet se nepodařilo vytvořit")})}
 const TITLES=[[/^prof\.?$/i,"profesore","profesorko",5],[/^doc\.?$/i,"docente","docentko",4],[/^(judr|mudr|phdr|rndr|paeddr|mvdr|pharmdr|thdr|phmr|dr)\.?$/i,"doktore","doktorko",3],[/^ing\.?$/i,"inženýre","inženýrko",2],[/^mgr\.?$/i,"magistře","magistro",2],[/^(bc|ba|bsc|mba|ph\.?d|csc|dis|llm|msc)\.?,?$/i,null,null,0]];
 function parseName(full){const parts=(full||"").replace(/,/g," ").split(/\s+/).filter(Boolean);let title=null,words=[];
   parts.forEach(w=>{const T=TITLES.find(t=>t[0].test(w)||t[0].test(w.replace(/\.$/,"")));if(T){if(T[1]&&(!title||T[3]>title[3]))title=T}else words.push(w)});
