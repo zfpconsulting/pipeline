@@ -5527,6 +5527,9 @@ function pfZfpiRate(a){const T=(settings.pfZfpiTiers&&settings.pfZfpiTiers.lengt
   let r=T[0][1];T.forEach(([from,p])=>{if(a>=from)r=p});return r}
 /* Conseq převádí měnu spotovým kurzem Saxo Bank; appka bere denní kurz ECB + volitelnou přirážku z Výchozích poplatků */
 function pfCqFx(){return +((settings.pfFees||{}).conseq||{}).fx||0}
+/* Conseq nakupuje fondy až několik pracovních dní po připsání vkladu (vklad 23. 1. → nákup kolem 28. 1.); výchozí 3 pracovní dny */
+function pfCqLag(){const v=((settings.pfFees||{}).conseq||{}).lag;return v==null||v===""?3:Math.max(0,+v||0)}
+function pfAddBiz(d,n){while(n>0){d++;const w=pfDay(d).getUTCDay();if(w&&w<6)n--}return d}
 /* instrumenty investice: každý má vlastní vklady – jednorázové (dep) a pravidelnou částku (ra) podle společného rozvrhu x.reg {freq,from,to};
    Conseq fondy tvoří jedno portfolio: jejich pravidelná úložka x.cra se dělí v poměru prvních investic;
    starší záznamy (vklady celé investice + podíly v %) se rozdělí podle podílů. Všechny částky jsou v Kč. */
@@ -5611,13 +5614,13 @@ function pfXirr(cf){
   let lo=-.99,hi=10,flo=npv(lo);if(flo*npv(hi)>0)return null;
   for(let n=0;n<200;n++){const m=(lo+hi)/2,fm=npv(m);if(Math.abs(fm)<1e-6)return m;if(flo*fm<0)hi=m;else{lo=m;flo=fm}}return (lo+hi)/2;
 }
-/* ---------- denní kurzy (ECB přes frankfurter.app) pro přepočet cizích měn na Kč; stahují se po letech a drží v localStorage ---------- */
+/* ---------- denní kurzy (ECB přes frankfurter.dev – stará doména frankfurter.app přestala odpovídat) pro přepočet cizích měn na Kč; stahují se po letech a drží v localStorage ---------- */
 const pfFxBusy={};
 async function pfFxLoad(cur){
   if(!cur||cur==="CZK"||pfFxBusy[cur])return;const c=lsGet("fx:"+cur);if(c&&Date.now()-(c.at||0)<12*3600e3)return;
   pfFxBusy[cur]=true;
   try{let pts=(c&&c.pts)||[];const y1=new Date().getFullYear(),y0=pts.length?pfDay(pts[pts.length-1][0]).getUTCFullYear():2005;let got=false;
-    for(let y=y0;y<=y1;y++){const r=await fetch("https://api.frankfurter.app/"+y+"-01-01.."+y+"-12-31?from="+cur+"&to=CZK");if(!r.ok)continue;const j=await r.json();
+    for(let y=y0;y<=y1;y++){const r=await fetch("https://api.frankfurter.dev/v1/"+y+"-01-01.."+y+"-12-31?from="+cur+"&to=CZK");if(!r.ok)continue;const j=await r.json();
       const add=Object.entries(j.rates||{}).map(([d,o])=>[pfDnum(d),+o.CZK]).filter(p=>p[1]>0).sort((a,b)=>a[0]-b[0]);
       if(add.length){pts=[...pts.filter(p=>p[0]<add[0][0]),...add];got=true}}
     if(got){lsSet("fx:"+cur,{at:Date.now(),pts});if(view==="pf")renderPf()}else if(c)lsSet("fx:"+cur,{...c,at:Date.now()});
@@ -5641,7 +5644,8 @@ function pfSim(x){
   const later=items.reduce((a,it)=>a+(it.dep||[]).filter(v=>v.d&&+v.a>0&&pfDnum(v.d)>end).length,0);
   const ifl=items.map(it=>pfItemFlows(it,x.reg,end)),nfl=ifl.reduce((a,f)=>a+f.length,0);
   let early=0;
-  const cfl=cs.map(c=>{const st=c.d.pts[0][0];return ifl[c.ii].map(v=>{const o={d:v.d,a:v.a*c.w,r:v.r};if(o.d<st){o.d=st;early++}return o}).sort((a,b)=>a.d-b.d)});
+  const cqLag=pfCqLag();
+  const cfl=cs.map(c=>{const st=c.d.pts[0][0],lag=pfCat(c.f)==="conseq"?cqLag:0;return ifl[c.ii].map(v=>{const o={d:lag?pfAddBiz(v.d,lag):v.d,a:v.a*c.w,r:v.r};if(o.d<st){o.d=st;early++}return o}).sort((a,b)=>a.d-b.d)});
   if(!cfl.some(f=>f.length))return {empty:true,later,name:C.name};
   const d0=Math.min(...cfl.filter(f=>f.length).map(f=>f[0].d));
   const days=[...new Set(cs.flatMap(c=>{const p=c.d.pts,out=[];for(let i=pfFind(p,d0);i<p.length&&p[i][0]<=end;i++)out.push(p[i][0]);return out}))].sort((a,b)=>a-b);
@@ -6079,10 +6083,13 @@ function pfFeesEdit(){
     el("button",{type:"button",class:"frow pfaddrow",onclick:()=>{tiers.push([(tiers[tiers.length-1][0]||0)+500000,tiers[tiers.length-1][1]]);drawT()}},"+ pásmo"));
   drawT();
   vals.conseq=vals.conseq||{};const fxI=el("input",{type:"number",min:"0",step:"any",inputmode:"decimal",placeholder:"0"});fxI.value=+(cur.conseq||{}).fx||"";fxI.oninput=()=>vals.conseq.fx=+fxI.value||0;vals.conseq.fx=+(cur.conseq||{}).fx||0;
+  const lagI=el("input",{type:"number",min:"0",max:"15",step:"1",inputmode:"numeric",placeholder:"3"});const lag0=(cur.conseq||{}).lag;lagI.value=lag0==null||lag0===""?"":lag0;
+  lagI.oninput=()=>{if(lagI.value==="")delete vals.conseq.lag;else vals.conseq.lag=Math.max(0,Math.round(+lagI.value||0))};if(lag0!=null&&lag0!=="")vals.conseq.lag=+lag0;
   const save=async()=>{try{await db.doc("settings/main").set({...settings,pfFees:vals,pfZfpiTiers:tiers.filter(t=>t[1]>=0).sort((a,b)=>a[0]-b[0])});$("edDlg").close();toast("Uloženo")}catch(e){toast("Nepodařilo se uložit")}};
   openSheet("Výchozí poplatky",[tBox,
     el("p",{class:"hint"},"Přirážka ZFPI se počítá „z investované částky“: z platby 100 000 Kč při 3 % jde 2 913 Kč na poplatek a 97 087 Kč do fondu. Pokud sazebník ZFPI stupňuje sazbu podle výše investice, doplň pásma (sazba platí od dané částky jedné platby)."),
-    el("div",{class:"group"},...rows,el("div",{class:"frow pffee"},el("span",{class:"pfmeta",style:"flex:1"},"Conseq – přirážka ke kurzu při nákupu fondu v cizí měně"),fxI,el("span",{class:"pfmeta"},"%"))),
+    el("div",{class:"group"},...rows,el("div",{class:"frow pffee"},el("span",{class:"pfmeta",style:"flex:1"},"Conseq – přirážka ke kurzu při nákupu fondu v cizí měně"),fxI,el("span",{class:"pfmeta"},"%")),
+      el("div",{class:"frow pffee"},el("span",{class:"pfmeta",style:"flex:1"},"Conseq – nákup fondů po připsání vkladu"),lagI,el("span",{class:"pfmeta"},"prac. dní"))),
     el("p",{class:"hint"},"Použijí se u nových modelů a investic (u existujících zůstanou uložené poplatky). DIP varianta ZFP WI se použije, když u investice zapneš „DIP“. ZFP Finance je vždy bez poplatků, penzijní fondy mají poplatky v ceně jednotky. Conseq převádí měnu spotovým kurzem Saxo Bank – appka bere denní kurz ECB, rozdíl (přirážku) můžeš doplnit výše."),
     el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn ok",onclick:save},"Uložit"))]);
 }
@@ -6423,7 +6430,7 @@ async function updateEurRate(){
   try{
     const last=+localStorage.getItem("eurczk_at")||0;
     if(Date.now()-last<7*864e5)return;
-    const r=await fetch("https://api.frankfurter.app/latest?from=EUR&to=CZK").then(x=>x.json());
+    const r=await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=CZK").then(x=>x.json());
     const v=r?.rates?.CZK;
     if(v){localStorage.setItem("eurczk",String(Math.round(v*100)/100));localStorage.setItem("eurczk_at",String(Date.now()))}
   }catch(e){}
