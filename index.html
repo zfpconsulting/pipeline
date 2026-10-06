@@ -1231,7 +1231,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
         <label>Podpis <input id="dSign" placeholder="např. Vojtěch Kudlička, ZFP Group" autocomplete="off"></label>
         <div id="tplList" class="tpllist"></div>
         <button type="button" class="dbtn" id="tplAdd">+ Nová šablona</button>
-        <p class="hint">Proměnné: <b>{osloveni}</b> (pane inženýre / paní Nováková / pane Nováku), <b>{jmeno}</b>, <b>{prijmeni}</b>, <b>{den}</b> (ve čtvrtek), <b>{datum}</b>, <b>{cas}</b>, <b>{zaKolik}</b> (dnes / zítra / za 3 dny), <b>{kde}</b> (online nebo místo), <b>{podpis}</b>. Zprávu pošleš z „Co tě dneska čeká“ nebo z volacího bloku – před odesláním ji ještě můžeš upravit.</p>
+        <p class="hint">Proměnné: <b>{osloveni}</b> (pane inženýre / paní Nováková / pane Nováku), <b>{jmeno}</b>, <b>{prijmeni}</b>, <b>{den}</b> (ve čtvrtek), <b>{datum}</b>, <b>{cas}</b>, <b>{zaKolik}</b> (dnes / zítra / za 3 dny), <b>{kde}</b> (online nebo místo), <b>{meet}</b> (odkaz na Google Meet – u online schůzky se vytvoří automaticky), <b>{podpis}</b>. Zprávu pošleš z „Co tě dneska čeká“ nebo z volacího bloku – před odesláním ji ještě můžeš upravit.</p>
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
@@ -4031,7 +4031,26 @@ function openRecruit(r0,isNew){
 const TPL_DEF=[{id:"potvrzeni",name:"Potvrzení schůzky",text:"Dobrý den, {osloveni}, potvrzuji naši schůzku {den} {datum} {vcas}{kde}. Kdyby se Vám cokoli změnilo, dejte mi prosím vědět. Děkuji a těším se.\n{podpis}"},
   {id:"zitra",name:"Připomenutí zítřejší schůzky",text:"Dobrý den, {osloveni}, jen připomínám naši zítřejší schůzku {vcas}{kde}. Budu se těšit.\n{podpis}"},
   {id:"narozeniny",name:"Přání k narozeninám",text:"Dobrý den, {osloveni}, chtěl bych Vám popřát vše nejlepší k narozeninám – hodně zdraví, štěstí a pohody.\n{podpis}"}];
-function tpls(){return settings.tpls&&settings.tpls.length?settings.tpls:TPL_DEF}
+/* stará online šablona slibovala odkaz „v den konzultace“ – teď se odkaz na Google Meet generuje hned a vkládá přes {meet} */
+const OLD_MEET_RE=/Na Vaši (?:e-)?mailovou adresu Vám v den konzultace zašlu\s+odkaz pro připojení\.?/;
+function tpls(){const L=settings.tpls&&settings.tpls.length?settings.tpls:TPL_DEF;return L.map(t=>OLD_MEET_RE.test(t.text||"")?{...t,text:t.text.replace(OLD_MEET_RE,"Zde Vám zasílám odkaz pro připojení: {meet}.")}:t)}
+/* ================= Google Meet odkaz k online schůzce ================= */
+const MEET_PH="[odkaz na Google Meet se generuje…]";
+const meetCache=lsGet("meet_links")||{};
+async function ensureMeet(id){
+  if(!id)return null;if(meetCache[id])return meetCache[id];
+  const i=id.indexOf(":"),pre=i>0?id.slice(0,i):"",split=pre.includes("@")||pre==="primary";
+  const cal=split?pre:calCfg().id,gid=split?id.slice(i+1):id;
+  const url="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cal)+"/events/"+encodeURIComponent(gid);
+  const get=async()=>(await gfetch(url+"?fields=hangoutLink")).json();
+  let e=await get();
+  if(!e.hangoutLink){
+    e=await(await gfetch(url+"?conferenceDataVersion=1&sendUpdates=none&fields=hangoutLink",{method:"PATCH",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({conferenceData:{createRequest:{requestId:"pl"+Date.now().toString(36)+Math.random().toString(36).slice(2,8),conferenceSolutionKey:{type:"hangoutsMeet"}}}})})).json();
+    for(let k=0;k<8&&!e.hangoutLink;k++){await new Promise(r=>setTimeout(r,700));e=await get()}
+  }
+  if(e.hangoutLink){meetCache[id]=e.hangoutLink;lsSet("meet_links",meetCache)}
+  return e.hangoutLink||null}
 const TITLES=[[/^prof\.?$/i,"profesore","profesorko",5],[/^doc\.?$/i,"docente","docentko",4],[/^(judr|mudr|phdr|rndr|paeddr|mvdr|pharmdr|thdr|phmr|dr)\.?$/i,"doktore","doktorko",3],[/^ing\.?$/i,"inženýre","inženýrko",2],[/^mgr\.?$/i,"magistře","magistro",2],[/^(bc|ba|bsc|mba|ph\.?d|csc|dis|llm|msc)\.?,?$/i,null,null,0]];
 function parseName(full){const parts=(full||"").replace(/,/g," ").split(/\s+/).filter(Boolean);let title=null,words=[];
   parts.forEach(w=>{const T=TITLES.find(t=>t[0].test(w)||t[0].test(w.replace(/\.$/,"")));if(T){if(T[1]&&(!title||T[3]>title[3]))title=T}else words.push(w)});
@@ -4049,7 +4068,7 @@ function fillTpl(text,c){const p=parseName(c.name),d=c.start?new Date(c.start):n
   const days=d?dDiff(ymd(d),todayStr()):null, zk=days==null?"":days===0?"dnes":days===1?"zítra":days===2?"pozítří":days>0?"za "+days+" dní":"";
   const kde=c.online?" (online)":c.place?" ("+c.place+")":"";
   const casTxt=d?d.getHours()+":"+z(d.getMinutes()):"[čas]";
-  const V={osloveni:salutation(c.name),jmeno:p.first,prijmeni:p.sur,den:d?DNY_V[d.getDay()]:"[den]",datum:d?d.getDate()+". "+(d.getMonth()+1)+".":"[datum]",cas:casTxt,vcas:(d?timePrep(d.getHours()):"v")+" "+casTxt,zaKolik:zk,kde,misto:c.online?"online":c.place||"",podpis:settings.sign||""};
+  const V={osloveni:salutation(c.name),jmeno:p.first,prijmeni:p.sur,den:d?DNY_V[d.getDay()]:"[den]",datum:d?d.getDate()+". "+(d.getMonth()+1)+".":"[datum]",cas:casTxt,vcas:(d?timePrep(d.getHours()):"v")+" "+casTxt,zaKolik:zk,kde,misto:c.online?"online":c.place||"",meet:c.meetLink||(c.online?MEET_PH:"[odkaz – schůzka není online]"),podpis:settings.sign||""};
   return text.replace(/\{(\w+)\}/g,(m,k)=>k in V?V[k]:m).replace(/\n\s*$/,"").replace(/ ,/g,",").replace(/ {2,}/g," ")}
 function contactFor(ev){const l=ev?leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l)):null;const c=!l?.phone&&ev?clients.find(c=>!c.hidden&&c.phone&&sameSurname(c.calKey||surnameOf(c.name),ev.key)):null;return {lead:l||null,client:c||null,phone:l?.phone||c?.phone||"",email:l?.email||c?.email||"",name:l?.name||c?.name||ev?.name||""}}
 function leadMsgCtx(l,mid){const now=new Date().toISOString(),ms=(l.meetings||[]).filter(x=>x.start&&x.start>=now).sort((a,b)=>a.start.localeCompare(b.start));
@@ -4060,17 +4079,31 @@ async function logLeadMsg(l,r){const now=new Date().toISOString(),cur=leads.find
   try{await db.doc("leads/"+cur.id).update({log,lastContact:now,updatedAt:now})}catch(e){}}
 function openMsg(ctx,tplId,onSent){
   if(!tplId&&ctx.start){const dd=dDiff(ctx.start.slice(0,10),todayStr());tplId=dd===1?"zitra":"potvrzeni"}
-  const T=tpls(),cur=T.find(t=>t.id===tplId)||T[0];const ta=el("textarea",{"aria-label":"Text zprávy"});ta.value=fillTpl(cur.text,ctx);
+  const T=tpls(),cur=T.find(t=>t.id===tplId)||T[0];const ta=el("textarea",{"aria-label":"Text zprávy"});
+  if(ctx.online&&ctx.meetId&&!ctx.meetLink&&meetCache[ctx.meetId])ctx.meetLink=meetCache[ctx.meetId];
+  ta.value=fillTpl(cur.text,ctx);
+  /* online schůzka → vždy zajistit Google Meet (přidá se i do události v kalendáři) a doplnit odkaz do textu */
+  if(ctx.online&&ctx.meetId&&!ctx.meetLink){
+    if(!navigator.onLine||!GAuth.hasScope("calendar.events"))toast("Odkaz na Google Meet teď nejde vytvořit – chybí připojení nebo oprávnění ke kalendáři");
+    else ensureMeet(ctx.meetId).then(link=>{if(!link)throw new Error("bez odkazu");ctx.meetLink=link;if(ta.isConnected)ta.value=ta.value.split(MEET_PH).join(link);toast("Google Meet přidán do schůzky")})
+      .catch(()=>{toast("Odkaz na Google Meet se nepodařilo vytvořit");if(ta.isConnected)ta.value=ta.value.split(MEET_PH).join("[doplň odkaz]")});
+  }
+  const mailInp=ctx.online?el("input",{type:"email",placeholder:"e-mail klienta","aria-label":"E-mail klienta",autocomplete:"off",style:"flex:1;min-width:0"}):null;if(mailInp)mailInp.value=ctx.email||"";
+  const sendMail=async()=>{const to=(mailInp?mailInp.value:ctx.email||"").trim();if(!/^\S+@\S+\.\S+$/.test(to)){toast("Zadej e-mail klienta");mailInp?.focus();return}
+    if(ta.value.includes(MEET_PH)){toast("Ještě se generuje odkaz na Google Meet – chvilku počkej");return}
+    if(ctx.leadRef&&to!==(ctx.email||"")){try{await db.doc("leads/"+ctx.leadRef.id).update({email:to,updatedAt:new Date().toISOString()});ctx.email=to}catch(e){}}
+    location.href="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent(ctx.online&&cur.id!=="narozeniny"?"Potvrzení online konzultace":cur.name)+"&body="+encodeURIComponent(ta.value);sent("e-mail")};
   let tel=(ctx.phone||"").replace(/[^\d+]/g,"");if(/^\d{9}$/.test(tel))tel="+420"+tel;const wa=tel.replace(/^\+/,"");
   const sent=ch=>{if(onSent)onSent({ch,tpl:cur.name,start:ctx.start,meetId:ctx.meetId})};
   openSheet("Zpráva",[el("div",{class:"msgbox",style:"display:grid;gap:10px"},
     el("div",{class:"msgto"},(ctx.name||"")+(tel?" · "+tel:" · telefon chybí")+(ctx.start?" · schůzka "+fmtMeet(ctx.start):" · schůzka není v kalendáři – doplň [den] [datum] [čas] v textu")),
-    (ctx.meets||[]).length>1?[el("div",{class:"msgto",style:"margin-top:2px"},"Kterou schůzku potvrdit:"),el("div",{class:"chips"},ctx.meets.map(m=>el("button",{type:"button",class:"chipbtn",style:m.id===ctx.meetId?"background:var(--orange);color:#fff":"",onclick:()=>openMsg({...ctx,start:m.start,online:m.online,place:m.place,meetId:m.id},dDiff(m.start.slice(0,10),todayStr())===1?"zitra":"potvrzeni",onSent)},fmtMeet(m.start)+(m.online?" · online":""))))]:null,
+    (ctx.meets||[]).length>1?[el("div",{class:"msgto",style:"margin-top:2px"},"Kterou schůzku potvrdit:"),el("div",{class:"chips"},ctx.meets.map(m=>el("button",{type:"button",class:"chipbtn",style:m.id===ctx.meetId?"background:var(--orange);color:#fff":"",onclick:()=>openMsg({...ctx,start:m.start,online:m.online,place:m.place,meetId:m.id,meetLink:null},dDiff(m.start.slice(0,10),todayStr())===1?"zitra":"potvrzeni",onSent)},fmtMeet(m.start)+(m.online?" · online":""))))]:null,
     el("div",{class:"chips"},T.map(t=>el("button",{type:"button",class:"chipbtn",style:t.id===cur.id?"background:var(--tint);color:#fff":"",onclick:()=>openMsg(ctx,t.id,onSent)},t.name))),ta,
+    mailInp?el("div",{style:"display:flex;gap:8px;align-items:center"},mailInp,el("button",{type:"button",onclick:sendMail},"✉️ Potvrdit e-mailem")):null,
     el("div",{class:"tdbtns"},
       tel?el("button",{type:"button",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value)}catch(e){}sent("SMS");location.href="sms:"+tel+"?&body="+encodeURIComponent(ta.value);toast("Otevírám Zprávy · text je i ve schránce")}},"💬 Otevřít ve Zprávách"):null,
       tel?el("button",{type:"button",class:"sec",onclick:()=>{window.open("https://wa.me/"+wa+"?text="+encodeURIComponent(ta.value),"_blank");sent("WhatsApp")}},"WhatsApp"):null,
-      ctx.email?el("button",{type:"button",class:"sec",onclick:()=>{location.href="mailto:"+ctx.email+"?subject="+encodeURIComponent(cur.name)+"&body="+encodeURIComponent(ta.value);sent("e-mail")}},"E-mail"):null,
+      !mailInp&&ctx.email?el("button",{type:"button",class:"sec",onclick:sendMail},"E-mail"):null,
       el("button",{type:"button",class:"sec",onclick:async()=>{try{await navigator.clipboard.writeText(ta.value);toast("Zkopírováno");sent("zkopírováno")}catch(e){ta.select();toast("Označeno – zkopíruj")}}},"Kopírovat")),
     el("p",{class:"hint"},"Šablony a podpis upravíš v nastavení (tlačítko ✓ vpravo nahoře)."))]);
 }
