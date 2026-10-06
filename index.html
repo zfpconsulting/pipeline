@@ -2803,15 +2803,50 @@ function calPeople(){
   return [...map.values()].map(p=>({...p,name:Object.entries(p.names).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0],meets:p.meets.sort((a,b)=>a.start.localeCompare(b.start))}));
 }
 /* stejná osoba i při jiném pořadí jmen („Veselý Michal“ = „Michal Veselý“) nebo když je v kalendáři jen příjmení („Šikulová“ = „Šikulová Soňa“) */
-const nameToks=n=>String(n||"").replace(/\(.*?\)/g," ").split(/\s+/).map(norm).filter(w=>w.length>=3);
+const _ntM=new Map();const nameToks=n=>{n=String(n||"");let t=_ntM.get(n);if(!t){t=n.replace(/\(.*?\)/g," ").split(/\s+/).map(norm).filter(w=>w.length>=3);if(_ntM.size>20000)_ntM.clear();_ntM.set(n,t)}return t};
 function sameName(a,b){const A=nameToks(a),B=nameToks(b);if(!A.length||!B.length)return false;
   const [S,L]=A.length<=B.length?[A,B]:[B,A];
   return S.length===1?L.some(t=>sameSurname(S[0],t)):S.every(t=>L.some(u=>sameSurname(t,u)))}
+/* ---------- propojení Klienti ↔ Pipeline: klient a jeho leady sdílejí telefon, e-mail a poznámku ----------
+   lead patří ke klientovi podle c.leadId, l.clientId nebo jména (u samotného příjmení jen když je jednoznačné) */
+const LINK_F=["phone","email","note"];
+function linkNameHits(name,arr,nameOf){const h=arr.filter(x=>sameName(nameOf(x),name));if(h.length<2)return h;
+  const full=h.filter(x=>nameToks(nameOf(x)).length>1&&nameToks(name).length>1);return nameToks(name).length>1?full:[]}
+function leadsOfClient(c){if(!c)return [];const out=new Map();
+  leads.forEach(l=>{if(l.id===c.leadId||l.clientId===c.id)out.set(l.id,l)});
+  const others=clients.filter(x=>x.id!==c.id&&!x.hidden);
+  linkNameHits(c.name,leads.filter(l=>!l.clientId||l.clientId===c.id),l=>l.name).forEach(l=>{
+    if(!others.some(o=>o.leadId===l.id||l.clientId===o.id)&&linkNameHits(l.name,[c,...others],x=>x.name).length===1)out.set(l.id,l)});
+  return [...out.values()].sort((a,b)=>(SIGNED(b.stage)-SIGNED(a.stage))||String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||"")))}
+function clientOfLead(l){if(!l)return null;return clients.find(c=>c.id===l.clientId)||clients.find(c=>c.leadId===l.id)||clients.find(c=>!c.hidden&&leadsOfClient(c).some(x=>x.id===l.id))||null}
+/* uložení klienta → stejné údaje do jeho leadů */
+async function linkPushToLeads(c,patch){const p={};LINK_F.forEach(k=>{if(k in patch)p[k]=patch[k]});if(!Object.keys(p).length)return;
+  for(const l of leadsOfClient(c)){const d={};Object.keys(p).forEach(k=>{if((l[k]||"")!==(p[k]||""))d[k]=p[k]});if(!l.clientId)d.clientId=c.id;
+    if(Object.keys(d).length)try{await db.doc("leads/"+l.id).update(d)}catch(e){}}}
+/* uložení leadu → stejné údaje do klienta (a do ostatních leadů téhož klienta) */
+async function linkPushToClient(lid,data){const l={...(leads.find(x=>x.id===lid)||{}),...data,id:lid},c=clientOfLead(l);if(!c)return;
+  const d={};LINK_F.forEach(k=>{if(k in data&&(c[k]||"")!==(data[k]||""))d[k]=data[k]||""});if(!c.leadId)d.leadId=lid;
+  try{if(Object.keys(d).length)await db.doc("clients/"+c.id).update(d);if(!l.clientId)await db.doc("leads/"+lid).update({clientId:c.id})}catch(e){}
+  const p={};LINK_F.forEach(k=>{if(k in data)p[k]=data[k]});for(const o of leadsOfClient(c))if(o.id!==lid){const x={};Object.keys(p).forEach(k=>{if((o[k]||"")!==(p[k]||""))x[k]=p[k]});if(Object.keys(x).length)try{await db.doc("leads/"+o.id).update(x)}catch(e){}}}
+/* jednorázové srovnání: prázdné údaje se doplní z druhé strany, dvě různé poznámky se spojí; klient i leady dostanou vzájemný odkaz */
+let _linkT=null,_linkBusy=false;
+function linkSyncSoon(){clearTimeout(_linkT);_linkT=setTimeout(()=>linkSyncAll().catch(()=>{}),1500)}
+async function linkSyncAll(){
+  if(_linkBusy||!db||!clients.length||!leads.length||(DEMO&&!CLEAN))return;_linkBusy=true;
+  try{for(const c of clients){if(c.hidden)continue;const ls=leadsOfClient(c);if(!ls.length)continue;
+    const val={};LINK_F.forEach(k=>{const vs=[c[k],...ls.map(l=>l[k])].map(v=>String(v||"").trim()).filter(Boolean);
+      if(k==="note"){const u=[];vs.forEach(v=>{if(!u.some(x=>x.includes(v)))for(let i=u.length-1;i>=0;i--)if(v.includes(u[i]))u.splice(i,1);if(!u.some(x=>x.includes(v)))u.push(v)});val[k]=u.join("\n\n")}
+      else val[k]=String(c[k]||"").trim()||vs[0]||""});
+    const cd={};LINK_F.forEach(k=>{if((c[k]||"")!==val[k])cd[k]=val[k]});if(!c.leadId)cd.leadId=ls[0].id;
+    if(Object.keys(cd).length)await db.doc("clients/"+c.id).update(cd);
+    for(const l of ls){const ld={};LINK_F.forEach(k=>{if((l[k]||"")!==val[k])ld[k]=val[k]});if(l.clientId!==c.id)ld.clientId=c.id;
+      if(Object.keys(ld).length)await db.doc("leads/"+l.id).update(ld)}}}
+  finally{_linkBusy=false}}
 function clientEntries(){
   const hidden=new Set(settings.hiddenClients||[]), out=[];
   clients.filter(c=>c.hidden).forEach(c=>hidden.add(c.calKey||surnameOf(c.name)));
-  clients.filter(c=>!c.hidden).forEach(c=>{const l=c.leadId?leads.find(x=>x.id===c.leadId):null;out.push({id:"c:"+c.id,rec:c,lead:l,name:c.name||"Bez jména",key:c.calKey||surnameOf(c.name),phone:c.phone||l?.phone||"",products:c.products||[]})});
-  leads.filter(l=>SIGNED(l.stage)&&!clients.some(c=>c.leadId===l.id)&&!hidden.has("l:"+l.id)).forEach(l=>{const k=surnameOf(l.name);
+  clients.filter(c=>!c.hidden).forEach(c=>{const l=(c.leadId&&leads.find(x=>x.id===c.leadId))||leadsOfClient(c)[0]||null;out.push({id:"c:"+c.id,rec:c,lead:l,name:c.name||"Bez jména",key:c.calKey||surnameOf(c.name),phone:c.phone||l?.phone||"",products:c.products||[]})});
+  leads.filter(l=>SIGNED(l.stage)&&!clients.some(c=>c.leadId===l.id||l.clientId===c.id)&&!hidden.has("l:"+l.id)).forEach(l=>{const k=surnameOf(l.name);
     const ex=out.find(x=>x.rec&&sameName(x.name,l.name));if(ex){if(!ex.lead)ex.lead=l;if(!ex.products.length)ex.products=leadProducts(l);return}   /* už je zapsaný ručně pod jiným pořadím jména */
     out.push({id:"l:"+l.id,lead:l,name:l.name,key:k,phone:l.phone||"",products:leadProducts(l),virtual:true})});
   calPeople().forEach(p=>{if(hidden.has(p.key))return;const e=out.find(x=>sameSurname(x.key,p.key)&&(!x.cal))||out.find(x=>!x.cal&&!x.calOnly&&sameName(x.name,p.name));if(e){e.cal=p;return}
@@ -2979,7 +3014,7 @@ async function stafleExport(){
 }
 async function ensureClient(e){
   if(e.rec)return e.rec;
-  const data={name:e.name,phone:e.phone||"",email:e.lead?.email||"",note:"",calKey:e.cal?.key||e.key||surnameOf(e.name),leadId:e.lead?.id||null,products:(e.products||[]).map(p=>({...p,id:newId()})),log:[],createdAt:new Date().toISOString()};
+  const data={name:e.name,phone:e.phone||"",email:e.lead?.email||"",note:e.lead?.note||"",calKey:e.cal?.key||e.key||surnameOf(e.name),leadId:e.lead?.id||null,products:(e.products||[]).map(p=>({...p,id:newId()})),log:[],createdAt:new Date().toISOString()};
   const r=await db.collection("clients").add(data);const rec={id:r.id,...data};e.rec=rec;e.id="c:"+r.id;return rec;
 }
 async function srvCall(e,ok){
@@ -2999,14 +3034,14 @@ async function hideClient(e){const h=[...new Set([...(settings.hiddenClients||[]
 function openClient(e0){
   const e=clientEntries().find(x=>x.id===e0.id||(e0.rec&&x.rec?.id===e0.rec.id))||e0;
   let rec=e.rec;
-  const save=async patch=>{try{if(!rec)rec=await ensureClient(e);await db.doc("clients/"+rec.id).update(patch);Object.assign(rec,patch);toast("Uloženo")}catch(err){toast("Nepodařilo se uložit")}};
+  const save=async patch=>{try{if(!rec)rec=await ensureClient(e);await db.doc("clients/"+rec.id).update(patch);Object.assign(rec,patch);linkPushToLeads(rec,patch);toast("Uloženo")}catch(err){toast("Nepodařilo se uložit")}};
   const inp=(val,ph,on,type)=>{const i=el("input",{placeholder:ph,type:type||"text"});i.value=val||"";i.addEventListener("change",()=>on(i.value.trim()));return i};
   const nm=inp(e.name,"Jméno a příjmení",v=>{save({name:v});$("edTitle").textContent=v});
   const ph=inp(e.phone,"telefon",v=>save({phone:v}),"tel");
   const em=inp(rec?.email||e.lead?.email,"e-mail",v=>save({email:v}),"email");
   const bd=inp(rec?.birth,"",v=>save({birth:v}),"date");
   const lm=inp(rec?.lastMeet?rec.lastMeet.slice(0,10):"","",v=>save({lastMeet:v||null}),"date");
-  const nt=el("textarea",{placeholder:"Rodina, cíle, co řešit při výročce…"});nt.value=rec?.note||"";nt.addEventListener("change",()=>save({note:nt.value.trim()}));
+  const nt=el("textarea",{placeholder:"Rodina, cíle, co řešit při výročce…"});nt.value=rec?.note||e.lead?.note||"";nt.addEventListener("change",()=>save({note:nt.value.trim()}));
   let prods=(rec?.products||e.products||[]).map(p=>({...p}));
   const pwrap=el("div",{style:"display:grid;gap:12px"});
   const saveProds=async()=>{await save({products:prods.map(p=>{const o={...p};delete o._open;return o})})};
@@ -5023,7 +5058,8 @@ function openEdit(l){
   $("f_name").value=l?.name||"";$("f_phone").value=l?.phone||"";$("f_email").value=l?.email||"";
   $("f_source").value=l?.source||"";$("f_stage").value=l?.stage||"novy";
   $("f_signed").value=l?.signedAt||"";$("f_ref").value=l?.referredBy||"";
-  $("f_next").value=l?.nextStep||"";$("f_date").value=l?.nextDate||"";$("f_note").value=l?.note||"";$("f_log").value="";
+  $("f_next").value=l?.nextStep||"";$("f_date").value=l?.nextDate||"";$("f_note").value=l?.note||"";
+  {const lc=l&&clientOfLead(l);if(lc){if(!l.phone&&lc.phone)$("f_phone").value=lc.phone;if(!l.email&&lc.email)$("f_email").value=lc.email;if(!l.note&&lc.note)$("f_note").value=lc.note}}$("f_log").value="";
   formItems=(l?.items||[]).map(it=>{const n=normItem(it);return {...n,var:n.var||PROD[n.p]?.def,share:n.share??l?.share??100,_k:++itemSeq}});
   $("f_points").value=l?.pointsManual??(l&&!l.items?.length&&l.points!=null?l.points:"");
   $("taskHint").textContent=taskHintText();
@@ -5079,11 +5115,13 @@ $("form").addEventListener("submit",async e=>{
   if(!editing||editing.stage!==stage)data.stageAt=now;
   if(editing&&editing.stage!==stage)armFlip({...editing,points:data.points},stage);
   if(!data.name){$("f_name").focus();return}
+  {const lc=clientOfLead({...(editing||{}),...data});if(lc){["phone","email"].forEach(k=>{if(!data[k]&&lc[k])data[k]=lc[k]});if(!data.note&&lc.note&&!editing?.note)data.note=lc.note;data.clientId=lc.id}}
   try{
     let id=editing?.id;
     if(editing)await db.doc("leads/"+editing.id).update(data);
     else{data.createdAt=now;data.lastContact=now;data.log=[];id=(await db.collection("leads").add(data)).id}
     if(typeof Deals!=="undefined")Deals.afterSave(id,editing?.items||[],items);
+    linkPushToClient(id,{phone:data.phone,email:data.email,note:data.note}).catch(()=>{});
     $("dlg").close();toast(editing?"Uloženo":"Lead přidán");
     if(from!==stage)afterStage(before,id,from,stage);
   }catch(err){showErr(err)}
@@ -5663,6 +5701,9 @@ function pfSim(x){
   const pens=items.length===1&&cs.length===1&&pfIsPens(cs[0].f),sfl=pens?pfStatFlows(ifl[0]):[];let k1=0,stat=0;
   const efl=pens&&x.emp&&+x.emp.a>0&&x.emp.from?pfItemFlows({ra:+x.emp.a},{freq:"m",from:x.emp.from,to:x.emp.to||""},end):[];let k2=0,emp=0;
   const S=cs.map(()=>({v:[],i:[],p:[]})),dl=cs.map(()=>[]),pl=cs.map(()=>[]);let prev=null,yr=pfDay(days[0]).getUTCFullYear();
+  /* skutečný stav z výpisu (x.act = {d, v:{slug:Kč}, cash}): k tomu dni se počet jednotek fondu srovná na skutečnou hodnotu,
+     dál se vyvíjí podle cen – rozdíly z načasování nákupů, kurzů a poplatků se tím vynulují */
+  const act=x.act&&x.act.d&&x.act.v?x.act:null,actD=act?pfDnum(act.d):null;let actDone=!act,actAdj=0;const actCash=act?+act.cash||0:0;
   for(const d of days){
     cs.forEach((c,k)=>{const p=c.d.pts;while(ptr[k]<p.length-1&&p[ptr[k]+1][0]<=d)ptr[k]++;
       if(curs[k]!=="CZK"){const r=pfFxAt(curs[k],d);if(r==null)fxWait=true;fx[k]=r??fx[k]}});
@@ -5698,8 +5739,12 @@ function pfSim(x){
       k0[k]++}});
     while(k1<sfl.length&&sfl[k1].d<=d){units[0]+=sfl[k1].a/P(0);stat+=sfl[k1].a;k1++}
     while(k2<efl.length&&efl[k2].d<=d){units[0]+=efl[k2].a/P(0);emp+=efl[k2].a;k2++}
+    if(!actDone&&(d>=actD||d===days[days.length-1])){actDone=true;
+      const G=new Map();cs.forEach((c,k)=>{if(act.v[c.slug]!=null&&act.v[c.slug]!==""){const g=G.get(c.slug)||[];g.push(k);G.set(c.slug,g)}});
+      G.forEach((ks,slug)=>{const cur=ks.reduce((a,k)=>a+units[k]*P(k),0),want=+act.v[slug]||0;actAdj+=want-cur;
+        ks.forEach(k=>{const nu=cur>0?units[k]*want/cur:want/ks.length/P(k);if(lots[k]&&units[k])lots[k].forEach(L=>L.u*=nu/units[k]);units[k]=nu})})}
     if(cq.length)gPrev=cq.reduce((a,k)=>a+units[k]*P(k),0);
-    cs.forEach((c,k)=>{S[k].v.push(units[k]*P(k)+acc[k]);S[k].i.push(inv[k]);S[k].p.push(paid[k])});prev=d;
+    cs.forEach((c,k)=>{S[k].v.push(units[k]*P(k)+acc[k]+(act&&actDone&&!k?actCash:0));S[k].i.push(inv[k]);S[k].p.push(paid[k])});prev=d;
   }
   const last=days[days.length-1];
   const comps=cs.map((c,k)=>{const val=S[k].v[S[k].v.length-1];return {slug:c.slug,name:c.name,mgr:c.mgr,f:c.f,w:c.w,ii:c.ii,fee:c.fee,cur:"CZK",fcur:curs[k],
@@ -5707,7 +5752,7 @@ function pfSim(x){
     cf:[...dl[k].map(([d,a])=>[d,-a]),...pl[k],[last,val]]}});
   const sum=f=>comps.reduce((a,c)=>a+f(c),0),val=sum(c=>c.val),invd=sum(c=>c.invd),pd=sum(c=>c.paid);
   return {name:C.name,days,comps,cur:"Kč",mixed:false,foreign:[...new Set(curs.filter(c=>c!=="CZK"))],fxWait,val,invd,paid:pd,gain:val+pd-invd,feeIn:sum(c=>c.feeIn),feeRun:sum(c=>c.feeRun),
-    xirr:pfXirr(comps.flatMap(c=>c.cf)),early,later,preLeft:pre,pre0,n:nfl,last,zfpf:zf.some(Boolean),pens,stat,emp,items,
+    xirr:pfXirr(comps.flatMap(c=>c.cf)),early,later,preLeft:pre,pre0,n:nfl,last,zfpf:zf.some(Boolean),pens,stat,emp,items,act:act?{d:act.d,adj:actAdj,cash:actCash}:null,
     pts:days.map((d,j)=>[d,comps.reduce((a,c)=>a+c.v[j]+c.p[j],0)]),inv:days.map((d,j)=>comps.reduce((a,c)=>a+c.i[j],0))};
 }
 /* složka investice pro souhrny (klient, správce) – už v Kč */
@@ -5977,6 +6022,14 @@ function pfInvEdit(x,preset,back){
   const showBase=()=>baseRow.hidden=mode.value!=="pre";mode.onchange=()=>{fe.mode=mode.value;showBase()};showBase();
   modeBox.append(el("div",{class:"frow"},el("label",{},"Vstupní poplatek"),mode),baseRow);
   drawItems();drawFees();
+  /* skutečný stav z výpisu – srovná hodnotu v appce na realitu k danému dni */
+  const act={d:"",v:{},cash:"",...(x.act||{})};act.v={...(act.v||{})};
+  const actBox=el("div",{class:"group"});
+  function drawAct(){const fs=its.filter(i=>i.tgt[0]!=="m").map(i=>i.tgt.slice(2)).filter((v,i,a)=>a.indexOf(v)===i);
+    rc(actBox,el("div",{class:"frow"},el("label",{},"Ke dni"),date(act.d,s=>act.d=s)),
+      ...fs.map(k=>el("div",{class:"frow pffee"},el("span",{class:"pfmeta",style:"flex:1"},itName((itF("f:"+k)?"f:":"c:")+k).replace(/^ZFP WI – /,"WI ")),num(act.v[k],"hodnota",a=>{if(a==="")delete act.v[k];else act.v[k]=a},"0.01"),unit())),
+      el("div",{class:"frow pffee"},el("span",{class:"pfmeta",style:"flex:1"},"Peněžní zůstatek"),num(act.cash,"0",a=>act.cash=a,"0.01"),unit()))}
+  drawAct();const _di=drawItems;drawItems=function(){_di();drawAct()};
   const done=()=>{if(back)back();else $("edDlg").close()};
   const save=async()=>{
     if(!its.length){toast("Vyber aspoň jeden instrument");return}
@@ -5993,6 +6046,8 @@ function pfInvEdit(x,preset,back){
       const emp=!empBox.hidden&&+em.a>0&&em.from?{a:+em.a,from:em.from,to:em.to||""}:null;
       const doc={name:nameI.value.trim(),client,items,tgt:items.length===1?items[0].tgt:"",dep:[],reg:items.some(i=>i.ra)||+cra>0?{freq:reg.freq||"m",from:reg.from,to:reg.to||""}:null,cra:its.some(i=>isCq(i.tgt))?+cra||0:0,
         rebal:null,dip:dipCb.checked,emp,fee:{mode:fe.mode||"each",base:+fe.base||0,per:perOut},updatedAt:new Date().toISOString()};
+      const av={};Object.entries(act.v).forEach(([k,v])=>{if(v!==""&&v!=null&&items.some(i=>i.tgt==="f:"+k))av[k]=+v});
+      doc.act=act.d&&(Object.keys(av).length||+act.cash)?{d:act.d,v:av,cash:+act.cash||0}:null;
       if(isNew)await db.collection("pfinv").add({...doc,createdAt:doc.updatedAt});else await db.doc("pfinv/"+x.id).update(doc);
       await pfGc();toast("Uloženo");done();if(view==="pf")renderPf();
     }catch(e){toast("Nepodařilo se uložit")}};
@@ -6005,6 +6060,8 @@ function pfInvEdit(x,preset,back){
     el("div",{class:"group"},el("div",{class:"frow"},el("label",{},"Jak často"),frq),
       el("div",{class:"frow"},el("label",{},"Od"),date(reg.from,s=>reg.from=s)),el("div",{class:"frow"},el("label",{},"Do"),date(reg.to,s=>reg.to=s))),
     el("p",{class:"hint"},"Platí pro pravidelné částky u všech instrumentů. „Do“ nech prázdné, pokud klient spoří dodnes. Poměr fondů v % nastavuješ jen v modelovém portfoliu."),
+    el("h3",{class:"sechead"},"Skutečný stav z výpisu"),actBox,
+    el("p",{class:"hint"},"Opíšeš hodnotu fondů z výpisu nebo klientské zóny a appka k tomu dni srovná počet jednotek na realitu. Dál se hodnota vyvíjí podle denních cen. Tím se vynulují rozdíly z data nákupu, kurzu a strhávání poplatků. Při dalším výpisu stačí přepsat datum a hodnoty."),
     empBox,
     el("h3",{class:"sechead"},"Poplatky po fondech"),feeBox,modeBox,
     el("p",{class:"hint"},"Předvyplněné z modelu nebo z výchozích poplatků. ZFP Investments a ZFP WI: jen vstupní (standard 3 %, u ZFPI jde zvolit mimořádný snížený). Conseq: vstupní + správa a success fee, které se strhávají každé 3 měsíce od každého vkladu (poprvé po 3 měsících); success fee se počítá ze zisku nad posledním maximem. ZFP Finance je bez poplatků, u penzijních fondů jsou poplatky už v ceně jednotky. Předplacený (Conseq) = vstupní poplatek z cílové částky se strhává z prvních pravidelných plateb, max. 75 % z každé platby; jednorázové vklady platí běžný vstupní poplatek. ZFPI: přirážka z investované částky – z platby se strhne i/(1+i), při 3 % tedy 2,913 %."),
@@ -6438,8 +6495,8 @@ async function updateEurRate(){
 (async()=>{
   db=LStore.api;
   updateEurRate();
-  db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
-  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));stafleOv.clear();if(view==="cli")render();pfSyncClientsSoon()});
+  db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
+  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli")render();pfSyncClientsSoon()});
   db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
   db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
   db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf")renderPf()});
