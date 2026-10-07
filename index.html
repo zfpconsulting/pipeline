@@ -1157,6 +1157,8 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
         <div class="group"><div class="frow col"><textarea id="f_note" aria-label="Poznámky" placeholder="Co o klientovi víš"></textarea></div></div>
       </div>
 
+      <div class="fg" id="docsBox" hidden></div>
+
       <div class="fg" id="logBox">
         <h3 class="sechead">Historie kontaktů</h3>
         <div class="group logl">
@@ -1333,7 +1335,7 @@ const AppLock=(()=>{
     $("lockPin").addEventListener("keydown",e=>{if(e.key==="Enter")tryPin($("lockPin").value)});
     $("lockPin").addEventListener("input",()=>{const v=$("lockPin").value,c=cfg();if(c&&c.pin&&v.length>=(c.pin.len||4))tryPin(v)});
     $("lockForgot").onclick=()=>{if(!confirm("Odemknout nejde? Data z tohoto zařízení se smažou a zámek se vypne. Na Google Disku zůstanou – po přihlášení Googlem se stáhnou zpět."))return;
-      setCfg(null);try{LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","g_tok","g_ok"].forEach(k=>localStorage.removeItem(k))}catch(e){}location.reload()};
+      setCfg(null);let w;try{LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","g_tok","g_ok","pp_docs_folder"].forEach(k=>localStorage.removeItem(k));w=window.Docs?Docs.wipe():indexedDB.deleteDatabase("pp_docs")}catch(e){}reloadAfter(w)};
     ["pointerdown","keydown","touchstart","wheel"].forEach(ev=>addEventListener(ev,()=>{if(!locked)lastAct=Date.now()},{capture:true,passive:true}));
     document.addEventListener("visibilitychange",()=>{const c=cfg();if(!c)return;
       if(document.visibilityState==="hidden"){hiddenAt=Date.now();if(!(+c.min))show()}
@@ -1460,7 +1462,7 @@ const GAuth={
   },
   logout(){
     if(!confirm("Odhlásit? Data z tohoto zařízení se smažou – na tvém Google Disku zůstanou a po dalším přihlášení se stáhnou zpět."))return false;
-    wipeLocal();["g_tok","g_ok","g_hint","g_owner"].forEach(k=>localStorage.removeItem(k));location.reload();return true;
+    const w=wipeLocal();["g_tok","g_ok","g_hint","g_owner"].forEach(k=>localStorage.removeItem(k));reloadAfter(w);return true;
   },
   async whoami(){
     const r=await(await gfetch("https://www.googleapis.com/oauth2/v3/userinfo")).json();
@@ -1528,7 +1530,11 @@ async function gfetch(url,opt={}){
   return r;
 }
 
-function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","fc_draft_v1","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at","as_snap_sig","as_auto","as_inv_at"].forEach(k=>localStorage.removeItem(k))}
+function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","fc_draft_v1","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at","as_snap_sig","as_auto","as_inv_at","pp_docs_folder"].forEach(k=>localStorage.removeItem(k));
+  /* obsah souborů u klientů (IndexedDB) – vrací slib, ať s ním jde počkat před reloadem */
+  try{return window.Docs?Docs.wipe():Promise.resolve()}catch(e){return Promise.resolve()}}
+/* reload až po smazání souborů (max 1,5 s), jinak by ho přerušil */
+function reloadAfter(p){let done=false;const go=()=>{if(!done){done=true;location.reload()}};try{Promise.resolve(p).then(go,go)}catch(e){go()}setTimeout(go,1500)}
 /* --- nastavení kalendáře (per uživatel, ukládá se do settings/main) --- */
 function calCfg(){const s=(typeof settings!=="undefined"&&settings)||{};return{id:s.calId||"primary",name:s.calName||"Hlavní kalendář",prefix:(s.calPrefix??"").trim()}}
 function prefixRe(){const p=calCfg().prefix;if(!p)return null;return new RegExp("^"+p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s*:$/,"\\s*:")+"\\s*","i")}
@@ -1574,7 +1580,7 @@ const GSync=(()=>{
       const now=mergeDocs(merged,LStore.docs());
       if(JSON.stringify(now)!==JSON.stringify(LStore.docs()))LStore.replace(now);
       if(JSON.stringify(now)!==JSON.stringify(merged))again=true;
-      last=Date.now();lsSet("g_synced",last);status("ok");setTimeout(()=>{try{weeklyDriveBackup()}catch(e){}},3000);
+      last=Date.now();lsSet("g_synced",last);status("ok");try{window.Docs&&Docs.sync()}catch(e){}setTimeout(()=>{try{weeklyDriveBackup()}catch(e){}},3000);
     }catch(e){console.warn(e);status(e.code===401?"expired":"error",e.message)}
     finally{busy=false;if(again){again=false;soon()}}
   }
@@ -1948,13 +1954,19 @@ function renderPipe(cur){
       meta?el("div",{class:"colmeta"},meta):null,
       items.map(l=>card(l,i,cur)),
       st.k==="novy"?el("button",{class:"addcard",type:"button",onclick:()=>openEdit(null)},"Přidat lead"):null);
-    col.addEventListener("dragover",e=>{e.preventDefault();col.classList.add("drop")});
+    col.addEventListener("dragover",e=>{if(window.Docs&&Docs.isFileDrag(e))return;e.preventDefault();col.classList.add("drop")});
     col.addEventListener("dragleave",()=>col.classList.remove("drop"));
-    col.addEventListener("drop",e=>{e.preventDefault();col.classList.remove("drop");const l=leads.find(x=>x.id===e.dataTransfer.getData("text/plain"));if(l&&l.stage!==st.k)moveTo(l,st.k)});
+    col.addEventListener("drop",e=>{if(window.Docs&&Docs.isFileDrag(e))return;e.preventDefault();col.classList.remove("drop");const l=leads.find(x=>x.id===e.dataTransfer.getData("text/plain"));if(l&&l.stage!==st.k)moveTo(l,st.k)});
     return col;
   }));
 }
 
+/* soubory u klienta: patří klientovi (c:…), a dokud lead žádného klienta nemá, leadu (l:…); detail klienta ukazuje obojí */
+function docOwnerLead(l){const c=clients.find(x=>x.id===l.clientId)||clients.find(x=>x.leadId===l.id);
+  return {ids:["l:"+l.id,c&&"c:"+c.id].filter(Boolean),primary:c?"c:"+c.id:"l:"+l.id,label:l.name||"lead"}}
+function docOwnerClient(e,full){   /* ids se počítají za běhu: klient z kalendáře dostane záznam (e.rec) až při prvním přidaném souboru */
+  return {get ids(){const rec=e.rec,ls=full&&rec?leadsOfClient(rec):(e.lead?[e.lead]:[]);return [rec&&"c:"+rec.id,...ls.map(x=>"l:"+x.id)].filter(Boolean)},
+    get primary(){return e.rec?"c:"+e.rec.id:null},ensure:async()=>"c:"+(await ensureClient(e)).id,label:e.name||"klient"}}
 function card(l,i,cur){
   const s=dueState(l), signed=SIGNED(l.stage), stor=(l.items||[]).map(it=>stornoCalc(normItem(it),l.signedAt)).filter(x=>x&&x.pts>0);
   const rateUsed=signed&&l.signedAt?quarterRow(qOf(l.signedAt)).rate:cur.rate;
@@ -1982,6 +1994,7 @@ function card(l,i,cur){
         i>0&&!DEAD(l.stage)?el("button",{type:"button","aria-label":"O fázi zpět",title:"O fázi zpět",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i-1].k)}},"‹"):null,
         i<STAGES.findIndex(s=>s.k==="vyplaceno")?el("button",{type:"button","aria-label":"Posunout dál",title:"Posunout dál",onclick:e=>{e.stopPropagation();moveTo(l,STAGES[i+1].k)}},"›"):null)));
   if(l.shared){c.draggable=false;const sp=c.querySelector(".stepper");if(sp)sp.remove()}
+  if(window.Docs)try{const ow=docOwnerLead(l);Docs.dropTarget(c,ow);const b=Docs.badge(ow),tg=c.querySelector(".tags");if(b&&tg)tg.append(b)}catch(err){console.warn("soubory",err)}
   c.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",l.id));
   c.addEventListener("dblclick",()=>openEdit(l));
   c.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target===c)openEdit(l)});
@@ -2871,6 +2884,13 @@ function clientEntries(){
 function prodChip(p){const T=ptype(p);return el("span",{class:"pchip"+(p.status==="ended"?" ended":""),style:"--pc:"+T.c},el("i",{}),p.type+(p.amt?" "+shortKc(p.amt)+(/měs/.test(p.unit||T.unit)?"/měs":/rok/.test(p.unit||T.unit)?"/rok":""):""))}
 const BAND={red:["var(--red)","var(--red-soft)"],orange:["var(--orange)","var(--orange-soft)"],green:["var(--green)","var(--green-soft)"],none:["var(--gray)","var(--fill)"]};
 function daysTxt(e){return e.next?"schůzka "+fmtMeet(e.next):e.days==null?"bez schůzky":e.days+" "+plural(e.days,"den","dny","dní")+" od poslední schůzky"}
+/* řádek / karta klienta přijme přetažené soubory; v seznamu klientů ukáže i počet souborů */
+function docDecor(e,node){
+  if(!window.Docs)return node;
+  try{const ow=docOwnerClient(e);Docs.dropTarget(node,ow);
+    if(!node.classList.contains("scard")){const b=Docs.badge(ow),t=node.querySelector(".t");if(b&&t){b.style.marginLeft="6px";t.append(b)}}}catch(err){console.warn("soubory",err)}
+  return node}
+function docSection(e){try{return window.Docs?Docs.section(docOwnerClient(e,true)):null}catch(err){console.warn("soubory",err);return null}}
 function renderClients(){
   {const b=$("stafleBtn");if(b){b.onclick=openStafle;$("stafleBtnX").onclick=stafleExport}}
   const E=clientEntries();
@@ -2884,12 +2904,12 @@ function renderClients(){
   const list=E.filter(e=>(!qq||norm(e.name).includes(qq)||(e.phone||"").replace(/\s/g,"").includes(cliQ.replace(/\s/g,"")))&&(cliFilter==="all"||(cliFilter==="prod"?e.products.length:e.calOnly)))
     .sort((a,b)=>(b.products.length>0)-(a.products.length>0)||surnameOf(a.name).localeCompare(surnameOf(b.name),"cs"));
   const [bc]=BAND.green;
-  $("cliList").replaceChildren(...(list.length?list.slice(0,cliShow).map(e=>el("button",{type:"button",class:"row row-btn crow",onclick:()=>openClient(e)},
+  $("cliList").replaceChildren(...(list.length?list.slice(0,cliShow).map(e=>docDecor(e,el("button",{type:"button",class:"row row-btn crow",onclick:()=>openClient(e)},
       el("span",{class:"avatar",style:"background:"+(e.products.length?"var(--tint)":"var(--gray)")},initials(e.name)),
       el("span",{class:"main"},el("div",{class:"t"},e.name,e.prospect?el("span",{class:"tag blue",style:"margin-left:6px"},"v pipeline · "+e.prospect):e.calOnly?el("span",{class:"tag",style:"margin-left:6px"},"z kalendáře"):null),
         el("div",{class:"s"},[e.phone,e.since?(e.calOnly?"první schůzka ":"klient od ")+fmtDate(e.since)+" "+e.since.slice(0,4):null,e.meetCount?e.meetCount+" "+plural(e.meetCount,"schůzka","schůzky","schůzek"):null].filter(Boolean).join(" · ")||"bez údajů"),
         e.products.length?el("div",{class:"pchips"},e.products.slice(0,5).map(prodChip),e.products.length>5?el("span",{class:"pchip more"},"+"+(e.products.length-5)):null):null),
-      el("span",{class:"bandot",style:"background:"+BAND[e.band][0],title:daysTxt(e)}),chev())):[el("div",{class:"row"},el("span",{class:"empty"},E.length?"Nic neodpovídá hledání.":"Zatím žádní klienti. Přibudou z podepsaných leadů a ze schůzek v kalendáři, nebo je přidej tlačítkem +."))]));
+      el("span",{class:"bandot",style:"background:"+BAND[e.band][0],title:daysTxt(e)}),chev()))):[el("div",{class:"row"},el("span",{class:"empty"},E.length?"Nic neodpovídá hledání.":"Zatím žádní klienti. Přibudou z podepsaných leadů a ze schůzek v kalendáři, nebo je přidej tlačítkem +."))]));
   {const m=moreBtn(list.length-cliShow,()=>{cliShow+=20;renderClients()});if(m)$("cliList").append(m)}
   renderServis(E);renderStats();
   $("cliFoot").textContent=calHist?"Ze schůzek v kalendáři za celou historii ("+(calHist.length)+" "+plural(calHist.length,"událost","události","událostí")+" s „"+calCfg().prefix+"“)."+(lsGet("cal_hist")?.at?" Načteno "+fmtDT(new Date(lsGet("cal_hist").at).toISOString())+".":""):"Historie kalendáře se načítá…";
@@ -2905,7 +2925,7 @@ function renderServis(E){
 function srvCard(e){
   const [c,bg]=BAND[e.band], pp=(k,lab)=>el("button",{type:"button",class:"pp",onclick:()=>srvPostpone(e,k)},lab);
   const lastLog=(e.rec?.log||[]).slice(-1)[0];
-  return el("article",{class:"scard"+(e.snooze?" snoozed":""),style:"--bc:"+c+";--bb:"+bg},
+  return docDecor(e,el("article",{class:"scard"+(e.snooze?" snoozed":""),style:"--bc:"+c+";--bb:"+bg},
     el("div",{class:"sc-top"},el("span",{class:"avatar",style:"background:"+c},initials(e.name)),
       el("div",{class:"main"},el("button",{type:"button",class:"sc-name",onclick:()=>openClient(e)},e.name),el("div",{class:"sc-days"},daysTxt(e))),
       e.phone?el("a",{class:"sc-tel",href:"tel:"+e.phone.replace(/\s/g,"")},e.phone):null,
@@ -2914,7 +2934,7 @@ function srvCard(e){
     el("div",{class:"srvbtns"},
       el("button",{type:"button",class:"ok",onclick:()=>srvCall(e,true)},"Dovolal"),
       el("button",{type:"button",class:"no",onclick:()=>srvCall(e,false)},"Nedovolal"),
-      el("span",{class:"sep"}),el("span",{class:"lbl"},"Odložit"),pp("w","týden"),pp("m","měsíc"),pp("q","kvartál"),pp("y","rok")));
+      el("span",{class:"sep"}),el("span",{class:"lbl"},"Odložit"),pp("w","týden"),pp("m","měsíc"),pp("q","kvartál"),pp("y","rok"))));
 }
 /* ===== Štafle: klienti po měsících podle poslední schůzky; měsíc jde u každého ručně přehodit (pole stafleM u klienta) ===== */
 const stafleOv=new Map();   /* čerstvé změny, než se vrátí z databáze */
@@ -3065,6 +3085,7 @@ function openClient(e0){
     el("div",{class:"group"},el("div",{class:"frow col"},nt)),
     el("h3",{class:"sechead"},"Produkty"),pwrap,add,
     el("p",{class:"hint"},"Produkty tady nemají vliv na výdělek – slouží jako přehled smluv. Výjimka: když u ŽP z pipeline označíš zánik, spočítá se storno a odečte se v Obratu."),
+    docSection(e),
     meets.length?el("h3",{class:"sechead"},"Schůzky z kalendáře · "+meets.length):null,
     meets.length?el("div",{class:"group"},meets.slice(0,12).map(s=>el("div",{class:"row"},el("span",{class:"main"},fmtMeet(s)+" "+s.slice(0,4)),el("span",{class:"end"},s>new Date().toISOString()?"naplánováno":"")))):null,
     log.length?el("h3",{class:"sechead"},"Historie servisu"):null,
@@ -5091,6 +5112,7 @@ function openEdit(l){
   $("f_points").value=l?.pointsManual??(l&&!l.items?.length&&l.points!=null?l.points:"");
   $("taskHint").textContent=taskHintText();
   $("f_logAt").value=localDT();$("delBox").hidden=!l;$("delBtn").hidden=false;$("delConfirm").hidden=true;$("fErr").hidden=true;$("logBox").hidden=!l;
+  {const b=$("docsBox");b.hidden=!l;try{if(l&&window.Docs)Docs.mount(b,docOwnerLead(l));else b.replaceChildren()}catch(err){console.warn("soubory",err);b.hidden=true}}
   syncSigned();renderItems();renderLog(l);
   if(typeof Deals!=="undefined")Deals.lockForm(l);
   $("dlg").showModal();$("dlg").querySelector(".sbody").scrollTop=0;if(!l)$("f_name").focus();
@@ -6522,6 +6544,8 @@ async function updateEurRate(){
 (async()=>{
   db=LStore.api;
   updateEurRate();
+  /* soubory u klientů (docs.js se načítá odděleně a může naběhnout o chvilku později než tahle appka) */
+  {let tries=0;const start=()=>{if(window.Docs){Docs.init({db,newId,toast,gfetch,token:()=>GAuth.token(),demo:DEMO});Docs.onChange(()=>{try{render()}catch(e){}})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli")render();pfSyncClientsSoon()});
   db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
@@ -6873,6 +6897,7 @@ const PP_ENC="v1.GG_alntvaznrBNSjFP00yQ.zN8bLnGgq_5dH1jA.RVSZSe9s-Ls_Fa3V6pjt1rn
 })();
 </script>
 <script src="photoedit.js?v=1" defer></script>
+<script src="docs.js?v=1" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */
