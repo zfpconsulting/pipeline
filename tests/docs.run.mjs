@@ -348,7 +348,11 @@ for (const [name, fn] of Object.entries(tests)) {
   if (filter && !name.includes(filter)) continue;
   const t0 = Date.now();
   try { await fn(); ok++; console.log(`✓ ${name} (${Date.now() - t0} ms)`); }
-  catch (e) { bad++; console.log(`✗ ${name}\n    ${String(e && e.stack || e).split("\n").slice(0, 5).join("\n    ")}`); }
+  catch (e) {
+    bad++; const msg = String(e && e.stack || e).split("\n").slice(0, 5).join("\n    ");
+    console.log(`✗ ${name}\n    ${msg}`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=${name.replace(/[,:]/g, " ").slice(0, 60)}::${msg.replace(/%/g, "%25").replace(/\r/g, "").replace(/\n/g, "%0A")}`);   /* chyba je vidět i v přehledu běhu na GitHubu */
+  }
 }
 await browser.close(); srv.close();
 console.log(`\n${ok} prošlo, ${bad} selhalo`);
