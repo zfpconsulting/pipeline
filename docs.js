@@ -187,14 +187,18 @@ function viewer(){
   const body=h("div",{class:"dv-body"});
   d.append(h("div",{class:"dv-bar"},h("div",{class:"dv-nav"},prev,next),title,h("div",{class:"dv-r"},dl,ok)),body);
   Object.assign(d,{_t:title,_b:body,_prev:prev,_next:next,_dl:dl});
-  ok.onclick=()=>d.close();
+  /* uklizení hned při zavření (událost "close" chodí se zpožděním – kdyby mezitím naskočil další náhled, smazala by ho) */
+  const tidy=()=>{if(cur){cur.dead=true;cur.cleanup.forEach(f=>{try{f()}catch(e){}});cur=null}d._b.replaceChildren()};
+  const shut=()=>{d.close();tidy()};
+  ok.onclick=shut;
   prev.onclick=()=>step(-1);next.onclick=()=>step(1);dl.onclick=()=>cur&&download(cur);
-  d.addEventListener("close",()=>{if(cur){cur.dead=true;cur.cleanup.forEach(f=>{try{f()}catch(e){}});cur=null}d._b.replaceChildren()});
-  d.addEventListener("click",e=>{if(e.target===d)d.close()});
+  d.addEventListener("cancel",tidy);   /* Esc */
+  d.addEventListener("close",()=>{if(!d.open)tidy()});
+  d.addEventListener("click",e=>{if(e.target===d)shut()});
   d.addEventListener("keydown",e=>{
     if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;
     if(e.key==="ArrowLeft"){e.preventDefault();e.stopPropagation();step(-1)}else if(e.key==="ArrowRight"){e.preventDefault();e.stopPropagation();step(1)}
-    else if(e.key===" "&&!(e.target&&e.target.tagName==="BUTTON")){e.preventDefault();e.stopPropagation();d.close()}});
+    else if(e.key===" "&&!(e.target&&e.target.tagName==="BUTTON")){e.preventDefault();e.stopPropagation();shut()}});
   document.body.append(d);dlg=d;return d}
 const setSub=c=>{c.sub.textContent=[c.idx,...c.parts].filter(Boolean).join(" · ")};
 function step(k){if(!cur)return;const i=cur.list.findIndex(x=>x.id===cur.f.id),n=cur.list[i+k];if(n)show(n,cur.list)}

@@ -265,6 +265,19 @@ const tests = {
     await ctx.close();
   },
 
+  async "zavřít a hned otevřít jiný soubor: opožděná událost zavření nový náhled nesmaže"() {
+    const { ctx, page } = await open();
+    await prep(page, "foto.png", "ukazka.csv"); await drop(page, "#card", ["foto.png", "ukazka.csv"]); await waitFiles(page, 2);
+    await rowOf(page, "foto.png").click(); await page.waitForSelector(".dv[open] img.dv-img");
+    /* Hotovo + okamžitě další soubor ve stejném tahu – "close" z prvního zavření dorazí až po otevření druhého */
+    await page.evaluate(() => { document.querySelector(".dv-ok").click(); const f = Docs.filesFor(["c:c1"]).find(x => x.name === "ukazka.csv"); Docs.preview(f.id) });
+    await page.waitForTimeout(500);
+    assert(await page.evaluate(() => !!document.querySelector(".dv[open]") && document.querySelector(".dv-body").children.length > 0), "nový náhled zůstal otevřený a s obsahem");
+    await page.keyboard.press("Escape");
+    eq(await page.locator(".dv-body").evaluate(b => b.children.length), 0, "Esc uklidí hned");
+    await ctx.close();
+  },
+
   async "klávesnice: Enter v seznamu otevře náhled, Hotovo zavře"() {
     const { ctx, page } = await open();
     await prep(page, "foto.png"); await drop(page, "#card", ["foto.png"]); await waitFiles(page, 1);
