@@ -455,6 +455,7 @@ tr.click{cursor:pointer} tr.click:active td{background:var(--fill2)}
 .sc-top .main{flex:1;min-width:0}
 .sc-name{font-weight:600;font-size:15px;text-align:left;overflow-wrap:anywhere}
 .sc-days{font-size:13px;font-weight:600;color:var(--bc)}
+.sc-add{width:30px;height:30px;border-radius:50%;border:none;background:var(--tint);color:#fff;font:600 20px/1 var(--font);cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0}.sc-add.on{background:var(--green-soft);color:var(--green);font-size:16px}
 .sc-tel{font-size:13px;color:var(--tint);text-decoration:none;white-space:nowrap;font-variant-numeric:tabular-nums}
 .sc-meta{font-size:12px;color:var(--label2);line-height:1.4}
 .scard .srvbtns{margin-top:0;align-items:center}
@@ -2907,7 +2908,8 @@ function srvCard(e){
   return el("article",{class:"scard"+(e.snooze?" snoozed":""),style:"--bc:"+c+";--bb:"+bg},
     el("div",{class:"sc-top"},el("span",{class:"avatar",style:"background:"+c},initials(e.name)),
       el("div",{class:"main"},el("button",{type:"button",class:"sc-name",onclick:()=>openClient(e)},e.name),el("div",{class:"sc-days"},daysTxt(e))),
-      e.phone?el("a",{class:"sc-tel",href:"tel:"+e.phone.replace(/\s/g,"")},e.phone):null),
+      e.phone?el("a",{class:"sc-tel",href:"tel:"+e.phone.replace(/\s/g,"")},e.phone):null,
+      (()=>{const on=!!e.rec&&callQIds().includes(e.rec.id);return el("button",{type:"button",class:"sc-add"+(on?" on":""),title:on?"V dnešním volacím bloku – klepnutím odebereš":"Přidat do dnešního volacího bloku","aria-label":on?"Odebrat z volacího bloku":"Přidat do volacího bloku",onclick:()=>callQToggle(e)},on?"✓":"+")})()),
     el("div",{class:"sc-meta"},e.last?"Poslední schůzka "+fmtDate(e.last)+" "+e.last.slice(0,4):"Bez schůzky v kalendáři",e.products.length?" · "+e.active.length+" "+plural(e.active.length,"smlouva","smlouvy","smluv"):"",e.snooze?" · odloženo do "+fmtDate(e.snooze):"",lastLog?" · "+lastLog.t+" "+fmtDate(lastLog.d.slice(0,10)):""),
     el("div",{class:"srvbtns"},
       el("button",{type:"button",class:"ok",onclick:()=>srvCall(e,true)},"Dovolal"),
@@ -3023,6 +3025,12 @@ async function srvCall(e,ok){
     const patch={log,lastContact:now};if(!ok)patch.servisNext=addWorkDays(1);
     await db.doc("clients/"+rec.id).update(patch);toast(ok?"Zapsáno – domluv schůzku „"+(calCfg().prefix||"VK:")+" "+surnameOfDisplay(e.name)+"“":"Nezvedl · zkusíš "+fmtDate(patch.servisNext))}catch(err){toast("Nepodařilo se uložit")}
 }
+/* ručně přidaní klienti do dnešního volacího bloku: settings.callQ={d:den,ids:[id záznamu v clients]} – platí jen pro daný den */
+function callQIds(){const q=settings.callQ;return q&&q.d===todayStr()?(q.ids||[]):[]}
+async function callQSet(ids){const q={d:todayStr(),ids};settings={...settings,callQ:q};try{await db.doc("settings/main").set({...settings,callQ:q})}catch(err){toast("Nepodařilo se uložit")}}
+async function callQToggle(e){try{const rec=await ensureClient(e),ids=callQIds();if(ids.includes(rec.id)){await callQSet(ids.filter(x=>x!==rec.id));toast("Odebráno z volacího bloku")}else{await callQSet([...ids,rec.id]);toast("Přidáno do dnešního volacího bloku")}}catch(err){toast("Nepodařilo se uložit")}}
+function callQEntries(){const E=clientEntries();return callQIds().map(id=>E.find(e=>e.rec?.id===id)).filter(Boolean)}
+function callBlockIds(){const q=callQEntries().filter(e=>!todoState("qcall:"+e.rec.id,true)).map(e=>"c:"+e.rec.id);return [...q,...todayData().calls.filter(l=>!todoState("call:"+l.id,true)).map(l=>l.id)]}
 function surnameOfDisplay(n){const w=(n||"").replace(/\(.*?\)/g," ").trim().split(/\s+/);return w[w.length-1]||n}
 async function srvPostpone(e,k){
   try{const rec=await ensureClient(e);const t=todayStr(), base=[t,rec.servisNext||t].sort().pop();
@@ -3219,8 +3227,8 @@ function openToday(preserve){
       el("div",{class:"tdempty",style:"padding:0 2px 6px"},"Tento týden: "+nextM.length+" "+plural(nextM.length,"schůzka","schůzky","schůzek")+" v kalendáři"+(g.nx?" · cíl "+fmt1(g.perWeek)+" b, aby sis na "+qLabel(qShift(g.cq,1))+" udržel/zvedl tarif "+cz(g.nx.rate)+" Kč.":".")));
   }
   const btns=[];
-  const openCalls=D.calls.filter(l=>!todoState("call:"+l.id,true));
-  if(openCalls.length)btns.push(el("button",{type:"button",onclick:()=>openCallBlock(openCalls.map(l=>l.id))},"📞 Začít volat ("+openCalls.length+")"));
+  const blockIds=callBlockIds();
+  if(blockIds.length)btns.push(el("button",{type:"button",onclick:()=>openCallBlock(callBlockIds())},"📞 Začít volat ("+blockIds.length+")"));
   if(dow===5||dow===6||dow===0)btns.push(el("button",{type:"button",class:"sec",onclick:weekReportPDF},"📄 PDF týdne pro nadřízeného"));
   if(btns.length)nodes.push(el("div",{class:"tdbtns"},btns));
   if(typeof asTodayNodes==="function")nodes.push(...asTodayNodes());
@@ -3244,6 +3252,7 @@ function openToday(preserve){
     }
     return tdTask(k,false,l.name||"Bez jména","Poslat shrnutí schůzky na mail · chybí e-mail","doplnit e-mail ›","orange",()=>{$("edDlg").close();openEdit(l)});
   }),""));
+  {const qe=callQEntries();if(qe.length)nodes.push(...tdTasks("Přidáno do volacího bloku",qe.map(e=>tdTask("qcall:"+e.rec.id,true,e.name,daysTxt(e)+(e.phone?" · "+e.phone:""),"ze servisu","orange",()=>{$("edDlg").close();openClient(e)},async()=>{await callQSet(callQIds().filter(x=>x!==e.rec.id))})),""))}
   nodes.push(...tdTasks("Komu zavolat",D.calls.slice(0,tdCallShow).map(l=>{const s=dueState(l);return tdTask("call:"+l.id,true,l.name||"Bez jména",(l.nextStep||ST(l.stage).t)+(l.phone?" · "+l.phone:""),s==="late"?"po termínu "+fmtDate(l.nextDate):s==="today"?"dnes":"bez kroku",s==="late"?"red":s==="today"?"orange":"",()=>{$("edDlg").close();openEdit(l)},
     async()=>{const now=new Date().toISOString();try{await db.doc("leads/"+l.id).update({nextDate:addDaysFrom(todayStr(),1),nextStep:l.nextStep||"Zavolat",updatedAt:now})}catch(e){}})}),"Všechno máš naplánované."));
   if(D.calls.length>tdCallShow)nodes.push(moreBtn(D.calls.length-tdCallShow,()=>{tdCallShow+=5;const st=$("edBody").scrollTop;openToday(true);$("edBody").scrollTop=st}));
@@ -3295,9 +3304,27 @@ function scheduleMeeting(l,onDone){
   ]);
 }
 function openCallBlock(ids,i=0){
-  const list=ids.map(id=>leads.find(l=>l.id===id)).filter(Boolean);
+  const isCl=x=>typeof x.id==="string"&&/^[clk]:/.test(x.id);
+  const list=ids.map(id=>String(id).startsWith("c:")?clientEntries().find(e=>e.rec?.id===String(id).slice(2)):leads.find(l=>l.id===id)).filter(Boolean);
   if(i>=list.length){const empty=list.length===0;openSheet("Volací blok",[el("div",{class:"tdh"},el("div",{class:"big"},empty?"Nikdo k volání 👍":"Hotovo ✓"),el("div",{class:"s"},empty?"Nic po termínu a nikdo není 14+ dní bez odezvy. Všechno máš naplánované.":"Prošel jsi "+list.length+" "+plural(list.length,"kontakt","kontakty","kontaktů")+"."))]);return}
   const l=list[i], next=()=>openCallBlock(ids,i+1), tel=(l.phone||"").replace(/\s/g,"");
+  if(isCl(l)){
+    const e=l, rm=async()=>{if(e.rec)await callQSet(callQIds().filter(x=>x!==e.rec.id))}, after=async()=>{await rm();next()};
+    const cl=(e.rec?.log||[]).slice(-2).reverse();
+    openSheet("Volací blok",[el("div",{class:"cb"},
+      el("div",{class:"prog"},(i+1)+" / "+list.length+" · klient – servis"),
+      el("div",{class:"who"},e.name||"Bez jména"),
+      tel?el("a",{class:"ph",href:"tel:"+tel},"📞 "+e.phone):el("div",{class:"prog"},"Telefon chybí – doplň ho v detailu klienta."),
+      el("div",{class:"prog"},daysTxt(e)),
+      cl.length?el("div",{class:"prog"},"Naposledy: "+cl.map(x=>fmtDate(x.d.slice(0,10))+" "+x.t).join(" · ")):null,
+      el("div",{class:"grid"},
+        el("button",{type:"button",class:"g",onclick:async()=>{await srvCall(e,true);await after()}},"Dovolal"),
+        el("button",{type:"button",onclick:async()=>{await srvCall(e,false);await after()}},"Nezvedl"),
+        el("button",{type:"button",onclick:async()=>{await srvPostpone(e,"w");await after()}},"Odložit o týden"),
+        el("button",{type:"button",onclick:()=>{$("edDlg").close();openClient(e)}},"Otevřít detail"),
+        el("button",{type:"button",onclick:next},"Přeskočit"),
+        el("button",{type:"button",class:"r",onclick:after},"Odebrat z bloku")))]);
+    return}
   const last=(l.log||[]).slice(-2).reverse();
   const later=async(days,txt)=>{const now=new Date().toISOString();const log=[...(l.log||[]),{d:now,t:txt}].slice(-100);try{await db.doc("leads/"+l.id).update({log,lastContact:now,updatedAt:now,nextDate:addWorkDays(days),nextStep:l.nextStep||"Zavolat znovu"});toast(txt)}catch(e){toast("Nepodařilo se uložit")}next()};
   openSheet("Volací blok",[el("div",{class:"cb"},
@@ -6505,7 +6532,7 @@ async function updateEurRate(){
   db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};clLoaded.settings=true;setTimeout(clMigrate,0);applyAppName();if(typeof applyAsMode==="function")applyAsMode();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks()});
   $("todayBtn").onclick=openToday;maybeOpenToday();
   $("addRecruit").onclick=addRecruit;$("addMember2").onclick=()=>addMember(null);$("addMember3").onclick=()=>addMember(null);
-  $("cbBtn").onclick=()=>{const ids=todayData().calls.filter(l=>!todoState("call:"+l.id,true)).map(l=>l.id);openCallBlock(ids)};
+  $("cbBtn").onclick=()=>openCallBlock(callBlockIds());
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeOpenToday()});
   startCalendar();
   const sb=$("syncBtn"),dd=$("dataDlg");
