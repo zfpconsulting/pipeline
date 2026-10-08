@@ -1650,6 +1650,13 @@ const STAGES=[
 const SOURCES=["Cold call","Placený lead","Doporučení","Vlastní kontakt"];
 const STALE_DAYS=14;
 const SIGNED=s=>s==="podpis"||s==="vyplaceno";
+/* telefon pro zobrazení: CZ/SK čísla vždy „+420 123 456 789“ (ať už je v datech zapsané s mezerami, bez nich, s 00420 nebo bez předvolby); cizí a nestandardní čísla zůstanou beze změny */
+function fmtPhone(v){const raw=String(v==null?"":v).trim();if(!raw)return "";
+  const d=raw.replace(/[\s().\-\u00a0]/g,"").replace(/^00/,"+");
+  let m=d.match(/^\+(420|421)(\d{9})$/)||d.match(/^(420|421)(\d{9})$/);
+  if(m)return "+"+m[1]+" "+m[2].replace(/(\d{3})(\d{3})(\d{3})/,"$1 $2 $3");
+  m=d.match(/^(\d{9})$/);if(m)return "+420 "+m[1].replace(/(\d{3})(\d{3})(\d{3})/,"$1 $2 $3");
+  return raw}
 const DEAD=s=>s==="zamrzly"||s==="lost";
 const ACTIVE=s=>!SIGNED(s)&&!DEAD(s);
 const ST=k=>STAGES.find(s=>s.k===k)||STAGES[0];
@@ -1940,7 +1947,7 @@ function renderPipe(cur){
     return el("button",{class:"row row-btn",type:"button",onclick:()=>openEdit(l)},
       el("span",{class:"avatar",style:"background:"+ST(l.stage).c},initials(l.name)),
       el("span",{class:"main"},el("div",{class:"t"},l.name),el("div",{class:"s"+(s==="today"||(s===""&&stp&&dd!=null&&dd>0)?"":" bad")},why)),
-      el("span",{class:"end"},l.phone||ST(l.stage).t),(typeof asSendChip==="function"?asSendChip({text:l.nextStep||"",client:l.name,due:l.nextDate&&l.nextDate>=todayStr()?l.nextDate:""}):null),chev());
+      el("span",{class:"end"},l.phone?fmtPhone(l.phone):ST(l.stage).t),(typeof asSendChip==="function"?asSendChip({text:l.nextStep||"",client:l.name,due:l.nextDate&&l.nextDate>=todayStr()?l.nextDate:""}):null),chev());
   }),hot.length>6?el("button",{class:"row row-btn",type:"button",style:"color:var(--tint);font-weight:500;justify-content:center",onclick:()=>{window.__todayAll=!showAll;render()}},showAll?"Zobrazit méně":"Zobrazit všech "+hot.length):null].filter(Boolean):[el("div",{class:"row"},el("span",{class:"empty"},"Nic nehoří. Každý rozjednaný lead má naplánovaný další krok."))]));
 
   renderCal();
@@ -1972,7 +1979,7 @@ function card(l,i,cur){
   const rateUsed=signed&&l.signedAt?quarterRow(qOf(l.signedAt)).rate:cur.rate;
   const c=el("article",{class:"card",draggable:"true",tabindex:"0","data-id":l.id},
     el("div",{class:"top"},el("span",{class:"name"},l.name||"Bez jména"),l.points?el("span",{class:"pts"},fmt1(l.points)+" b"):null),
-    l.phone?el("div",{class:"tel"},el("span",{},l.phone),el("button",{type:"button",onclick:e=>{e.stopPropagation();(navigator.clipboard?.writeText(l.phone)||Promise.reject()).then(()=>toast("Číslo zkopírováno"),()=>toast(l.phone))}},"Kopírovat")):null,
+    l.phone?el("div",{class:"tel"},el("span",{},fmtPhone(l.phone)),el("button",{type:"button",onclick:e=>{e.stopPropagation();(navigator.clipboard?.writeText(l.phone)||Promise.reject()).then(()=>toast("Číslo zkopírováno"),()=>toast(l.phone))}},"Kopírovat")):null,
     el("div",{class:"tags"},
       l.example?el("span",{class:"tag ex"},"ukázka"):null,
       ...(typeof dealTags==="function"?dealTags(l):[]),
@@ -2907,7 +2914,7 @@ function renderClients(){
   $("cliList").replaceChildren(...(list.length?list.slice(0,cliShow).map(e=>docDecor(e,el("button",{type:"button",class:"row row-btn crow",onclick:()=>openClient(e)},
       el("span",{class:"avatar",style:"background:"+(e.products.length?"var(--tint)":"var(--gray)")},initials(e.name)),
       el("span",{class:"main"},el("div",{class:"t"},e.name,e.prospect?el("span",{class:"tag blue",style:"margin-left:6px"},"v pipeline · "+e.prospect):e.calOnly?el("span",{class:"tag",style:"margin-left:6px"},"z kalendáře"):null),
-        el("div",{class:"s"},[e.phone,e.since?(e.calOnly?"první schůzka ":"klient od ")+fmtDate(e.since)+" "+e.since.slice(0,4):null,e.meetCount?e.meetCount+" "+plural(e.meetCount,"schůzka","schůzky","schůzek"):null].filter(Boolean).join(" · ")||"bez údajů"),
+        el("div",{class:"s"},[e.phone?fmtPhone(e.phone):null,e.since?(e.calOnly?"první schůzka ":"klient od ")+fmtDate(e.since)+" "+e.since.slice(0,4):null,e.meetCount?e.meetCount+" "+plural(e.meetCount,"schůzka","schůzky","schůzek"):null].filter(Boolean).join(" · ")||"bez údajů"),
         e.products.length?el("div",{class:"pchips"},e.products.slice(0,5).map(prodChip),e.products.length>5?el("span",{class:"pchip more"},"+"+(e.products.length-5)):null):null),
       el("span",{class:"bandot",style:"background:"+BAND[e.band][0],title:daysTxt(e)}),chev()))):[el("div",{class:"row"},el("span",{class:"empty"},E.length?"Nic neodpovídá hledání.":"Zatím žádní klienti. Přibudou z podepsaných leadů a ze schůzek v kalendáři, nebo je přidej tlačítkem +."))]));
   {const m=moreBtn(list.length-cliShow,()=>{cliShow+=20;renderClients()});if(m)$("cliList").append(m)}
@@ -2928,7 +2935,7 @@ function srvCard(e){
   return docDecor(e,el("article",{class:"scard"+(e.snooze?" snoozed":""),style:"--bc:"+c+";--bb:"+bg},
     el("div",{class:"sc-top"},el("span",{class:"avatar",style:"background:"+c},initials(e.name)),
       el("div",{class:"main"},el("button",{type:"button",class:"sc-name",onclick:()=>openClient(e)},e.name),el("div",{class:"sc-days"},daysTxt(e))),
-      e.phone?el("a",{class:"sc-tel",href:"tel:"+e.phone.replace(/\s/g,"")},e.phone):null,
+      e.phone?el("a",{class:"sc-tel",href:"tel:"+e.phone.replace(/\s/g,"")},fmtPhone(e.phone)):null,
       (()=>{const on=!!e.rec&&callQIds().includes(e.rec.id);return el("button",{type:"button",class:"sc-add"+(on?" on":""),title:on?"V dnešním volacím bloku – klepnutím odebereš":"Přidat do dnešního volacího bloku","aria-label":on?"Odebrat z volacího bloku":"Přidat do volacího bloku",onclick:()=>callQToggle(e)},on?"✓":"+")})()),
     el("div",{class:"sc-meta"},e.last?"Poslední schůzka "+fmtDate(e.last)+" "+e.last.slice(0,4):"Bez schůzky v kalendáři",e.products.length?" · "+e.active.length+" "+plural(e.active.length,"smlouva","smlouvy","smluv"):"",e.snooze?" · odloženo do "+fmtDate(e.snooze):"",lastLog?" · "+lastLog.t+" "+fmtDate(lastLog.d.slice(0,10)):""),
     el("div",{class:"srvbtns"},
@@ -3256,13 +3263,13 @@ function openToday(preserve){
   nodes.push(...tdSection("Dnešní schůzky",D.meets.map(ev=>{const row=tdRow(ev.name||ev.title||"Schůzka",fmtMeet(ev.start)+(ev.online?" · online":""),new Date(ev.start)<new Date()?"proběhla":"dnes","green",()=>{const l=leads.find(l=>(l.meetings||[]).some(m=>m.id===ev.id))||leads.find(l=>evMatches(ev,l));if(l){$("edDlg").close();openEdit(l)}});
     if(!ev.online)return row;row.style.flex="1";row.style.minWidth="0";
     return el("div",{style:"display:flex;align-items:center;gap:8px;padding-right:10px"},row,el("button",{type:"button",class:"chipbtn",style:"background:var(--tint);color:#fff;white-space:nowrap",onclick:()=>joinMeet(ev.id)},"📹 Připojit"))}),calState==="ok"?"Dnes nemáš žádnou schůzku.":"Kalendář se ještě načítá nebo není připojený."));
-  if(D.bday.length)nodes.push(...tdTasks("🎂 Narozeniny dnes",D.bday.map(e=>tdTask("bday:"+e.id+":"+t.slice(0,4),true,e.name,e.phone?e.phone:"popřej mu k narozeninám","popřát ›","orange",()=>{$("edDlg").close();openMsg({name:e.name,phone:e.phone,email:e.rec?.email||e.lead?.email||""},"narozeniny",()=>setTodo("bday:"+e.id+":"+t.slice(0,4),{s:"done",d:todayStr()}))})),""));
+  if(D.bday.length)nodes.push(...tdTasks("🎂 Narozeniny dnes",D.bday.map(e=>tdTask("bday:"+e.id+":"+t.slice(0,4),true,e.name,e.phone?fmtPhone(e.phone):"popřej mu k narozeninám","popřát ›","orange",()=>{$("edDlg").close();openMsg({name:e.name,phone:e.phone,email:e.rec?.email||e.lead?.email||""},"narozeniny",()=>setTodo("bday:"+e.id+":"+t.slice(0,4),{s:"done",d:todayStr()}))})),""));
   const pk=p=>(p.id||p.no||p.type)+"";
   const tmr=addDaysFrom(t,1),soon=st=>st.slice(0,10)===tmr||(st.slice(0,10)===t&&new Date(st)>new Date());
   const conf=(calEvents||[]).filter(ev=>soon(ev.start));
   leads.forEach(l=>(l.meetings||[]).forEach(m=>{if(m.start&&soon(m.start)&&!conf.some(e=>e.id===m.id))conf.push({id:m.id,start:m.start,name:l.name,keys:[surnameOf(l.name)],key:surnameOf(l.name),online:/online/i.test(m.title||""),place:""})}));
   conf.sort((a,b)=>a.start.localeCompare(b.start));
-  if(conf.length)nodes.push(...tdTasks("Potvrdit schůzky",conf.map(ev=>{const c=contactFor(ev),k="conf:"+ev.id;return tdTask(k,false,c.name||ev.name,fmtMeet(ev.start)+(ev.online?" · online":ev.place?" · "+ev.place:"")+(c.phone?" · "+c.phone:" · bez telefonu"),"otevřít ›","green",()=>{if(c.lead){$("edDlg").close();openEdit(c.lead);return}const ce=c.client&&clientEntries().find(e=>e.rec?.id===c.client.id);if(ce){$("edDlg").close();openClient(ce);return}openMsg({...c,start:ev.start,online:ev.online,place:ev.place},ev.start.slice(0,10)===tmr?"zitra":"potvrzeni",r=>setTodo(k,{s:"done",d:todayStr()}))})}),""));
+  if(conf.length)nodes.push(...tdTasks("Potvrdit schůzky",conf.map(ev=>{const c=contactFor(ev),k="conf:"+ev.id;return tdTask(k,false,c.name||ev.name,fmtMeet(ev.start)+(ev.online?" · online":ev.place?" · "+ev.place:"")+(c.phone?" · "+fmtPhone(c.phone):" · bez telefonu"),"otevřít ›","green",()=>{if(c.lead){$("edDlg").close();openEdit(c.lead);return}const ce=c.client&&clientEntries().find(e=>e.rec?.id===c.client.id);if(ce){$("edDlg").close();openClient(ce);return}openMsg({...c,start:ev.start,online:ev.online,place:ev.place},ev.start.slice(0,10)===tmr?"zitra":"potvrzeni",r=>setTodo(k,{s:"done",d:todayStr()}))})}),""));
   if(D.summail.length)nodes.push(...tdTasks("Shrnutí schůzek",D.summail.map(x=>{const l=x.l,k="summail:"+l.id+":"+x.due;
     if(l.email){
       return tdTask(k,false,l.name||"Bez jména","Poslat shrnutí schůzky na mail · "+l.email,"Poslat shrnující mail","green",()=>{
@@ -3273,11 +3280,11 @@ function openToday(preserve){
     }
     return tdTask(k,false,l.name||"Bez jména","Poslat shrnutí schůzky na mail · chybí e-mail","doplnit e-mail ›","orange",()=>{$("edDlg").close();openEdit(l)});
   }),""));
-  {const qe=callQEntries();if(qe.length)nodes.push(...tdTasks("Přidáno do volacího bloku",qe.map(e=>tdTask("qcall:"+e.rec.id,true,e.name,daysTxt(e)+(e.phone?" · "+e.phone:""),"ze servisu","orange",()=>{$("edDlg").close();openClient(e)},async()=>{await callQSet(callQIds().filter(x=>x!==e.rec.id))})),""))}
-  nodes.push(...tdTasks("Komu zavolat",D.calls.slice(0,tdCallShow).map(l=>{const s=dueState(l);return tdTask("call:"+l.id,true,l.name||"Bez jména",(l.nextStep||ST(l.stage).t)+(l.phone?" · "+l.phone:""),s==="late"?"po termínu "+fmtDate(l.nextDate):s==="today"?"dnes":"bez kroku",s==="late"?"red":s==="today"?"orange":"",()=>{$("edDlg").close();openEdit(l)},
+  {const qe=callQEntries();if(qe.length)nodes.push(...tdTasks("Přidáno do volacího bloku",qe.map(e=>tdTask("qcall:"+e.rec.id,true,e.name,daysTxt(e)+(e.phone?" · "+fmtPhone(e.phone):""),"ze servisu","orange",()=>{$("edDlg").close();openClient(e)},async()=>{await callQSet(callQIds().filter(x=>x!==e.rec.id))})),""))}
+  nodes.push(...tdTasks("Komu zavolat",D.calls.slice(0,tdCallShow).map(l=>{const s=dueState(l);return tdTask("call:"+l.id,true,l.name||"Bez jména",(l.nextStep||ST(l.stage).t)+(l.phone?" · "+fmtPhone(l.phone):""),s==="late"?"po termínu "+fmtDate(l.nextDate):s==="today"?"dnes":"bez kroku",s==="late"?"red":s==="today"?"orange":"",()=>{$("edDlg").close();openEdit(l)},
     async()=>{const now=new Date().toISOString();try{await db.doc("leads/"+l.id).update({nextDate:addDaysFrom(todayStr(),1),nextStep:l.nextStep||"Zavolat",updatedAt:now})}catch(e){}})}),"Všechno máš naplánované."));
   if(D.calls.length>tdCallShow)nodes.push(moreBtn(D.calls.length-tdCallShow,()=>{tdCallShow+=5;const st=$("edBody").scrollTop;openToday(true);$("edBody").scrollTop=st}));
-  if(D.rec.length)nodes.push(...tdTasks("Nábor – ozvat se",D.rec.map(r=>tdTask("rec:"+r.id,true,r.name||"Kandidát",RS(r.stage).t+(r.next?" · "+r.next:"")+(r.phone?" · "+r.phone:""),r.nextDate<t?"po termínu "+fmtDate(r.nextDate):"dnes",r.nextDate<t?"red":"orange",()=>{openRecruit(r)},async()=>recUpd(r,{nextDate:addDaysFrom(todayStr(),1)}))),""));
+  if(D.rec.length)nodes.push(...tdTasks("Nábor – ozvat se",D.rec.map(r=>tdTask("rec:"+r.id,true,r.name||"Kandidát",RS(r.stage).t+(r.next?" · "+r.next:"")+(r.phone?" · "+fmtPhone(r.phone):""),r.nextDate<t?"po termínu "+fmtDate(r.nextDate):"dnes",r.nextDate<t?"red":"orange",()=>{openRecruit(r)},async()=>recUpd(r,{nextDate:addDaysFrom(todayStr(),1)}))),""));
   nodes.push(...tdTasks("Konce fixací úvěrů",D.fix.map(x=>tdTask("fix:"+x.e.id+":"+pk(x.p)+":"+x.date,false,x.e.name,(x.p.type)+(x.p.company?" · "+x.p.company:"")+" · fixace "+x.p.fix+" let od "+fmtDate(x.p.from)+" "+x.p.from.slice(0,4),x.d<0?"skončila "+fmtDate(x.date):"za "+x.d+" "+plural(x.d,"den","dny","dní"),x.d<=60?"red":"orange",()=>{$("edDlg").close();openClient(x.e)})),"V příštích 4 měsících nekončí žádná fixace. (Fixaci zadáš u hypotéky/úvěru v kartě klienta.)"));
   nodes.push(...tdTasks("Výročí smluv (14 dní)",D.ann.map(x=>tdTask("ann:"+x.e.id+":"+pk(x.p)+":"+x.date,false,x.e.name,x.p.type+(x.p.company?" · "+x.p.company:"")+" · "+x.yrs+". výročí",x.d===0?"dnes":fmtDate(x.date),x.d<=3?"orange":"",()=>{$("edDlg").close();openClient(x.e)})),"Žádné výročí v příštích 14 dnech."));
   nodes.push(...tdTasks("ŽP v ochranné lhůtě – ověř platbu",D.zp.map(x=>tdTask("zp:"+x.l.id+":"+x.from+":"+x.m,false,x.l.name,(varOf(x.it)?.t||"ŽP")+" · sjednáno "+fmtDate(x.from),x.m+1+". měsíc",x.m<2?"red":"orange",()=>{$("edDlg").close();openEdit(x.l)})),"Žádná čerstvá ŽP – storno nehrozí."));
@@ -3335,7 +3342,7 @@ function openCallBlock(ids,i=0){
     openSheet("Volací blok",[el("div",{class:"cb"},
       el("div",{class:"prog"},(i+1)+" / "+list.length+" · klient – servis"),
       el("div",{class:"who"},e.name||"Bez jména"),
-      tel?el("a",{class:"ph",href:"tel:"+tel},"📞 "+e.phone):el("div",{class:"prog"},"Telefon chybí – doplň ho v detailu klienta."),
+      tel?el("a",{class:"ph",href:"tel:"+tel},"📞 "+fmtPhone(e.phone)):el("div",{class:"prog"},"Telefon chybí – doplň ho v detailu klienta."),
       el("div",{class:"prog"},daysTxt(e)),
       cl.length?el("div",{class:"prog"},"Naposledy: "+cl.map(x=>fmtDate(x.d.slice(0,10))+" "+x.t).join(" · ")):null,
       el("div",{class:"grid"},
@@ -3351,7 +3358,7 @@ function openCallBlock(ids,i=0){
   openSheet("Volací blok",[el("div",{class:"cb"},
     el("div",{class:"prog"},(i+1)+" / "+list.length+" · "+ST(l.stage).t),
     el("div",{class:"who"},l.name||"Bez jména"),
-    tel?el("a",{class:"ph",href:"tel:"+tel},"📞 "+l.phone):el("div",{class:"prog"},"Telefon chybí – doplň ho v detailu leadu."),
+    tel?el("a",{class:"ph",href:"tel:"+tel},"📞 "+fmtPhone(l.phone)):el("div",{class:"prog"},"Telefon chybí – doplň ho v detailu leadu."),
     el("div",{class:"prog"},(l.nextStep?"Další krok: "+l.nextStep:"Bez dalšího kroku")+(l.nextDate?" ("+fmtDate(l.nextDate)+")":"")),
     last.length?el("div",{class:"prog"},"Naposledy: "+last.map(x=>fmtDate(x.d.slice(0,10))+" "+x.t).join(" · ")):null,
     el("div",{class:"grid"},
