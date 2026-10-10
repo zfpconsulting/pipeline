@@ -47,10 +47,10 @@ const tests = {
     const { ctx, page } = await open();
     const r = await page.evaluate(() => {
       const c = DuchodCalc.math.calc({ ovz: 30000, tY: 25, tD: 0, nY: 0, nD: 0, evt: "2026-10-10", ret: "2051-10-10", dopPct: 100, kids: 2 });
-      return { vz: c.vz, dop: c.dop, years: c.years, i1: c.i1.total, i2: c.i2.total, i3: c.i3.total, wid: c.wid.total, orp: c.orp.total, fam: c.orp.family };
+      return { vz: c.vz, dop: c.dop, years: c.years, sta: c.sta.total, i1: c.i1.total, i2: c.i2.total, i3: c.i3.total, wid: c.wid.total, orp: c.orp.total, fam: c.orp.family };
     });
     /* VZ 23 745; 9 125 + 9 131 dní = 18 256 → 50 celých roků; PV III. 23 745·1,5 %·50 = 17 808,75 → 17 809 */
-    eq(r, { vz: 23745, dop: 9131, years: 50, i1: 10837, i2: 13805, i3: 22709, wid: 13805, orp: 12024, fam: 24048 }, "částky");
+    eq(r, { vz: 23745, dop: 9131, years: 50, sta: 13805, i1: 10837, i2: 13805, i3: 22709, wid: 13805, orp: 12024, fam: 24048 }, "částky");
     await ctx.close();
   },
   async "zákonná minima procentní výměry (2026) a rok 2027"() {
@@ -88,8 +88,9 @@ const tests = {
     await fill(page, "ovz", "30 000"); await fill(page, "tY", 25); await fill(page, "tD", 0);
     await page.fill('[data-k="evt"]', "2026-10-10"); await page.fill('[data-k="ret"]', "2051-10-10");
     const t = await tiles(page);
-    eq(t.map(x => x[0]), ["Invalidní I. stupně", "Invalidní II. stupně", "Invalidní III. stupně", "Vdovský / vdovecký", "Sirotčí (na 1 dítě)"], "dlaždice");
-    eq(t[2][1], "22 709 Kč", "invalidní III.");
+    eq(t.map(x => x[0]), ["Starobní důchod", "Invalidní I. stupně", "Invalidní II. stupně", "Invalidní III. stupně", "Vdovský / vdovecký", "Sirotčí (na 1 dítě)"], "dlaždice");
+    eq(t[3][1], "22 709 Kč", "invalidní III.");
+    eq(t[0][1], "13 805 Kč", "starobní z 25 let");
     /* bez klienta nejde uložit */
     await page.click('[data-a="save"]'); assert((await page.evaluate(() => toasts)).some(m => /vyber klienta/i.test(m)), "výzva k výběru klienta");
     /* virtuální klient se při uložení založí přes ensure() a data se uloží pod jeho id */
@@ -118,6 +119,8 @@ const tests = {
     const r = await page.evaluate(t => DuchodCalc.math.parseIoldp(t), txt);
     eq(r.fields, { ovz: 52300, tY: 22, tD: 120, nY: 2, nD: 30, ret: "2049-05-01", ioldp: "2026-10-09" }, "pole");
     eq(r.missing, [], "nenalezeno");
+    const alt = await page.evaluate(() => ["Celkový počet získaných roků a dnů pojištění: 31 roků 45 dnů", "Celkový počet získaných roků a dnů pojištění 31 45", "Celkový počet získaných roků a dnů pojištění\n31\n45"].map(t => DuchodCalc.math.parseIoldp(t).fields));
+    eq(alt.map(f => [f.tY, f.tD]), [[31, 45], [31, 45], [31, 45]], "popisek Celkový počet získaných roků a dnů pojištění");
     const e = await page.evaluate(() => DuchodCalc.math.parseIoldp("nic užitečného"));
     eq(e.found, [], "prázdný soubor");
     await ctx.close();
@@ -130,7 +133,7 @@ const tests = {
       eq(await page.inputValue('[data-k="ovz"]'), "52300", f + " OVZ");
       eq([await page.inputValue('[data-k="tY"]'), await page.inputValue('[data-k="tD"]'), await page.inputValue('[data-k="nY"]'), await page.inputValue('[data-k="ret"]')], ["22", "120", "2", "2049-05-01"], f + " doba a věk");
       assert((await page.textContent("#dkImp")).includes("Načteno"), f + " hláška");
-      assert((await tiles(page)).length === 5, f + " dlaždice");
+      assert((await tiles(page)).length === 6, f + " dlaždice");
       assert(!errors.length, "chyby: " + errors.join(" | "));
       await ctx.close();
     }

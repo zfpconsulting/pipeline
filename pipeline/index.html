@@ -1846,7 +1846,7 @@ function renderDuch(then){
   const go=()=>{duchLoading=false;if(!window.DuchodCalc){$("duchBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}
     duchUI=DuchodCalc.mount($("duchBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)},clients:()=>clientEntries(),ensure:ensureClient});fire()};
   if(window.DuchodCalc)return go();
-  duchLoading=true;const sc=document.createElement("script");sc.src="duchod.js?v=2";sc.onload=go;sc.onerror=go;document.head.append(sc);
+  duchLoading=true;const sc=document.createElement("script");sc.src="duchod.js?v=3";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;
@@ -6284,7 +6284,7 @@ function duchClientSection(e,rec){
   if(!r)return [el("h3",{class:"sechead"},"Důchodová kalkulačka"),el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();setView("duch");if(rec)renderDuch(u=>u.select(rec.id))}},"+ Spočítat invalidní, vdovský a sirotčí důchod"))];
   const row=(t,v)=>el("div",{class:"row"},el("span",{class:"main"},t),el("span",{class:"end"},kc(v)));
   return [el("h3",{class:"sechead"},"Důchodová kalkulačka"),
-    el("div",{class:"group"},row("Invalidní I. stupně",r.i1),row("Invalidní II. stupně",r.i2),row("Invalidní III. stupně",r.i3),row("Vdovský / vdovecký",r.wid),row("Sirotčí (na 1 dítě)",r.orp)),
+    el("div",{class:"group"},r.sta!=null?row("Starobní (z dosavadní doby)",r.sta):null,row("Invalidní I. stupně",r.i1),row("Invalidní II. stupně",r.i2),row("Invalidní III. stupně",r.i3),row("Vdovský / vdovecký",r.wid),row("Sirotčí (na 1 dítě)",r.orp)),
     el("p",{class:"hint"},"Z IOLDP"+(d.ioldp?" ze dne "+fmtDate(d.ioldp)+" "+d.ioldp.slice(0,4):"")+" · parametry "+(d.year||"")+". Orientační výpočet."),
     el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:open},"Otevřít v kalkulačce"))];
 }
