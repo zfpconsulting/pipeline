@@ -1089,6 +1089,10 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
     <div id="calcBox"></div>
     <p class="secfoot">Vlajkou u parametru zvolíš, kterou hodnotu kalkulačka dopočítá. Vklady, splátky a výplaty se počítají na konci každého měsíce; výpočet je orientační.</p>
   </section>
+  <section id="view_duch" hidden>
+    <div id="duchBox"></div>
+    <p class="secfoot">Po schůzce vlož údaje z klientova IOLDP, vyber klienta a ulož. Výpočet je orientační (zákon č. 155/1995 Sb., parametry roku nároku); skutečnou výši stanoví ČSSZ.</p>
+  </section>
   <section id="view_pf" hidden>
     <div class="pfadd pfsearch"><input id="pfSearchI" type="search" placeholder="Hledat klienta, fond, model…" autocomplete="off" aria-label="Hledat v Portfoliích"></div>
     <div id="pfBox"></div>
@@ -1412,7 +1416,7 @@ const LStore=(()=>{
   const apply=(g,dir)=>{replaying=true;try{(dir==="undo"?[...g.ops].reverse():g.ops).forEach(o=>{const tgt=dir==="undo"?o.before:o.after;
       put(o.path,!tgt||tgt._del?{_del:true,_u:Date.now()}:{...clean(tgt),_u:Date.now()})})}finally{replaying=false}};
   const label=g=>{const o=g.ops[0],d=(o.after&&!o.after._del?o.after:o.before)||{},col=o.path.split("/")[0],
-      what={leads:"lead",clients:"klient",team:"člen týmu",recruits:"kandidát",pfinv:"investice",funds:"fond",pfmodels:"model portfolia",fincalc:"kalkulace",settings:"nastavení"}[col]||"záznam";
+      what={leads:"lead",clients:"klient",team:"člen týmu",recruits:"kandidát",pfinv:"investice",funds:"fond",pfmodels:"model portfolia",fincalc:"kalkulace",duchod:"důchodová kalkulace",settings:"nastavení"}[col]||"záznam";
     const act=!o.before||o.before._del?"přidání":!o.after||o.after._del?"smazání":"úprava";
     return act+" – "+what+(d.name&&col!=="settings"?" „"+d.name+"“":"")+(g.ops.length>1?" (+"+(g.ops.length-1)+")":"")};
   const inCol=(name)=>Object.entries(s.docs).filter(([k,v])=>k.startsWith(name+"/")&&k.indexOf("/",name.length+1)<0&&!v._del);
@@ -1818,6 +1822,7 @@ function render(){
   else if(view==="goals"){$("bigTitle").textContent="Moje cíle";$("sub").textContent="Rozpočet a investiční cíle podle finančního plánu";renderGoals()}
   else if(view==="pf"){$("bigTitle").textContent="Portfolia";$("sub").textContent="Fondy, portfolia ZFP a tvoje modelová portfolia";renderPf()}
   else if(view==="calc"){$("bigTitle").textContent="Kalkulačka";$("sub").textContent="Finanční matematika – úvěr, investice, renta";renderCalc()}
+  else if(view==="duch"){$("bigTitle").textContent="Důchodová kalkulačka";$("sub").textContent="Invalidní, vdovský a sirotčí důchod z údajů IOLDP";renderDuch()}
   else if(view==="atasks"){$("bigTitle").textContent="Úkoly";if(typeof renderAsTasks==="function")renderAsTasks()}
   else if(view==="aclients"){$("bigTitle").textContent="Klienti";if(typeof renderAsClients==="function")renderAsClients()}
   else if(view==="users"){$("bigTitle").textContent="Uživatelé";$("sub").textContent="Kdo appku používá a kalkulačka příjmu";if(typeof renderUsersTab==="function")renderUsersTab()}
@@ -1830,6 +1835,18 @@ function renderCalc(){
   const go=()=>{calcLoading=false;if(!window.FinCalc){$("calcBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}calcUI=FinCalc.mount($("calcBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)}})};
   if(window.FinCalc)return go();
   calcLoading=true;const sc=document.createElement("script");sc.src="fincalc.js?v=3";sc.onload=go;sc.onerror=go;document.head.append(sc);
+}
+/* záložka Důchodová kalkulačka – modul duchod.js se načte až při prvním otevření */
+let duchUI=null,duchLoading=false,duchPending=null;
+function renderDuch(then){
+  if(then)duchPending=then;
+  const fire=()=>{const t=duchPending;duchPending=null;if(t&&duchUI)t(duchUI)};
+  if(duchUI){duchUI.refreshClients();fire();return}
+  if(duchLoading)return;
+  const go=()=>{duchLoading=false;if(!window.DuchodCalc){$("duchBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}
+    duchUI=DuchodCalc.mount($("duchBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)},clients:()=>clientEntries(),ensure:ensureClient});fire()};
+  if(window.DuchodCalc)return go();
+  duchLoading=true;const sc=document.createElement("script");sc.src="duchod.js?v=1";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;
@@ -3098,6 +3115,7 @@ function openClient(e0){
     log.length?el("h3",{class:"sechead"},"Historie servisu"):null,
     log.length?el("div",{class:"group"},log.slice(0,15).map(x=>el("div",{class:"row"},el("span",{class:"main"},x.t),el("span",{class:"end"},fmtDT(x.d))))):null,
     e.lead?el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();openEdit(e.lead)}},"Otevřít lead v pipeline")):null,
+    ...duchClientSection(e,rec),
     ...pfClientSection(e,rec),
     el("div",{class:"group"},el("button",{type:"button",class:"danger-row",onclick:()=>hideClient(e)},"Není to klient – skrýt ze seznamu"))
   ]);
@@ -5189,7 +5207,7 @@ $("form").addEventListener("submit",async e=>{
 /* Data stahuje backend (Apps Script, op „fund“), protože prohlížeč na cizí weby kvůli CORS nedosáhne:
    conseq.cz = denní cena fondu, zfpwi.cz = denní vývoj portfolia (CZK), zfpinvest.com = měsíční hodnota podílu.
    Appka si výsledek drží v localStorage a obnovuje ho po 6 hodinách, kdykoli se Portfolia otevřou. */
-let funds=[], pfModels=[], pfInv=[];
+let funds=[], pfModels=[], pfInv=[], duchod=[];
 /* replaceChildren bez prázdných položek (null/false by se jinak vypsalo jako text „null“) */
 function rc(node,...kids){node.replaceChildren(...kids.flat(3).filter(k=>k!=null&&k!==false))}
 const PF_TTL=6*3600e3, pfBusy=new Set(), pfErr={}, pfPer={}, pfSel={}, pfQ=[];let pfRun=0, pfShowHidden=false;
@@ -6259,6 +6277,17 @@ function renderPf(){
     !q&&!cids.length&&!loose.length&&!models.length?el("p",{class:"hint pfempty"},"Začni tlačítkem „+ Investice klienta“ nebo si slož modelové portfolio. Jednotlivé fondy (ZFP WI, ZFP Investments, penzijní fondy, Conseq, ZFP Finance…) najdeš pod „Fondy“."):null);
 }
 $("pfSearchI")?.addEventListener("input",e=>{pfSearch=e.target.value.trim();renderPf()});
+/* uložená důchodová kalkulace (invalidní, vdovský, sirotčí z IOLDP) v kartě klienta */
+function duchClientSection(e,rec){
+  const d=rec&&duchod.find(x=>x.id===rec.id),r=d&&d.res;
+  const open=()=>{$("edDlg").close();setView("duch");renderDuch(u=>u.select(rec.id))};
+  if(!r)return [el("h3",{class:"sechead"},"Důchodová kalkulačka"),el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>{$("edDlg").close();setView("duch");if(rec)renderDuch(u=>u.select(rec.id))}},"+ Spočítat invalidní, vdovský a sirotčí důchod"))];
+  const row=(t,v)=>el("div",{class:"row"},el("span",{class:"main"},t),el("span",{class:"end"},kc(v)));
+  return [el("h3",{class:"sechead"},"Důchodová kalkulačka"),
+    el("div",{class:"group"},row("Invalidní I. stupně",r.i1),row("Invalidní II. stupně",r.i2),row("Invalidní III. stupně",r.i3),row("Vdovský / vdovecký",r.wid),row("Sirotčí (na 1 dítě)",r.orp)),
+    el("p",{class:"hint"},"Z IOLDP"+(d.ioldp?" ze dne "+fmtDate(d.ioldp)+" "+d.ioldp.slice(0,4):"")+" · parametry "+(d.year||"")+". Orientační výpočet."),
+    el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:open},"Otevřít v kalkulačce"))];
+}
 /* portfolio v kartě klienta (úplně dole) – stejný náhled jako v Portfoliích */
 function pfClientSection(e,rec){
   const has=rec&&pfInv.some(x=>x.client===rec.id);
@@ -6266,7 +6295,7 @@ function pfClientSection(e,rec){
   return [el("h3",{class:"sechead"},"Portfolio"),has?pfClientCard(rec.id,{back}):el("div",{class:"chips"},el("button",{type:"button",class:"chipbtn",onclick:()=>pfInvEdit(null,rec?{client:rec.id}:{cid:e.id},back)},"+ Sledovat investici v Portfoliích"))];
 }
 
-const TABS=[["pipe","Pipeline"],["money","Obrat"],["cli","Klienti"],["calc","Kalkulačka"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["pp","Sazebník"]];
+const TABS=[["pipe","Pipeline"],["money","Obrat"],["cli","Klienti"],["calc","Kalkulačka"],["duch","Důchodová kalkulačka"],["cal","Kalendář"],["net","Rozvoj sítě"],["tax","Daně"],["goals","Moje cíle"],["pf","Portfolia"],["pp","Sazebník"]];
 /* „Uživatelé“ je speciální záložka jen pro admina – vždy úplně na konci, nejde skrýt ani přeřadit
    (proto stojí mimo TABS/nastavení pořadí), zjišťuje se přímo z uloženého přihlášeného e-mailu. */
 /* ===== prezentační režim: fiktivní poradce (jen admin) ===== */
@@ -6554,7 +6583,8 @@ async function updateEurRate(){
   /* soubory u klientů (docs.js se načítá odděleně a může naběhnout o chvilku později než tahle appka) */
   {let tries=0;const start=()=>{if(window.Docs){Docs.init({db,newId,toast,gfetch,token:()=>GAuth.token(),demo:DEMO});Docs.onChange(()=>{try{render()}catch(e){}})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
-  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli")render();pfSyncClientsSoon()});
+  db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli"||view==="duch")render();pfSyncClientsSoon()});
+  db.collection("duchod").onSnapshot(snap=>{duchod=snap.docs.map(d=>({id:d.id,...d.data()}))});
   db.collection("team").onSnapshot(snap=>{team=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));clLoaded.team=true;clMigrate();if(view==="money"||view==="net")render()});
   db.collection("funds").onSnapshot(snap=>{funds=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf"){renderPf();pfRefreshAll()}else if(DEMO&&!pfRefreshAll._d){pfRefreshAll._d=1;pfRefreshAll()}});
   db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf")renderPf()});

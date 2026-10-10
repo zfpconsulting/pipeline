@@ -20,6 +20,8 @@ jobs:
         run: node tests/icons.run.mjs
       - name: Testy kalkulačky a editoru fotek
         run: node tests/fincalc.run.mjs
+      - name: Testy důchodové kalkulačky
+        run: node tests/duchod.run.mjs
       - name: Testy souborů u klientů (docs.js)
         run: node tests/docs.run.mjs
       - name: Testy v prohlížeči

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 // Testy appky Pipeline – každý test dostane env {browser,url,key} a otevře si vlastní stránku.
 import { openApp, assert, eq } from "./helpers.mjs";
 
-const TABS = ["pipe", "money", "cli", "cal", "net", "tax", "goals", "pf", "calc"];
+const TABS = ["pipe", "money", "cli", "cal", "net", "tax", "goals", "pf", "calc", "duch"];
 const closeDialogs = p => p.evaluate(() => document.querySelectorAll("dialog[open]").forEach(d => d.close()));
 const STORE = {
   "settings/main": { manual: {}, sign: "Test", career: { cpts: 30000, cAsOf: "2026-06-15", cBase: 0 }, tabHidden: [], _u: 1 },
