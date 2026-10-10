@@ -506,11 +506,11 @@ const cnum = x => { const r = Math.round(x * 10) / 10; return String(r).replace(
 const thou = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NB);
 const korun = n => thou(n) + NB + plural(Math.round(n), "koruna", "koruny", "korun");
 const bodu = x => { const r = Math.round(x * 10) / 10; return cnum(r) + NB + (Number.isInteger(r) ? plural(r, "bod", "body", "bodů") : "bodu"); };
-const speechClean = t => String(t).replace(/(\d) (?=\d{3}(?!\d))/g, "$1").replace(/ /g, " ").replace(/[„“”"]/g, "").replace(/\s+/g, " ").trim();
+const speechClean = t => String(t).replace(/\b(?:Ing|Mgr|Bc|MUDr|JUDr|PhDr|RNDr|MVDr|doc|prof)\.\s*/g, "").replace(/,?\s*(?:Ph\.?\s?D\.?|CSc\.|MBA|DiS\.)/g, "").replace(/(\d) (?=\d{3}(?!\d))/g, "$1").replace(/ /g, " ").replace(/[„“”"]/g, "").replace(/\s+/g, " ").trim();
 const qLab = l => String(l).replace(/^(\d)\. Q (\d{4})$/, "$1. čtvrtletí $2");
 const qPrep = l => (/^[234]\./.test(l) ? "Ve " : "V ") + qLab(l);
 const joinList = a => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " a " + a[a.length - 1];
-const shortDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? +m[3] + ". " + +m[2] + "." : ""; };
+const shortDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? +m[3] + ". " + MONTHS_G[+m[2] - 1] : ""; };
 
 const Q_WH = /^(?:(?:ahoj|hej|prosim|asistentko|asistente|a|tak|no|mi|nam)\s+)*(?:co|jake|jaky|jaka|jakou|jaci|kolik|kdy|kdo|komu|koho|kde|jak|ktere|ktery|ukaz|rekni|povez|precti|vypis|zobraz|shrn|prehled|reknes|muzes|mohla|mohl)\b/;
 function detectQuery(t, when, now, client) {
@@ -545,7 +545,7 @@ function dayRange(day, now) {
 function answerQuery(q, F, now) {
   now = now || new Date();
   const L = [], out = { lines: L, speak: "" };
-  const done = () => { out.speak = speechClean(L.join(" ")); return out; };
+  const done = () => { L.forEach((l, i) => { L[i] = l.replace(/\.{2,}$/, "."); }); out.speak = speechClean(L.join(" ")); return out; };
   if (!q) return done();
   if (!F) { L.push("K datům v appce se teď nedostanu."); return done(); }
   const today = ymd(now), R = dayRange(q.day, now), isToday = R.single && R.from === today;

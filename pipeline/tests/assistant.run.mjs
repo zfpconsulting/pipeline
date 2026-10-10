@@ -379,7 +379,7 @@ const tests = {
       calls: [{ name: "Veronika Kudličková", date: "2026-10-10" }, { name: "Aleš Pospíšil", date: "2026-10-08" }, { name: "Jan Novák", date: "" }, { name: "Eva Černá", date: "2026-10-12" }], meets: [] };
     const a = A.answerQuery({ kind: "tasks", day: "today", client: "" }, F, NOW);
     const t = a.lines.join(" ");
-    assert.match(t, /Dnes máš 2 úkoly: Marcinčákovi call schůzku, po termínu od 5\. 10\.; Poslat podklady\./);
+    assert.match(t, /Dnes máš 2 úkoly: Marcinčákovi call schůzku, po termínu od 5\. října; Poslat podklady\./);
     assert.ok(!/Zítřejší/.test(t), "zítřejší úkol tu být nemá");
     assert.match(t, /Bez termínu máš ještě 1 otevřený úkol\./);
     assert.match(t, /K telefonování: Veronika Kudličková a Aleš Pospíšil\./);
@@ -387,6 +387,10 @@ const tests = {
     const c = A.answerQuery({ kind: "calls", day: "today", client: "" }, F, NOW).lines.join(" ");
     assert.equal(c, "Dnes zavolej: Veronika Kudličková a Aleš Pospíšil.");
     assert.equal(A.answerQuery({ kind: "tasks", day: "tomorrow", client: "" }, F, NOW).lines[0], "Zítra máš 1 úkol: Zítřejší věc.");
+    const last = A.answerQuery({ kind: "tasks", day: "today", client: "" }, { tasks: [{ text: "Marcinčákovi call", due: "2026-10-05" }], calls: [{ name: "Ing. Aleš Pospíšil", date: "2026-10-08" }, { name: "Veronika Kudličková, MBA", date: "2026-10-10" }], meets: [] }, NOW);
+    assert.equal(last.lines[0], "Dnes máš 1 úkol: Marcinčákovi call, po termínu od 5. října.", "bez dvou teček na konci");
+    assert.match(last.speak, /K telefonování: Aleš Pospíšil a Veronika Kudličková\./, "tituly se nečtou: " + last.speak);
+    assert.match(last.lines[1], /Ing\. Aleš Pospíšil/, "v textu zůstanou");
     assert.equal(A.answerQuery({ kind: "tasks", day: "today", client: "" }, { today: "2026-10-10", tasks: [], calls: [], meets: [] }, NOW).lines[0], "Dnes nemáš žádné úkoly (ani po termínu).");
   },
   "answerQuery: schůzky – dnes zbývající, konkrétní klient, týden"() {
