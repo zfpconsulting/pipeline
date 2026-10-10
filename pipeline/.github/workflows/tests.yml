@@ -26,8 +26,6 @@ jobs:
         run: node tests/docs.run.mjs
       - name: Testy asistenta (jádro)
         run: node tests/assistant.run.mjs
-      - name: Testy Workeru asistenta
-        run: node --test worker/test/worker.test.mjs
       - name: Testy v prohlížeči
         run: node tests/run.mjs
         env:

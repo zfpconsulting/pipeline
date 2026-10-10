@@ -1243,7 +1243,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
-      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se neodesílají nikam – jedinou výjimkou je asistentka, které zadáš úkol: jen s jejím souhlasem se jí sdílí jméno, telefon, e-mail a stav klienta, ke kterému úkol zadáš. Druhou výjimkou je sdílený obchod: jen poradci, kterému obchod výslovně sdílíš a který sdílení přijme, se pošle jméno klienta, produkty, fáze obchodu a jeho podíl bodů (bez telefonu a e-mailu). Třetí výjimkou je volitelný AI asistent (vypnutý, dokud ho nezapneš): věta, kterou mu řekneš nebo napíšeš, se přes tvůj vlastní Worker pošle do AI (Anthropic) – bez seznamu klientů. Automatické potvrzení schůzky pak odchází klientovi přes tvůj Gmail nebo SMS bránu.</p>
+      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se neodesílají nikam – jedinou výjimkou je asistentka, které zadáš úkol: jen s jejím souhlasem se jí sdílí jméno, telefon, e-mail a stav klienta, ke kterému úkol zadáš. Druhou výjimkou je sdílený obchod: jen poradci, kterému obchod výslovně sdílíš a který sdílení přijme, se pošle jméno klienta, produkty, fáze obchodu a jeho podíl bodů (bez telefonu a e-mailu). Volitelný asistent pro psané a diktované příkazy (vypnutý, dokud ho nezapneš) běží celý v telefonu a nic neodesílá; jediné, co z něj odchází, je potvrzení schůzky klientovi – e-mail přes tvůj Gmail a SMS, kterou sám odešleš ve Zprávách.</p>
     </div>
   </div>
 </dialog>
@@ -3334,6 +3334,7 @@ async function saveMeeting(l,start,online,opt={}){
   return {evId,startISO,canWrite,cfg};
 }
 /* pomocné zápisy pro asistenta (assistant.js) */
+function aiOpenSms(tel,text){try{navigator.clipboard.writeText(text)}catch(e){}location.href="sms:"+tel+"?&body="+encodeURIComponent(text);toast("Otevírám Zprávy · text je i ve schránce")}
 async function aiAddLead(d){
   const now=new Date().toISOString();
   const data={name:d.name,phone:d.phone||"",email:d.email||"",source:d.source||"",referredBy:"",stage:"novy",stageAt:now,items:[],share:null,pointsManual:null,points:null,signedAt:null,products:[],nextStep:"",nextDate:null,note:"",log:[],meetings:[],lastContact:now,createdAt:now,updatedAt:now};
@@ -6607,9 +6608,9 @@ async function updateEurRate(){
       settings:()=>settings,
       saveSettings:async patch=>{settings={...settings,...patch};await db.doc("settings/main").set(settings)},
       leads:()=>leads, calEvents:()=>calEvents||[],
-      token:()=>GAuth.token(), hasScope:s=>GAuth.hasScope(s), requestScope:sc=>GAuth.login(false,sc), gfetch,
+      hasScope:s=>GAuth.hasScope(s), requestScope:sc=>GAuth.login(false,sc), gfetch,
       addLead:aiAddLead, saveMeeting, addNote:aiAddNote, moveTo,
-      tpls, fillTpl, ensureMeet, logLeadMsg, openMsg,
+      tpls, fillTpl, ensureMeet, logLeadMsg, openMsg, openSms:(t,x)=>aiOpenSms(t,x),
       openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli"||view==="duch")render();pfSyncClientsSoon()});
@@ -6964,7 +6965,7 @@ const PP_ENC="v1.bNSPw2v-Scx2Eiccfg4sgg.tSwvUcdpKuOqe1fI.OnaA_T5EC7cR2HJOM8Y_omz
 </script>
 <script src="photoedit.js?v=1" defer></script>
 <script src="docs.js?v=2" defer></script>
-<script src="assistant.js?v=1" defer></script>
+<script src="assistant.js?v=2" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */

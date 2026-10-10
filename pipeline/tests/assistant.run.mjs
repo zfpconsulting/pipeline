@@ -187,6 +187,138 @@ const tests = {
     A.pickLead(amb, amb.steps[0], two[0]);
     assert.match(amb.warnings[0], /už schůzka v tu dobu je/);
   },
+  /* ---------- lokální porozumění češtině ---------- */
+  "understand: hlavní scénář – podpis + online schůzka ve středu v 17h → bez klepnutí"() {
+    for (const t of ["Podepsal jsem smlouvu s Dvořákem a domluvil jsem si s ním online schůzku ve středu v 17h",
+      "podepsal jsem smlouvu s dvorakem a domluvil si s nim online schuzku na stredu v 17h",
+      "Dvořák podepsal smlouvu, online schůzka ve středu v 17:00", "domluvil jsem online schůzku s Dvořákem na středu v 17 hodin a podepsal smlouvu"]) {
+      const r = A.understand(t, { now: NOW, leads }), p = A.buildPlan(r, { leads, now: NOW, calEvents: [] });
+      assert.deepEqual(r.actions.map(a => a.name).sort(), ["schedule_meeting", "set_stage"], t);
+      const m = r.actions.find(a => a.name === "schedule_meeting").input;
+      assert.equal(m.start, "2026-10-14T17:00", t); assert.equal(m.online, true, t); assert.equal(m.client_name, "Dvořák", t);
+      assert.equal(r.actions.find(a => a.name === "set_stage").input.stage, "podpis", t);
+      assert.ok(A.autoOk(p), "auto: " + t); assert.deepEqual(p.steps.map(x => x.type), ["meeting", "stage"], t);
+    }
+  },
+  "understand: hodiny – půl páté, čtvrt na čtyři, tři čtvrtě na pět, 14.30, v pět, poledne, odpoledne"() {
+    const at = (t, want, extra = {}) => { const r = A.understand(t, { now: NOW, leads }); const m = r.actions.find(a => a.name === "schedule_meeting"); assert.ok(m, t + " → " + r.reply); assert.equal(m.input.start, want, t); return r; };
+    at("schůzka s Dvořákem ve čtvrtek v půl páté", "2026-10-15T16:30");
+    at("schůzka s Dvořákem ve čtvrtek ve čtvrt na čtyři", "2026-10-15T15:15");
+    at("schůzka s Dvořákem ve čtvrtek ve tři čtvrtě na pět", "2026-10-15T16:45");
+    at("schůzka s Dvořákem ve čtvrtek ve 14.30", "2026-10-15T14:30");
+    at("schůzka s Dvořákem ve čtvrtek v pět", "2026-10-15T17:00");
+    at("schůzka s Dvořákem ve čtvrtek v 10", "2026-10-15T10:00");
+    at("schůzka s Dvořákem ve čtvrtek v poledne", "2026-10-15T12:00");
+    at("schůzka s Dvořákem ve čtvrtek v 6 večer", "2026-10-15T18:00");
+    at("schůzka s Dvořákem ve čtvrtek v 9 dopoledne", "2026-10-15T09:00");
+    at("schůzka s Dvořákem ve čtvrtek ve 14 hodin", "2026-10-15T14:00");
+    at("schůzka s Dvořákem ve čtvrtek 17:45", "2026-10-15T17:45");
+    const eight = A.understand("schůzka s Dvořákem ve čtvrtek v 8", { now: NOW, leads });   /* 8 = ráno nebo večer? → ptá se (varování) */
+    assert.match(eight.warnings.join(" "), /19:00|20:00/); assert.ok(!A.autoOk(A.buildPlan(eight, { leads, now: NOW })));
+  },
+  "understand: data – zítra, pozítří, za týden, 14. října, 20.10.2026, příští pátek, stejný den týdne"() {
+    const at = (t, want) => { const r = A.understand(t, { now: NOW, leads }); const m = r.actions.find(a => a.name === "schedule_meeting"); assert.ok(m, t + " → " + r.reply); assert.equal(m.input.start, want, t); return r; };
+    at("schůzka s Dvořákem zítra v 9:00", "2026-10-11T09:00");
+    at("schůzka s Dvořákem pozítří v 9:00", "2026-10-12T09:00");
+    at("schůzka s Dvořákem za týden v 9:00", "2026-10-17T09:00");
+    at("schůzka s Dvořákem za 3 dny v 9:00", "2026-10-13T09:00");
+    at("schůzka s Dvořákem 14. října v 17:00", "2026-10-14T17:00");
+    at("schůzka s Dvořákem 20.10.2026 v 18 hodin", "2026-10-20T18:00");
+    at("schůzka s Dvořákem 3. 1. v 10:00", "2027-01-03T10:00");   /* leden už byl → příští rok */
+    at("schůzka s Dvořákem příští pátek v 10", "2026-10-16T10:00");
+    at("schůzka s Dvořákem příští týden v pondělí v 10", "2026-10-12T10:00");
+    at("schůzka s Dvořákem v pondělí v 10", "2026-10-12T10:00");
+    const sat = at("schůzka s Dvořákem v sobotu v 10", "2026-10-17T10:00");   /* dnes je sobota → za týden + varování */
+    assert.match(sat.warnings.join(" "), /taky sobota/);
+    const mis = at("schůzka s Dvořákem ve čtvrtek 14. října v 17:00", "2026-10-14T17:00");   /* 14. 10. je středa */
+    assert.match(mis.warnings.join(" "), /není čtvrtek/);
+  },
+  "understand: chybí den nebo hodina → ptá se a nic neprovede automaticky"() {
+    const noTime = A.understand("schůzka s Dvořákem ve středu", { now: NOW, leads });
+    assert.equal(noTime.actions.length, 0); assert.match(noTime.reply, /hodina/); assert.match(noTime.reply, /14\. 10\./);
+    const noDay = A.understand("schůzka s Dvořákem v 17:00", { now: NOW, leads });
+    assert.equal(noDay.actions.length, 0); assert.match(noDay.reply, /den/);
+    const noClient = A.understand("domluvil jsem schůzku ve středu v 17", { now: NOW, leads });
+    assert.equal(noClient.actions.length, 0); assert.match(noClient.reply, /jméno klienta/);
+    const part = A.understand("Podepsal jsem smlouvu s Dvořákem a domluvil schůzku ve středu", { now: NOW, leads });
+    assert.deepEqual(part.actions.map(a => a.name), ["set_stage"]); assert.ok(!A.autoOk(A.buildPlan(part, { leads, now: NOW })));   /* nic se nespustí samo, když chybí část příkazu */
+  },
+  "understand: jména – skloňování, křestní jméno, víc Nováků, jiné křestní jméno, nový klient, titul"() {
+    const two = [...leads, L("5", "Petr Novák", "probehla")];
+    const nm = (t, ls = leads) => A.understand(t, { now: NOW, leads: ls }).actions[0].input.client_name;
+    assert.equal(nm("schůzka s Novákem ve středu v 17"), "Novák");
+    assert.equal(nm("schůzka s Janem Novákem ve středu v 17", two), "Jan Novák");
+    assert.equal(nm("schůzka s Petrem Novákem ve středu v 17", two), "Petr Novák");
+    assert.ok(!A.autoOk(A.buildPlan(A.understand("schůzka s Novákem ve středu v 17", { now: NOW, leads: two }), { leads: two, now: NOW })), "dva Novákové → vybrat");
+    assert.equal(nm("schůzka s Marií Svobodovou ve středu v 17"), "Marie Svobodová");
+    /* jiné křestní jméno než u kontaktu = někdo další → nový kontakt, ne Eva Černá */
+    const lu = A.buildPlan(A.understand("schůzka s Lucií Černou v pátek v 10", { now: NOW, leads }), { leads, now: NOW });
+    assert.deepEqual(lu.steps.map(x => x.type), ["add_lead", "meeting"]); assert.ok(!A.autoOk(lu));
+    /* nový klient: základní tvar jména se odhadne, titul se zahodí */
+    const nw = (t) => A.buildPlan(A.understand(t, { now: NOW, leads }), { leads, now: NOW }).steps[0].name;
+    assert.equal(nw("schůzka s Procházkou ve středu v 17"), "Procházka");
+    assert.equal(nw("schůzka s Hanou Procházkovou ve středu v 17"), "Hana Procházková");
+    assert.equal(nw("schůzka s Ing. Zemanem ve středu v 17"), "Zeman");
+    assert.equal(nw("schůzka s Janem Novotným ve středu v 17"), "Jan Novotný");
+    assert.equal(nw("schůzka s Karlem Jelínkem ve středu v 17".replace("Jelínkem", "Hrubým")), "Karel Hrubý");
+    assert.equal(A.nominative("Jelínkem"), "Jelínek"); assert.equal(A.nominative("Svobodovou"), "Svobodová"); assert.equal(A.nominative("Novákovi"), "Novák");
+    /* místo ve větě není jméno */
+    assert.equal(nw("schůzka s Procházkou ve středu v 17 v Brně"), "Procházka");
+    /* dva různí klienti ve větě → po jednom */
+    const multi = A.understand("schůzka s Dvořákem a Černou ve středu v 17", { now: NOW, leads });
+    assert.equal(multi.actions.length, 0); assert.match(multi.reply, /po jednom/);
+  },
+  "understand: místo, online, osobně"() {
+    const g = t => A.understand(t, { now: NOW, leads }).actions.find(a => a.name === "schedule_meeting").input;
+    assert.equal(g("schůzka s Dvořákem ve středu v 17 v Brně").place, "v Brně");
+    assert.equal(g("schůzka s Dvořákem ve středu v 17 u klienta doma").place, "u klienta doma");
+    assert.deepEqual([g("schůzka s Dvořákem ve středu v 17 online").online, g("schůzka s Dvořákem ve středu v 17 přes video").online, g("schůzka s Dvořákem ve středu v 17").online], [true, true, false]);
+    assert.equal(g("schůzka s Dvořákem ve středu v 17 online v Brně").place, "");
+  },
+  "understand: fáze – nabídka, schůzka proběhla, podepsáno jen v minulém čase, Lost a Zamrzlý chtějí klepnutí"() {
+    const st = (t, ls = leads) => { const r = A.understand(t, { now: NOW, leads: ls }); return r.actions.filter(a => a.name === "set_stage").map(a => a.input.stage); };
+    const kral = [...leads, L("8", "Karel Král", "kontaktovan")];
+    assert.deepEqual(st("Poslal jsem Královi nabídku", kral), ["nabidka"]);
+    assert.deepEqual(st("Odeslal jsem nabídku Královi", kral), ["nabidka"]);
+    assert.deepEqual(st("Měli jsme schůzku s Králem", kral), ["probehla"]);
+    assert.deepEqual(st("Byl jsem na schůzce s Králem", kral), ["probehla"]);
+    assert.deepEqual(st("Král podepsal smlouvu", kral), ["podpis"]);
+    assert.deepEqual(st("Král chce podepsat smlouvu příští týden", kral), []);
+    assert.deepEqual(st("Král nepodepsal smlouvu", kral), []);
+    assert.deepEqual(st("Podepsal jsem smlouvu na schůzce s Králem", kral), ["podpis"]);
+    for (const [t, stage] of [["Král nemá zájem", "lost"], ["Král odložil rozhodnutí", "zamrzly"], ["Královi byla vyplacena provize", "vyplaceno"]]) {
+      const r = A.understand(t, { now: NOW, leads: kral }), p = A.buildPlan(r, { leads: kral, now: NOW });
+      assert.equal(r.actions[0].input.stage, stage, t); assert.ok(A.runnable(p) && !A.autoOk(p), "klepnutí: " + t);
+    }
+    /* podepsal bez schůzky nezakládá schůzku */
+    assert.ok(!A.understand("Podepsal jsem smlouvu s Dvořákem", { now: NOW, leads }).actions.some(a => a.name === "schedule_meeting"));
+    /* zpětný skok: „volal jsem“ u klienta, který je dál než Nový lead, fázi nemění */
+    assert.deepEqual(st("Volal jsem Dvořákovi, nezvedl"), []);
+    assert.deepEqual(st("Volal jsem Černé, nezvedla"), ["kontaktovan"]);   /* Eva Černá je Nový lead */
+  },
+  "understand: zápis, nový kontakt, telefon a e-mail se nepletou s časem"() {
+    const n = A.understand("Poznámka k Dvořákovi: chce zvýšit pojistku na 5 000 Kč", { now: NOW, leads }).actions[0];
+    assert.deepEqual(n, { name: "add_note", input: { client_name: "Dvořák", text: "chce zvýšit pojistku na 5 000 Kč" } });
+    assert.equal(A.understand("zapiš si u Dvořáka že volal", { now: NOW, leads }).actions[0].input.text, "že volal");
+    assert.match(A.understand("poznámka k Dvořákovi", { now: NOW, leads }).reply, /text zápisu/);
+    const a = A.understand("Nový kontakt Jan Kolář 777 123 456 doporučení", { now: NOW, leads }).actions[0];
+    assert.deepEqual(a, { name: "add_lead", input: { name: "Jan Kolář", phone: "+420777123456", email: "", source: "Doporučení" } });
+    const b = A.understand("Přidej kontakt Marek Veselý, marek.vesely@seznam.cz, cold call", { now: NOW, leads }).actions[0].input;
+    assert.deepEqual([b.name, b.email, b.source], ["Marek Veselý", "marek.vesely@seznam.cz", "Cold call"]);
+    /* nový kontakt a hned schůzka: jedno jméno, žádné zdvojení */
+    const c = A.buildPlan(A.understand("Nový kontakt Karel Král 777123456, schůzka s ním v pátek v 10", { now: NOW, leads }), { leads, now: NOW });
+    assert.deepEqual(c.steps.map(x => x.type), ["add_lead", "meeting"]); assert.equal(c.steps[1].newRef, c.steps[0]);
+    /* telefon uprostřed věty neukradne hodinu */
+    const d = A.understand("schůzka s Dvořákem ve středu v 17, telefon 777 123 456", { now: NOW, leads }).actions[0].input;
+    assert.equal(d.start, "2026-10-14T17:00");
+  },
+  "understand: nesmysl a prázdno nic neprovedou, pomůžou příkladem"() {
+    for (const t of ["", "   "]) assert.equal(A.understand(t, { now: NOW, leads }).actions.length, 0);
+    const r = A.understand("Jak se dneska máš?", { now: NOW, leads });
+    assert.equal(r.actions.length, 0); assert.match(r.reply, /Nerozuměl jsem/);
+    const only = A.understand("Dvořák", { now: NOW, leads });
+    assert.equal(only.actions.length, 0); assert.match(only.reply, /Dvořák/);
+  },
   "buildPlan: změna fáze na tu samou se přeskočí, podepsaný nejde do Lost"() {
     const p = A.buildPlan({ actions: [{ name: "set_stage", input: { client_name: "Novák", stage: "schuzka" } }] }, { leads, now: NOW });
     assert.equal(p.steps.length, 0); assert.match(p.notes[0], /už ve fázi/);

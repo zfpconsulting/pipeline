@@ -11,29 +11,24 @@ const STORE = {
 };
 
 
-/* ---------- AI asistent: Worker a Google jsou podvržené, nic neodchází ven ---------- */
+/* ---------- AI asistent: běží celý v appce; podvržený je jen Google (kalendář, Gmail) a otevření Zpráv ---------- */
 const TPL_ONLINE = { id: "potvrzeni", name: "Potvrzení schůzky", text: "Dobrý den, {osloveni}, potvrzuji naši schůzku {den} {datum} {vcas}{kde}.\n{podpis}" };
 const TPL_MEET = { id: "onl", name: "Potvrzení online konzultace", text: "Dobrý den, {osloveni}, potvrzuji naši schůzku {den} {datum} {vcas}{kde}. Zde Vám zasílám odkaz pro připojení: {meet}.\n{podpis}" };
 const MEET_LINK = "https://meet.google.com/abc-defg-hij";
-const nextDow = (dow, hour) => { const d = new Date(); d.setDate(d.getDate() + ((dow - d.getDay() + 7) % 7 || 7)); d.setHours(hour, 0, 0, 0);
-  const z = n => String(n).padStart(2, "0"); return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate()) + "T" + z(d.getHours()) + ":00"; };
-async function aiApp(env, { actions, reply = "", delay = 0, tpls = [TPL_ONLINE, TPL_MEET], leads = {}, ai = {}, scope = "calendar.events gmail.send" } = {}) {
+const DAY_PH = ["v neděli", "v pondělí", "v úterý", "ve středu", "ve čtvrtek", "v pátek", "v sobotu"];
+/* „za n dní“ jako česká věta a jako ISO čas – n = 2…6, ať se nikdy netrefí na dnešek ani na „zítra“ */
+const inDays = (n, hour) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(hour, 0, 0, 0);
+  const z = x => String(x).padStart(2, "0"); return { say: DAY_PH[d.getDay()], iso: d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate()) + "T" + z(hour) + ":00" }; };
+async function aiApp(env, { delay = 0, tpls = [TPL_ONLINE, TPL_MEET], leads = {}, ai = {}, scope = "calendar.events gmail.send" } = {}) {
   const store = { ...STORE,
-    "settings/main": { ...STORE["settings/main"], calPrefix: "VK:", calId: "primary", tpls, ai: { on: true, url: "https://worker.test", delay, sms: true, mail: true, from: "", ...ai } },
+    "settings/main": { ...STORE["settings/main"], calPrefix: "VK:", calId: "primary", tpls, ai: { on: true, delay, sms: true, mail: true, from: "", ...ai } },
     "leads/n1": { name: "Jan Novák", phone: "777 111 222", email: "novak@example.com", stage: "kontaktovan", items: [], meetings: [], log: [], _u: 1 },
     ...leads };
   const { ctx, page, errors } = await openApp(env, { store });
-  const calls = { cal: [], sms: [], mail: [], ai: [] };
+  const calls = { cal: [], mail: [], outside: [] };
   const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
   const json = (route, obj, status = 200) => route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify(obj) });
-  await ctx.route("https://worker.test/**", route => {
-    const r = route.request(), path = new URL(r.url()).pathname;
-    if (r.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
-    const body = r.postData() ? JSON.parse(r.postData()) : {};
-    if (path === "/ai") { calls.ai.push({ body, auth: r.headers()["authorization"] }); return json(route, { reply, actions }); }
-    if (path === "/sms") { calls.sms.push(body); return json(route, { ok: true }); }
-    return json(route, { ok: true, ai: true, sms: true });
-  });
+  ctx.on("request", r => { const u = r.url(); if (!/^(http:\/\/localhost|data:|blob:|about:)/.test(u)) calls.outside.push(u); });
   await ctx.route(/googleapis\.com\/(calendar|gmail)/, route => {
     const r = route.request(), u = r.url();
     if (r.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
@@ -41,13 +36,14 @@ async function aiApp(env, { actions, reply = "", delay = 0, tpls = [TPL_ONLINE, 
     if (r.method() === "POST") { calls.cal.push(JSON.parse(r.postData())); return json(route, { id: "ev1" }); }
     return json(route, { hangoutLink: MEET_LINK, description: "Připojit se přes Google Meet: " + MEET_LINK });
   });
-  await page.evaluate(sc => lsSet("g_tok", { at: "test-token-123456789012345", exp: Date.now() + 36e5, scope: sc }), scope);
+  await page.evaluate(sc => { lsSet("g_tok", { at: "test-token-123456789012345", exp: Date.now() + 36e5, scope: sc }); window.__sms = []; window.aiOpenSms = (tel, text) => window.__sms.push({ tel, text }); }, scope);
   await page.evaluate(() => Assistant.refresh());
   return { ctx, page, errors, calls };
 }
 const aiSay = async (page, text) => { await page.evaluate(() => Assistant.open()); await page.waitForSelector("dialog[open] .aiIn textarea");
   await page.fill("dialog[open] .aiIn textarea", text); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]'); };
 const aiLead = (page, name) => page.evaluate(n => { const l = leads.find(x => x.name === n); return l ? JSON.parse(JSON.stringify(l)) : null }, name);
+const aiSms = page => page.evaluate(() => window.__sms.slice());
 
 export default {
   async "appka naběhne a všechny záložky se vykreslí bez chyb"(env) {
@@ -316,7 +312,7 @@ export default {
   async "asistent: tlačítko je vypnuté, dokud ho v nastavení nezapneš (a v prezentačním režimu nikdy)"(env) {
     const { ctx, page, errors } = await openApp(env, { store: STORE });
     eq(await page.evaluate(() => !!document.getElementById("aiFab") && !document.getElementById("aiFab").hidden), false, "bez zapnutí žádné tlačítko");
-    await page.evaluate(() => db.doc("settings/main").set({ ...settings, ai: { on: true, url: "https://worker.test" } })); await page.waitForTimeout(300);
+    await page.evaluate(() => db.doc("settings/main").set({ ...settings, ai: { on: true } })); await page.waitForTimeout(300);
     eq(await page.evaluate(() => !document.getElementById("aiFab").hidden), true, "po zapnutí tlačítko je");
     await page.evaluate(() => demoSwitch(true, true)); await page.waitForTimeout(2500);
     eq(await page.evaluate(() => { const f = document.getElementById("aiFab"); return !f || f.hidden }), true, "v prezentačním režimu se schová");
@@ -324,55 +320,56 @@ export default {
     await ctx.close();
   },
 
-  async "asistent: podpis + online schůzka ve středu → kalendář, fáze, SMS i e-mail s odkazem na Meet"(env) {
-    const start = nextDow(3, 17);
-    const { ctx, page, errors, calls } = await aiApp(env, { actions: [
-      { name: "set_stage", input: { client_name: "Novák", stage: "podpis" } },
-      { name: "schedule_meeting", input: { client_name: "Novák", start, online: true, place: "", send_confirmation: true } }] });
-    await aiSay(page, "Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h");
-    await page.waitForSelector("dialog[open] .aiPlan:has-text('Potvrzení odesláno')", { timeout: 15000 });
-    eq(calls.ai.length, 1, "jedno volání AI");
-    eq(calls.ai[0].body.utterance, "Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h", "text příkazu");
-    assert(!JSON.stringify(calls.ai[0].body).includes("Jan Novák"), "seznam klientů do AI neodchází");
-    assert(/^Bearer test-token/.test(calls.ai[0].auth), "Worker dostane Google token");
+  async "asistent: podpis + online schůzka ve středu → kalendář, fáze, e-mail sám, SMS jedním klepnutím, nic jiného nejde ven"(env) {
+    const w = inDays(3, 17);
+    const { ctx, page, errors, calls } = await aiApp(env);
+    await aiSay(page, "Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku " + w.say + " v 17h");
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('Potvrzení (Jan Novák)')", { timeout: 15000 });
     eq(calls.cal.length, 1, "jedna událost v kalendáři");
     eq(calls.cal[0].summary, "VK: Jan Novák (online)", "název události");
     eq(new Date(calls.cal[0].start.dateTime).getHours(), 17, "17:00");
     const l = await aiLead(page, "Jan Novák");
     eq(l.stage, "podpis", "fáze po schůzce zůstala Podpis");
     eq(l.meetings.length, 1, "schůzka v leadu"); eq(l.meetings[0].id, "ev1", "id události");
-    eq(calls.sms.length, 1, "jedna SMS"); eq(calls.sms[0].to, "+420777111222", "číslo");
-    assert(calls.sms[0].text.includes(MEET_LINK) && /pane Nováku/.test(calls.sms[0].text), "text SMS: " + calls.sms[0].text);
-    eq(calls.mail.length, 1, "jeden e-mail");
+    eq(calls.mail.length, 1, "jeden e-mail, odešel sám");
     const mime = Buffer.from(calls.mail[0].raw, "base64url").toString("utf8");
     assert(/^To: novak@example\.com/.test(mime), "příjemce e-mailu");
     const body = Buffer.from(mime.split("\r\n\r\n")[1].replace(/\r\n/g, ""), "base64").toString("utf8");
     assert(body.includes(MEET_LINK), "odkaz na Meet v e-mailu");
-    eq(l.log.filter(x => /automaticky/.test(x.t)).length, 2, "oba odeslané kanály jsou v historii");
+    eq(await aiSms(page), [], "SMS sama neodešla – čeká na klepnutí");
+    await page.click("dialog[open] .aiPlan button:has-text('Odeslat SMS: Jan Novák')");
+    const sms = await aiSms(page);
+    eq(sms.length, 1, "po klepnutí se otevřely Zprávy"); eq(sms[0].tel, "+420777111222", "číslo");
+    assert(sms[0].text.includes(MEET_LINK) && /pane Nováku/.test(sms[0].text), "text SMS: " + sms[0].text);
+    const after = await aiLead(page, "Jan Novák");
+    eq([after.log.filter(x => /automaticky/.test(x.t)).length, after.log.filter(x => /\(SMS\)/.test(x.t)).length], [1, 1], "e-mail i SMS jsou v historii");
+    eq(calls.outside.filter(u => !/googleapis\.com\/(calendar|gmail)/.test(u) && !/script\.google\.com|frankfurter|accounts\.google/.test(u)), [], "kromě Googlu nic neodešlo ven");
+    assert(!calls.outside.some(u => /anthropic|workers\.dev|worker\.test|twilio/.test(u)), "žádná AI služba ani Worker");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
   async "asistent: odpočet jde zrušit a nic se neprovede"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { delay: 20, actions: [{ name: "schedule_meeting", input: { client_name: "Novák", start: nextDow(3, 17), online: false } }] });
-    await aiSay(page, "Schůzka s Novákem ve středu v 17");
+    const { ctx, page, errors, calls } = await aiApp(env, { delay: 20 });
+    await aiSay(page, "Schůzka s Novákem " + inDays(3, 17).say + " v 17");
     await page.waitForSelector("dialog[open] .aiPlan button:has-text('Zrušit')");
     await page.click("dialog[open] .aiPlan button:has-text('Zrušit')");
     await page.waitForSelector("dialog[open] .aiPlan:has-text('Zrušeno')");
     await page.waitForTimeout(500);
-    eq([calls.cal.length, calls.sms.length, calls.mail.length], [0, 0, 0], "nic neodešlo");
+    eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
     const l = await aiLead(page, "Jan Novák");
     eq([l.stage, l.meetings.length], ["kontaktovan", 0], "lead beze změny");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
-  async "asistent: odpočet doběhne sám a provede jednoznačný plán; zavření okna ho zruší"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { delay: 2, actions: [{ name: "add_note", input: { client_name: "Novák", text: "Nezvedl telefon" } }] });
-    await aiSay(page, "Novák nezvedl telefon");
+  async "asistent: odpočet doběhne sám a provede jednoznačný příkaz, funguje i offline; zavření okna ho zruší"(env) {
+    const { ctx, page, errors } = await aiApp(env, { delay: 2 });
+    await ctx.setOffline(true);
+    await aiSay(page, "Poznámka k Novákovi: nezvedl telefon");
     await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Zápis u Jan Novák')", { timeout: 10000 });
-    eq((await aiLead(page, "Jan Novák")).log.map(x => x.t), ["Nezvedl telefon"], "zápis v historii");
-    await aiSay(page, "Novák ještě jednou");   /* druhý příkaz; okno zavřeme dřív, než doběhne odpočet */
+    eq((await aiLead(page, "Jan Novák")).log.map(x => x.t), ["nezvedl telefon"], "zápis v historii, bez internetu");
+    await aiSay(page, "Poznámka k Novákovi: ještě jednou");   /* druhý příkaz; okno zavřeme dřív, než doběhne odpočet */
     await page.waitForSelector("dialog[open] .aiPlan button:has-text('Zrušit')");
     await closeDialogs(page); await page.waitForTimeout(3500);
     eq((await aiLead(page, "Jan Novák")).log.length, 1, "po zavření okna se nic dalšího nezapsalo");
@@ -380,24 +377,22 @@ export default {
     await ctx.close();
   },
 
-  async "asistent: neznámý klient, víc shod a varování se provádí až po klepnutí"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { delay: 1, leads: { "leads/n2": { name: "Petr Novák", stage: "novy", items: [], _u: 1 } },
-      actions: [{ name: "schedule_meeting", input: { client_name: "Procházka", start: nextDow(4, 10), online: false } }] });
-    await aiSay(page, "Schůzka s Procházkou ve čtvrtek v 10");
+  async "asistent: neznámý klient (jde opravit jméno) a víc Nováků se provádí až po klepnutí"(env) {
+    const w = inDays(4, 10);
+    const { ctx, page, errors, calls } = await aiApp(env, { delay: 1, leads: { "leads/n2": { name: "Petr Novák", stage: "novy", items: [], _u: 1 } } });
+    await aiSay(page, "Schůzka s Hanou Procházkovou " + w.say + " v 10");
     await page.waitForSelector("dialog[open] .aiPlan:has-text('založím nový kontakt')");
+    eq(await page.inputValue("dialog[open] .aiPlan input[aria-label='Jméno nového kontaktu']"), "Hana Procházková", "jméno v 1. pádu");
+    await page.fill("dialog[open] .aiPlan input[aria-label='Jméno nového kontaktu']", "Hana Procházková-Nováková"); await page.keyboard.press("Tab");
     await page.waitForTimeout(2200);
     eq(calls.cal.length, 0, "bez klepnutí se nic nezapsalo");
     await page.click("dialog[open] .aiPlan button:has-text('Provést')");
-    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Nový kontakt Procházka')", { timeout: 10000 });
-    eq(calls.cal.length, 1, "po klepnutí se zapsalo"); eq(calls.cal[0].summary, "VK: Procházka", "název události");
-    eq((await aiLead(page, "Procházka")).stage, "schuzka", "nový lead je ve fázi Schůzka domluvena");
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Nový kontakt Hana Procházková-Nováková')", { timeout: 10000 });
+    eq(calls.cal.length, 1, "po klepnutí se zapsalo"); assert(/Procházková-Nováková/.test(calls.cal[0].summary), "název události: " + calls.cal[0].summary);
+    eq((await aiLead(page, "Hana Procházková-Nováková")).stage, "schuzka", "nový lead je ve fázi Schůzka domluvena");
     await closeDialogs(page); await page.waitForTimeout(500);   /* okna se zavírají s animací (340 ms) */
     /* dva Novákové */
-    await page.evaluate(() => Assistant.open());
-    await page.evaluate(() => { window.__r = null; });
-    await ctx.route("https://worker.test/ai", route => route.request().method() === "OPTIONS" ? route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*" } })
-      : route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, contentType: "application/json", body: JSON.stringify({ reply: "", actions: [{ name: "add_note", input: { client_name: "Novák", text: "Volal" } }] }) }));
-    await page.fill("dialog[open] .aiIn textarea", "Novák volal"); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]');
+    await aiSay(page, "Poznámka k Novákovi: volal");
     await page.waitForSelector("dialog[open] .aiPlan:has-text('Víc kontaktů pasuje')");
     eq(await page.locator("dialog[open] .aiPlan button:has-text('Provést')").count(), 0, "dokud nevybereš, tlačítko Provést není");
     await page.click("dialog[open] .aiPlan button:has-text('Petr Novák')");
@@ -409,12 +404,12 @@ export default {
   },
 
   async "asistent: šablona bez {meet} u online schůzky se neodešle automaticky, nabídne se ruční odeslání"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { tpls: [TPL_ONLINE], actions: [{ name: "schedule_meeting", input: { client_name: "Novák", start: nextDow(3, 17), online: true } }] });
-    await aiSay(page, "Online schůzka s Novákem ve středu v 17");
+    const { ctx, page, errors, calls } = await aiApp(env, { tpls: [TPL_ONLINE] });
+    await aiSay(page, "Online schůzka s Novákem " + inDays(3, 17).say + " v 17");
     await page.waitForSelector("dialog[open] .aiPlan:has-text('neodešlo automaticky')", { timeout: 15000 });
     assert((await page.locator("dialog[open] .aiPlan").innerText()).includes("neobsahuje {meet}"), "důvod je vidět");
     eq(calls.cal.length, 1, "schůzka v kalendáři je");
-    eq([calls.sms.length, calls.mail.length], [0, 0], "klient nedostal zprávu bez odkazu");
+    eq([calls.mail.length, (await aiSms(page)).length], [0, 0], "klient nedostal zprávu bez odkazu");
     await page.click("dialog[open] .aiPlan button:has-text('Poslat ručně')");
     await page.waitForSelector("dialog[open] .msgbox textarea");
     const manual = await page.inputValue("dialog[open] .msgbox textarea");
@@ -423,45 +418,41 @@ export default {
     await ctx.close();
   },
 
-  async "asistent: bez povolení Gmailu odejde jen SMS; osobní schůzka e-mail neposílá"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { scope: "calendar.events", tpls: [TPL_ONLINE, TPL_MEET], actions: [
-      { name: "schedule_meeting", input: { client_name: "Novák", start: nextDow(3, 17), online: false, place: "Brno" } }] });
-    await aiSay(page, "Osobní schůzka s Novákem ve středu v 17 v Brně");
-    await page.waitForSelector("dialog[open] .aiPlan:has-text('Potvrzení odesláno: SMS')", { timeout: 15000 });
-    eq([calls.sms.length, calls.mail.length], [1, 0], "jen SMS");
-    assert(/\(Brno\)/.test(calls.sms[0].text) && !calls.sms[0].text.includes("meet.google"), "text osobní schůzky: " + calls.sms[0].text);
+  async "asistent: bez povolení Gmailu se u osobní schůzky připraví jen SMS s místem"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env, { scope: "calendar.events" });
+    await aiSay(page, "Osobní schůzka s Novákem " + inDays(3, 17).say + " v 17 v Brně");
+    await page.waitForSelector("dialog[open] .aiPlan button:has-text('Odeslat SMS: Jan Novák')", { timeout: 15000 });
+    await page.click("dialog[open] .aiPlan button:has-text('Odeslat SMS: Jan Novák')");
+    const sms = await aiSms(page);
+    eq([calls.mail.length, sms.length], [0, 1], "jen SMS");
+    assert(/\(v Brně\)/.test(sms[0].text) && !sms[0].text.includes("meet.google"), "text osobní schůzky: " + sms[0].text);
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
-  async "asistent: schůzka v minulosti nebo nesrozumitelný čas se neprovede"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { actions: [{ name: "schedule_meeting", input: { client_name: "Novák", start: "2020-01-01T10:00", online: false } }] });
-    await aiSay(page, "Schůzka s Novákem loni");
+  async "asistent: chybí hodina nebo je schůzka v minulosti → ptá se / neprovede se"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env);
+    await aiSay(page, "Schůzka s Novákem " + inDays(3, 17).say);
+    await page.waitForSelector("dialog[open] .aiMsg:has-text('chybí')");
+    eq(await page.locator("dialog[open] .aiPlan").count(), 0, "bez hodiny žádný plán");
+    await page.fill("dialog[open] .aiIn textarea", "Schůzka s Novákem 1. 1. 2020 v 10:00"); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]');
     await page.waitForSelector("dialog[open] .aiPlan:has-text('v minulosti')");
     eq(await page.locator("dialog[open] .aiPlan button:has-text('Provést')").count(), 0, "není co provést");
+    await page.fill("dialog[open] .aiIn textarea", "Jak se máš"); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]');
+    await page.waitForSelector("dialog[open] .aiMsg:has-text('Nerozuměl jsem')");
     await page.waitForTimeout(500);
-    eq([calls.cal.length, calls.sms.length], [0, 0], "nic neodešlo");
+    eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
-  async "asistent: chyba Workeru se ukáže česky a nic se neprovede"(env) {
-    const { ctx, page, errors, calls } = await aiApp(env, { actions: [] });
-    await ctx.route("https://worker.test/ai", route => route.request().method() === "OPTIONS" ? route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*" } })
-      : route.fulfill({ status: 429, headers: { "access-control-allow-origin": "*" }, contentType: "application/json", body: JSON.stringify({ error: "Denní limit asistenta je vyčerpaný" }) }));
-    await aiSay(page, "Cokoliv");
-    await page.waitForSelector("dialog[open] .aiMsg:has-text('Denní limit asistenta je vyčerpaný')");
-    eq(calls.cal.length, 0, "nic se neprovedlo");
-    eq(errors, [], "chyby v konzoli");
-    await ctx.close();
-  },
-
-  async "asistent: nastavení ukáže stav Workeru a nabídne povolení Gmailu"(env) {
-    const { ctx, page, errors } = await aiApp(env, { actions: [], scope: "calendar.events" });
-    await page.evaluate(() => Assistant.renderSettings(document.getElementById("aiCfg"))); await page.waitForTimeout(500);
+  async "asistent: nastavení neobsahuje žádný server ani klíč a nabídne povolení Gmailu"(env) {
+    const { ctx, page, errors } = await aiApp(env, { scope: "calendar.events" });
+    await page.evaluate(() => Assistant.renderSettings(document.getElementById("aiCfg"))); await page.waitForTimeout(300);
     const t = await page.locator("#aiCfg").innerText();
-    assert(/Worker běží/.test(t) && /AI nastavená/.test(t) && /SMS brána nastavená/.test(t), "stav Workeru: " + t);
+    assert(/žádná AI služba/.test(t) && !/Worker|Anthropic|klíč/.test(t), "texty nastavení: " + t);
     assert(/Povolit odesílání e-mailů z Gmailu/.test(t), "nabídka povolení Gmailu");
+    eq(await page.locator("#aiCfg input[placeholder*='workers.dev']").count(), 0, "žádné pole pro adresu serveru");
     await ctx.close();
     eq(errors, [], "chyby v konzoli");
   },
