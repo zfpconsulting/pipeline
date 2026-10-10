@@ -43,20 +43,23 @@ function dopocet(evt,ret,pct){
   return ceil((b-a)/DAY*(k/100));
 }
 function calc(inp){
-  const pr=paramsFor(inp.evt),p=pr.p,ovz=+inp.ovz||0,vz=reduce(ovz,p),d=doba(inp),dop=dopocet(inp.evt,inp.ret,inp.dopPct);
+  const pr=paramsFor(inp.evt),p=pr.p,ovz=+inp.ovz||0,vzOwn=+inp.vz>0,vz=vzOwn?ceil(+inp.vz):reduce(ovz,p),d=doba(inp),dop=dopocet(inp.evt,inp.ret,inp.dopPct);
   const days=d.eff+dop,years=Math.floor(days/365);
-  const ok=ovz>0&&days>0;
+  const ok=(ovz>0||vzOwn)&&days>0;
   const inv=(k)=>{const pv0=ceil(vz*PM[k]*years/1000),min=p.min[k],pv=Math.max(pv0,min);return{pv0,pv,min,minUsed:pv0<min,zv:p.zv,total:p.zv+pv}};
   const i1=inv("inv1"),i2=inv("inv2"),i3=inv("inv3");
-  /* starobní důchod z dosavadní doby pojištění (bez dopočtené doby): 1,5 % výpočtového základu za každý celý rok */
-  const sy=Math.floor(d.eff/365),s0=ceil(vz*15*sy/1000),sp=Math.max(s0,p.min.sta),sta={pv0:s0,pv:sp,min:p.min.sta,minUsed:s0<p.min.sta,zv:p.zv,total:p.zv+sp,years:sy};
+  /* starobní důchod: vlastní odhad = 1,5 % výpočtového základu za každý celý rok doby pojištění až do důchodového věku
+     (stejná doba jako u invalidního III. stupně); když je zadaný odhad z IOLDP, ten je pro zobrazení směrodatný */
+  const sy=Math.floor(days/365),s0=ceil(vz*15*sy/1000),sp=Math.max(s0,p.min.sta),own0={pv0:s0,pv:sp,min:p.min.sta,minUsed:s0<p.min.sta,zv:p.zv,total:p.zv+sp,years:sy};
+  const sIo=+inp.staIoldp>0?Math.round(+inp.staIoldp):null;
+  const sta=sIo!=null?{...own0,total:sIo,pv:sIo-p.zv,minUsed:false,fromIoldp:true,own:own0.total}:{...own0,fromIoldp:false,own:own0.total};
   /* důchod zemřelého: když ho klient už pobírá, zadá se jeho procentní výměra z IOLDP; jinak invalidní III. stupně, na který by měl nárok */
   const own=+inp.pvDead>0?ceil(+inp.pvDead):null,base=own!=null?own:i3.pv;
   const wpv=Math.max(ceil(base*0.5),p.min.wid),opv=Math.max(ceil(base*0.4),p.min.orp);
   const kids=Math.max(1,Math.floor(+inp.kids||1));
   const wid={pv:wpv,min:p.min.wid,minUsed:ceil(base*0.5)<p.min.wid,zv:p.zv,total:p.zv+wpv};
   const orp={pv:opv,min:p.min.orp,minUsed:ceil(base*0.4)<p.min.orp,zv:p.zv,total:p.zv+opv,kids,family:(p.zv+opv)*kids};
-  return{ok,pr,p,ovz,vz,d,dop,days,years,sta,i1,i2,i3,wid,orp,base,ownBase:own!=null};
+  return{ok,pr,p,ovz,vz,vzOwn,d,dop,days,years,sta,i1,i2,i3,wid,orp,base,ownBase:own!=null};
 }
 
 /* ================= import IOLDP (text z PDF nebo .txt) ================= */
@@ -77,9 +80,14 @@ function parseIoldp(raw){
   if(tot){f.tY=tot.y;f.tD=tot.d;found.push("doba pojištění")}else missing.push("doba pojištění");
   const sub=dur(dd("nahradni doby?(?: pojisteni)?"));
   if(sub){f.nY=sub.y;f.nD=sub.d;found.push("náhradní doby")}
+  const money=(label)=>{const m=new RegExp(label+"[^0-9]{0,40}?"+NUM+"\\s*kc").exec(a);return m?+m[1].replace(/ /g,""):null};
+  const vz=money("vypoctovy zaklad");
+  if(vz){f.vz=vz;found.push("výpočtový základ")}
+  const sta=money("odhad vyse starobniho duchodu")||money("odhadovana vyse duchodu");
+  if(sta){f.staIoldp=sta;found.push("odhad starobního důchodu")}
   const ret=date(/duchodov\w* vek[^.]{0,120}?(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/);
   if(ret){f.ret=ret;found.push("důchodový věk")}else missing.push("datum důchodového věku");
-  const dt=date(/(?:ke dni|ze dne|vystaven\w*(?: dne)?|datum vystaveni|stav k)[^0-9]{0,20}(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/);
+  const dt=date(/(?:ke dni|ze dne|vystaven\w*(?: dne)?|datum vystaveni|stav k)[^0-9]{0,20}(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/)||date(/ziskany prostrednictvim eportalu[^(]{0,80}\(\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/);
   if(dt){f.ioldp=dt;found.push("datum IOLDP")}
   return{fields:f,found,missing};
 }
@@ -149,7 +157,7 @@ function mount(root,opts={}){
   const clientsFn=opts.clients||(()=>[]),ensure=opts.ensure||null;
   const LS="dk_draft_v1";
   const ls=opts.ls||{get:k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-  const fresh=()=>({cid:"",ioldp:"",ovz:"",tY:"",tD:"",nY:"",nD:"",ret:"",evt:todayStr(),dopPct:100,kids:1,pvDead:""});
+  const fresh=()=>({cid:"",ioldp:"",ovz:"",vz:"",staIoldp:"",tY:"",tD:"",nY:"",nD:"",ret:"",evt:todayStr(),dopPct:100,kids:1,pvDead:""});
   let st={...fresh(),...(ls.get(LS)||{})};
   let saved=[],impMsg="";
   const persist=()=>ls.set(LS,st);
@@ -179,6 +187,8 @@ function mount(root,opts={}){
       <div id="dkImp">${impMsg}</div>
       <div class="dk-grid">
         ${fld("ovz","Osobní vyměřovací základ (Kč měsíčně)",{ph:"např. 52 300"})}
+        ${fld("vz","Výpočtový základ (Kč)",{ph:"z IOLDP",hint:"Pokud je v IOLDP, má přednost – ČSSZ už ho redukovala."})}
+        ${fld("staIoldp","Odhad starobního důchodu z IOLDP (Kč)",{ph:"např. 14 300"})}
         ${pair("tY","tD","Doba pojištění celkem","roky","dny")}
         ${pair("nY","nD","z toho náhradní doby","roky","dny")}
         ${fld("ret","Dosažení důchodového věku",{type:"date",hint:"Datum z IOLDP – od něj se počítá dopočtená doba."})}
@@ -200,26 +210,26 @@ function mount(root,opts={}){
 
   function tile(k,r,sub,big){return `<div class="dk-tile${big?" big":""}"><div class="k">${esc(k)}</div><div class="v">${kc(r.total)}</div><div class="s">ZV ${kc(r.zv)} + PV ${kc(r.pv)}${r.minUsed?`<span class="min" title="Procentní výměra by vyšla pod zákonným minimem">min.</span>`:""}${sub?"<br>"+sub:""}</div></div>`}
   function resHTML(R){
-    if(!R.ok)return `<div class="dk-sec">Výsledek</div><p class="dk-hint">Vyplň osobní vyměřovací základ a dobu pojištění z IOLDP – částky se spočítají samy.</p>`;
+    if(!R.ok)return `<div class="dk-sec">Výsledek</div><p class="dk-hint">Vyplň osobní vyměřovací základ (nebo výpočtový základ) a dobu pojištění z IOLDP – částky se spočítají samy.</p>`;
     const w=[];
     if(R.pr.warn)w.push(R.pr.year>LAST?`Pro rok ${R.pr.year} ještě nejsou vyhlášené parametry – počítá se s hodnotami ${R.pr.use}.`:`Parametry pro rok ${R.pr.year} tu nejsou – počítá se s hodnotami ${R.pr.use}.`);
     if(!st.ret)w.push("Chybí datum dosažení důchodového věku – dopočtená doba se nezapočetla, invalidní důchody i odvozené vdovský a sirotčí vyjdou nižší.");
     else if(R.dop===0)w.push("Dopočtená doba vyšla 0 dní (nárok vzniká až po dosažení důchodového věku nebo je doba zkrácená na 0 %).");
     const rows=[
       [`Parametry ${R.pr.use} (${R.p.src})`,`ZV ${kc(R.p.zv)} · RH ${kc(R.p.rh1)} / ${kc(R.p.rh2)}`],
-      ["Osobní vyměřovací základ → výpočtový základ",`${kc(R.ovz)} → ${kc(R.vz)}`],
+      ["Osobní vyměřovací základ → výpočtový základ",`${R.ovz?kc(R.ovz):"–"} → ${kc(R.vz)}${R.vzOwn?" (z IOLDP)":""}`],
       ["Doba pojištění z IOLDP",ryTxt(R.d.tot)+(R.d.sub?` (z toho náhradní ${ryTxt(R.d.sub)})`:"")],
       ["Započteno (náhradní doby 80 %)",ryTxt(R.d.eff)],
       ["Dopočtená doba",R.dop?ryTxt(R.dop):"0"],
       ["Celé roky pro procentní výměru",`${R.years} ${R.years===1?"rok":R.years>=2&&R.years<=4?"roky":"roků"}`],
-      ["Procentní výměra starobní (jen dosavadní doba)",kc(R.sta.pv)],
+      ["Starobní důchod – vlastní odhad do důchodového věku",`${kc(R.sta.own)} (${R.sta.years} let pojištění)`],
       ["Procentní výměra invalidní I. / II. / III. st.",`${kc(R.i1.pv)} / ${kc(R.i2.pv)} / ${kc(R.i3.pv)}`],
       [R.ownBase?"Procentní výměra zemřelého (zadáno)":"Procentní výměra zemřelého (invalidní III. st.)",kc(R.base)]
     ];
     return `<div class="dk-sec">Měsíční výše důchodu · parametry ${R.pr.use}</div>
       ${w.map(x=>`<div class="dk-warn">${esc(x)}</div>`).join("")}
       <div class="dk-tiles">
-        ${tile("Starobní důchod",R.sta,`z dosavadní doby pojištění (${R.sta.years} ${R.sta.years===1?"rok":R.sta.years>=2&&R.sta.years<=4?"roky":"roků"})`)}${tile("Invalidní I. stupně",R.i1)}${tile("Invalidní II. stupně",R.i2)}${tile("Invalidní III. stupně",R.i3,"",true)}
+        ${tile("Starobní důchod",R.sta,R.sta.fromIoldp?`odhad z IOLDP · vlastní přepočet ${kc(R.sta.own)}`:`vlastní odhad do důchodového věku (${R.sta.years} let pojištění)`)}${tile("Invalidní I. stupně",R.i1)}${tile("Invalidní II. stupně",R.i2)}${tile("Invalidní III. stupně",R.i3,"",true)}
         ${tile("Vdovský / vdovecký",R.wid,"50 % procentní výměry zemřelého")}
         ${tile("Sirotčí (na 1 dítě)",R.orp,R.orp.kids>1?`${R.orp.kids} děti celkem ${kc(R.orp.family)}`:"40 % procentní výměry zemřelého")}
       </div>
@@ -245,7 +255,7 @@ function mount(root,opts={}){
     const sel=root.querySelector("#dk_cid");if(sel&&document.activeElement!==sel)sel.innerHTML=clientOpts();
   }
 
-  function snapshotInputs(){const o={};["ioldp","ovz","tY","tD","nY","nD","ret","evt","dopPct","kids","pvDead"].forEach(k=>o[k]=st[k]);return o}
+  function snapshotInputs(){const o={};["ioldp","ovz","vz","staIoldp","tY","tD","nY","nD","ret","evt","dopPct","kids","pvDead"].forEach(k=>o[k]=st[k]);return o}
   function load(id){
     const s=saved.find(x=>x.id===id);
     st.cid=id;
@@ -258,7 +268,7 @@ function mount(root,opts={}){
     const e=entries().find(x=>keyOf(x)===st.cid);
     if(!e){toast("Klient už v seznamu není");return}
     const R=calc(st);
-    if(!R.ok){toast("Doplň osobní vyměřovací základ a dobu pojištění");return}
+    if(!R.ok){toast("Doplň základ a dobu pojištění");return}
     try{
       const rec=ensure&&!e.rec?await ensure(e):e.rec;
       const id=rec?rec.id:st.cid;
@@ -279,7 +289,7 @@ function mount(root,opts={}){
       table{border-collapse:collapse;width:100%;margin-bottom:6px}td{padding:7px 4px;border-bottom:1px solid #e5e7eb}td:last-child{text-align:right;font-weight:600}
       h2{font-size:16px;margin:18px 0 8px}.ft{margin-top:18px;font-size:11px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:8px}@media print{body{padding:0}}</style></head><body>
       <div class="hd"><h1>Důchodová kalkulace – dávky při invaliditě a úmrtí</h1><small>${esc(nm||"Koncept")} · ${d}${st.ioldp?" · IOLDP ze dne "+esc(fmtDate(st.ioldp)):""}</small></div>
-      <div class="tiles">${[["Starobní důchod (z dosavadní doby pojištění)",R.sta],["Invalidní I. stupně",R.i1],["Invalidní II. stupně",R.i2],["Invalidní III. stupně",R.i3],["Vdovský / vdovecký",R.wid],["Sirotčí (na 1 dítě)",R.orp]].map(([k,r])=>`<div class="t"><div class="k">${esc(k)}</div><div class="v">${kc(r.total)}</div><div class="s">ZV ${kc(r.zv)} + PV ${kc(r.pv)}</div></div>`).join("")}</div>
+      <div class="tiles">${[["Starobní důchod"+(R.sta.fromIoldp?" (odhad z IOLDP)":" (vlastní odhad)"),R.sta],["Invalidní I. stupně",R.i1],["Invalidní II. stupně",R.i2],["Invalidní III. stupně",R.i3],["Vdovský / vdovecký",R.wid],["Sirotčí (na 1 dítě)",R.orp]].map(([k,r])=>`<div class="t"><div class="k">${esc(k)}</div><div class="v">${kc(r.total)}</div><div class="s">ZV ${kc(r.zv)} + PV ${kc(r.pv)}</div></div>`).join("")}</div>
       <h2>Vstupní údaje</h2><table>${row("Osobní vyměřovací základ",kc(R.ovz))}${row("Výpočtový základ po redukci",kc(R.vz))}${row("Doba pojištění z IOLDP",ryTxt(R.d.tot))}${row("Dopočtená doba",R.dop?ryTxt(R.dop):"0")}${row("Celé roky pro procentní výměru",String(R.years))}${row("Parametry roku "+R.pr.use,R.p.src)}</table>
       <div class="ft">Orientační výpočet podle zákona č. 155/1995 Sb. z údajů IOLDP. Skutečnou výši důchodu stanoví ČSSZ. Vdovský a vdovecký důchod náleží zpravidla 1 rok od úmrtí. © ZFP Consulting</div>
       <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`;

@@ -50,7 +50,7 @@ const tests = {
       return { vz: c.vz, dop: c.dop, years: c.years, sta: c.sta.total, i1: c.i1.total, i2: c.i2.total, i3: c.i3.total, wid: c.wid.total, orp: c.orp.total, fam: c.orp.family };
     });
     /* VZ 23 745; 9 125 + 9 131 dní = 18 256 → 50 celých roků; PV III. 23 745·1,5 %·50 = 17 808,75 → 17 809 */
-    eq(r, { vz: 23745, dop: 9131, years: 50, sta: 13805, i1: 10837, i2: 13805, i3: 22709, wid: 13805, orp: 12024, fam: 24048 }, "částky");
+    eq(r, { vz: 23745, dop: 9131, years: 50, sta: 22709, i1: 10837, i2: 13805, i3: 22709, wid: 13805, orp: 12024, fam: 24048 }, "částky");
     await ctx.close();
   },
   async "zákonná minima procentní výměry (2026) a rok 2027"() {
@@ -90,7 +90,7 @@ const tests = {
     const t = await tiles(page);
     eq(t.map(x => x[0]), ["Starobní důchod", "Invalidní I. stupně", "Invalidní II. stupně", "Invalidní III. stupně", "Vdovský / vdovecký", "Sirotčí (na 1 dítě)"], "dlaždice");
     eq(t[3][1], "22 709 Kč", "invalidní III.");
-    eq(t[0][1], "13 805 Kč", "starobní z 25 let");
+    eq(t[0][1], "22 709 Kč", "starobní z 25 let");
     /* bez klienta nejde uložit */
     await page.click('[data-a="save"]'); assert((await page.evaluate(() => toasts)).some(m => /vyber klienta/i.test(m)), "výzva k výběru klienta");
     /* virtuální klient se při uložení založí přes ensure() a data se uloží pod jeho id */
@@ -123,6 +123,15 @@ const tests = {
     eq(alt.map(f => [f.tY, f.tD]), [[31, 45], [31, 45], [31, 45]], "popisek Celkový počet získaných roků a dnů pojištění");
     const e = await page.evaluate(() => DuchodCalc.math.parseIoldp("nic užitečného"));
     eq(e.found, [], "prázdný soubor");
+    await ctx.close();
+  },
+  async "import IOLDP: výpočtový základ, odhad starobního a datum z ePortálu"() {
+    const { ctx, page } = await open();
+    const txt = ["Vyhodnocení dle získaných dat", " Odhad výše starobního důchodu                    14 300 Kč", " Celkový počet získaných roků a dnů pojištění      6 roků a 0 dnů", " Výpočtový základ                                  12 861 Kč", "Údaje byly získány prostřednictvím ePortálu České správy sociálního zabezpečení (10.10.2026,"].join("\n");
+    const f = await page.evaluate(t => DuchodCalc.math.parseIoldp(t).fields, txt);
+    eq([f.vz, f.staIoldp, f.tY, f.ioldp], [12861, 14300, 6, "2026-10-10"], "pole");
+    const r = await page.evaluate(() => DuchodCalc.math.calc({ evt: "2026-10-10", ret: "2069-11-08", ovz: 12990, vz: 12861, tY: 6, tD: 0, staIoldp: 14300 }).sta);
+    eq([r.total, r.fromIoldp], [14300, true], "starobní z IOLDP");
     await ctx.close();
   },
   async "import IOLDP: PDF i .txt vyplní formulář a rovnou se spočítá"() {
