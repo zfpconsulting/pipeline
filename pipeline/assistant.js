@@ -509,8 +509,8 @@ const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm,
 /* ================= část s prohlížečem (jen když existuje document) ================= */
 if (typeof document === "undefined") return api;
 
-let H = null, fab = null, busy = false;
-const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "" };
+let H = null, fab = null, busy = false, cur = null, hotkeyBound = false;
+const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true };
 const cfg = () => ({ ...DEFAULTS, ...((H && H.settings() && H.settings().ai) || {}) });
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -546,7 +546,7 @@ function refresh() {
   const on = cfg().on && !H.demo;
   if (!on) { if (fab) fab.hidden = true; return; }
   addStyle();
-  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent", "aria-label": "Asistent", onclick: () => open() }, "🎙︎"); document.body.append(fab); }
+  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent (na počítači mezerník = diktovat)", "aria-label": "Asistent", onclick: () => open() }, "🎙︎"); document.body.append(fab); }
   fab.hidden = false;
 }
 
@@ -635,7 +635,7 @@ async function execute(plan) {
 }
 
 /* ---- okno asistenta ---- */
-function open() {
+function open(opts) {
   if (!H) return;
   if (!cfg().on) { H.toast("Asistent je vypnutý – zapni ho v nastavení."); return; }
   addStyle();
@@ -645,7 +645,8 @@ function open() {
   const say = (cls, ...kids) => { const m = h("div", { class: "aiMsg " + cls }, ...kids); log.append(m); log.scrollTop = log.scrollHeight; return m; };
   const stopTimer = () => { clearInterval(timer); timer = null; };
   const dlg = document.getElementById("edDlg");
-  const onClose = () => { stopTimer(); try { rec && rec.abort(); } catch (e) {} dlg && dlg.removeEventListener("close", onClose); };
+  const ctl = { ta, listening: () => !!rec, toggleMic: () => {} };
+  const onClose = () => { stopTimer(); try { rec && rec.abort(); } catch (e) {} if (cur === ctl) cur = null; dlg && dlg.removeEventListener("close", onClose); };
   dlg && dlg.addEventListener("close", onClose);
 
   const mic = api.voiceSupported() ? h("button", { type: "button", class: "mic", "aria-label": "Diktovat", onclick: () => toggleMic() }, "🎙︎") : null;
@@ -731,11 +732,39 @@ function open() {
   H.openSheet("Asistent", [
     log,
     h("div", { class: "aiIn" }, ta, mic, send),
-    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Vyhodnocuje se přímo v telefonu." + (mic ? "" : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
+    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Vyhodnocuje se přímo v zařízení." + (mic ? " Na počítači: mezerník (když nepíšeš) spustí a zastaví diktování." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
   ]);
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(ta.value); } });
-  setTimeout(() => ta.focus(), 80);
+  ctl.toggleMic = mic ? toggleMic : () => H.toast("Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.");
+  cur = ctl;
+  if (opts && opts.listen) { if (mic) toggleMic(); else H.toast("Mikrofon v tomhle prohlížeči nejde – piš, nebo diktuj mikrofonem na klávesnici."); }
+  /* kurzor: hned pryč z křížku okna (jinak by mezerník okno zavřel místo diktování), za chvíli do pole – jen když se nediktuje */
+  log.tabIndex = -1; log.focus({ preventScroll: true });
+  setTimeout(() => { if (!rec) ta.focus(); }, 80);
 }
+
+/* ---- mezerník na počítači: spustí / zastaví diktování ---- */
+const assistantOpen = () => { const d = document.getElementById("edDlg"), t = document.getElementById("edTitle"); return !!(cur && d && d.open && t && t.textContent === "Asistent"); };
+const INTERACTIVE = "input,textarea,select,summary,a[href],button,[contenteditable],[role='button'],[role='tab'],[role='switch'],[role='checkbox'],[role='menuitem'],[role='option'],[role='link']";
+let swallowUp = false;
+function onHotkey(e) {
+  if (!H || (e.code !== "Space" && e.key !== " ") || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+  const c = cfg();
+  if (!c.on || c.hotkey === false || H.demo) return;
+  const open_ = assistantOpen();
+  const hit = (document.activeElement && document.activeElement.closest) ? document.activeElement.closest(INTERACTIVE) : null;
+  if (hit) {
+    if (open_ && cur.listening()) { /* diktuje se → mezerník zastaví, ať je kurzor kdekoli */ }
+    else if (open_ && hit === cur.ta && !hit.value.trim()) { /* prázdné pole asistenta: mezerník nic nepíše, spustí diktování */ }
+    else if (/^(INPUT|TEXTAREA|SELECT)$/.test(hit.tagName) || hit.isContentEditable) return;   /* píšeš / přepínáš pole */
+    else if (hit.matches(":focus-visible")) return;                                          /* tlačítko vybrané klávesnicí: mezerník ho aktivuje */
+  }
+  const od = document.querySelector("dialog[open]");
+  if (od && !open_) return;   /* jiné okno (editace, zámek, …) – nerušit */
+  e.preventDefault(); swallowUp = true;
+  if (open_) cur.toggleMic(); else open({ listen: true });
+}
+function onHotkeyUp(e) { if (swallowUp && (e.code === "Space" || e.key === " ")) { swallowUp = false; e.preventDefault(); } }
 
 /* ---- nastavení ---- */
 function renderSettings(box) {
@@ -751,6 +780,8 @@ function renderSettings(box) {
     h("label", {}, "Asistent (psaní a hlas)"),
     h("label", { class: "frow" }, h("span", {}, "Zapnout asistenta"), sw(c.on, v => save({ on: v }))),
     h("p", { class: "hint" }, "Běží celý v telefonu: žádná AI služba, žádné předplatné, věta se nikam neposílá. Rozumí příkazům typu schůzka / podpis / nabídka / zápis / nový kontakt. Diktování dělá systém (Safari nebo klávesnice iPhonu), asistent jen zpracuje výsledný text."),
+    h("label", { class: "frow" }, h("span", {}, "Mezerník spustí diktování (počítač)"), sw(c.hotkey !== false, v => save({ hotkey: v }))),
+    h("p", { class: "hint" }, "Když zrovna nic nepíšeš a není otevřené jiné okno, mezerník otevře asistenta a začne poslouchat; druhým stiskem diktování skončí a příkaz se zpracuje. Potřebuje Chrome, Edge nebo Safari s povoleným mikrofonem."),
     h("label", {}, "Počkat před provedením (s) ", delay),
     h("p", { class: "hint" }, "Po rozpoznání příkazu máš tuhle chvíli na zrušení. Příkazy s jiným než jednoznačným jménem, varováním nebo novým kontaktem se vždy provádějí až po tvém klepnutí."),
     h("label", { class: "frow" }, h("span", {}, "Připravit SMS klientovi po schůzce"), sw(c.sms !== false, v => save({ sms: v }))),
@@ -762,7 +793,10 @@ function renderSettings(box) {
   );
 }
 
-function init(host) { H = host; refresh(); }
+function init(host) {
+  H = host; refresh();
+  if (!hotkeyBound) { hotkeyBound = true; document.addEventListener("keydown", onHotkey, true); document.addEventListener("keyup", onHotkeyUp, true); }
+}
 
 return Object.assign(api, { init, refresh, open, renderSettings });
 });

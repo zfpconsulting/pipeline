@@ -44,6 +44,15 @@ const aiSay = async (page, text) => { await page.evaluate(() => Assistant.open()
   await page.fill("dialog[open] .aiIn textarea", text); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]'); };
 const aiLead = (page, name) => page.evaluate(n => { const l = leads.find(x => x.name === n); return l ? JSON.parse(JSON.stringify(l)) : null }, name);
 const aiSms = page => page.evaluate(() => window.__sms.slice());
+/* podvržené rozpoznávání řeči: start() jen počítá, stop() „doslyší“ window.__say a skončí */
+const fakeSpeech = (page, say) => page.evaluate(t => {
+  window.__say = t; window.__recStarts = 0;
+  window.SpeechRecognition = class {
+    start() { window.__recStarts++; }
+    stop() { const x = window.__say; if (x) this.onresult({ results: [Object.assign([{ transcript: x }], { isFinal: true })] }); this.onend && this.onend(); }
+    abort() { this.onend = null; }
+  };
+}, say);
 
 export default {
   async "appka naběhne a všechny záložky se vykreslí bez chyb"(env) {
@@ -442,6 +451,55 @@ export default {
     await page.waitForSelector("dialog[open] .aiMsg:has-text('Nerozuměl jsem')");
     await page.waitForTimeout(500);
     eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "asistent: mezerník na počítači spustí a zastaví diktování, příkaz se provede"(env) {
+    const { ctx, page, errors } = await aiApp(env);
+    await fakeSpeech(page, "Poznámka k Novákovi: volal z práce");
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press("Space");
+    await page.waitForSelector("dialog[open] .aiIn button.mic.on");
+    eq(await page.evaluate(() => window.__recStarts), 1, "diktování se spustilo");
+    await page.keyboard.press("Space");   /* druhý stisk = konec diktování → příkaz se zpracuje */
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Zápis u Jan Novák')", { timeout: 10000 });
+    eq((await aiLead(page, "Jan Novák")).log.map(x => x.t), ["volal z práce"], "zápis podle diktátu");
+    await page.keyboard.press("Space");   /* okno zůstalo otevřené, kurzor mimo pole → znovu diktuje */
+    await page.waitForFunction(() => window.__recStarts === 2);
+    await page.evaluate(() => { window.__say = ""; }); await page.keyboard.press("Space");
+    await page.waitForTimeout(300);
+    eq((await aiLead(page, "Jan Novák")).log.length, 1, "prázdné diktování nic nepřidalo");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "asistent: mezerník nepřebíjí psaní, jiná okna ani klávesnicí vybraná tlačítka a jde vypnout"(env) {
+    const { ctx, page, errors } = await aiApp(env);
+    await fakeSpeech(page, "");
+    await page.evaluate(() => Assistant.open()); await page.waitForSelector("dialog[open] .aiIn textarea");
+    await page.click("dialog[open] .aiIn textarea"); await page.keyboard.type("ahoj světe");
+    eq(await page.inputValue("dialog[open] .aiIn textarea"), "ahoj světe", "do pole se píšou mezery normálně");
+    eq(await page.evaluate(() => window.__recStarts || 0), 0, "při psaní se nediktuje");
+    await page.fill("dialog[open] .aiIn textarea", ""); await page.keyboard.press("Space");
+    await page.waitForFunction(() => window.__recStarts === 1);   /* prázdné pole asistenta: mezerník spustí diktování */
+    await page.keyboard.press("Space");
+    await closeDialogs(page); await page.waitForTimeout(500);
+    /* jiné okno (např. karta klienta) – mezerník ho nesmí přebít */
+    await page.evaluate(() => openSheet("Něco jiného", [])); await page.waitForTimeout(100);
+    await page.keyboard.press("Space"); await page.waitForTimeout(200);
+    eq(await page.evaluate(() => [window.__recStarts, document.getElementById("edTitle").textContent]), [1, "Něco jiného"], "jiné okno zůstalo");
+    await closeDialogs(page); await page.waitForTimeout(500);
+    /* tlačítko vybrané klávesnicí (Tab) dál reaguje na mezerník jako dřív (první je právě tlačítko asistenta: otevře okno, ale neposlouchá) */
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press("Tab"); await page.keyboard.press("Space"); await page.waitForTimeout(300);
+    eq(await page.evaluate(() => [window.__recStarts, !!document.querySelector("dialog[open] .aiIn button.mic.on")]), [1, false], "Tab + mezerník diktování nespouští");
+    await closeDialogs(page); await page.waitForTimeout(500);
+    /* vypnuto v nastavení */
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.evaluate(() => db.doc("settings/main").set({ ...settings, ai: { ...settings.ai, hotkey: false } })); await page.waitForTimeout(300);
+    await page.keyboard.press("Space"); await page.waitForTimeout(200);
+    eq(await page.evaluate(() => [window.__recStarts, !!document.querySelector("dialog[open] .aiIn")]), [1, false], "po vypnutí mezerník nic nedělá");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
