@@ -3334,6 +3334,19 @@ async function saveMeeting(l,start,online,opt={}){
   return {evId,startISO,canWrite,cfg};
 }
 /* pomocné zápisy pro asistenta (assistant.js) */
+/* data pro odpovědi asistenta na dotazy (úkoly, schůzky, výsledky) – jen čtení, nic se tu nemění */
+function aiFacts(){
+  const F={today:todayStr(),tasks:[],calls:[],meets:[],quarter:null,month:null,pipe:null};
+  try{F.tasks=asAllTasks().filter(t=>t.st!=="hotovo").map(t=>({text:t.text||"",client:t.client||"",due:t.due||"",who:t.own?"":(t.who||"asistentka")}))}catch(e){}
+  try{F.calls=leads.filter(l=>ACTIVE(l.stage)&&!l.shared).map(l=>({name:l.name||"",date:l.nextDate||"",step:l.nextStep||""}))}catch(e){}
+  try{const seen=new Set();(calEvents||[]).forEach(ev=>{if(ev&&ev.start){seen.add(ev.id);F.meets.push({name:ev.name||ev.title||"",start:ev.start,online:!!ev.online})}});
+    leads.forEach(l=>(l.meetings||[]).forEach(m=>{if(m&&m.start&&!seen.has(m.id))F.meets.push({name:l.name||"",start:m.start,online:!!m.online||/online/i.test(m.title||"")})}))}catch(e){}
+  try{const g=goalInfo();F.quarter={label:qLabel(g.cq),pts:g.cur.total,kc:g.cur.earned,rate:g.cur.rate,nextRate:g.nx?g.nx.rate:0,nextTier:g.nx?g.nx.t:"",need:g.need,perWeek:g.perWeek,days:g.days}}catch(e){}
+  try{F.month={pts:monthPoints(ymOf(todayStr())).total}}catch(e){}
+  try{const act=leads.filter(l=>ACTIVE(l.stage)),cur=quarterRow(CURQ()),pts=act.reduce((s,l)=>s+(+l.points||0),0);
+    F.pipe={active:act.length,meetings:leads.filter(l=>l.stage==="schuzka").length,pts,ptsKc:pts*cur.rate,late:act.filter(l=>["late","none"].includes(dueState(l))).length}}catch(e){}
+  return F;
+}
 function aiOpenSms(tel,text){try{navigator.clipboard.writeText(text)}catch(e){}location.href="sms:"+tel+"?&body="+encodeURIComponent(text);toast("Otevírám Zprávy · text je i ve schránce")}
 async function aiAddLead(d){
   const now=new Date().toISOString();
@@ -6611,7 +6624,7 @@ async function updateEurRate(){
       hasScope:s=>GAuth.hasScope(s), requestScope:sc=>GAuth.login(false,sc), gfetch,
       addLead:aiAddLead, saveMeeting, addNote:aiAddNote, moveTo,
       tpls, fillTpl, ensureMeet, logLeadMsg, openMsg, openSms:(t,x)=>aiOpenSms(t,x),
-      openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
+      facts:aiFacts, openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli"||view==="duch")render();pfSyncClientsSoon()});
   db.collection("duchod").onSnapshot(snap=>{duchod=snap.docs.map(d=>({id:d.id,...d.data()}))});
@@ -6965,7 +6978,7 @@ const PP_ENC="v1.bNSPw2v-Scx2Eiccfg4sgg.tSwvUcdpKuOqe1fI.OnaA_T5EC7cR2HJOM8Y_omz
 </script>
 <script src="photoedit.js?v=1" defer></script>
 <script src="docs.js?v=2" defer></script>
-<script src="assistant.js?v=2" defer></script>
+<script src="assistant.js?v=3" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */

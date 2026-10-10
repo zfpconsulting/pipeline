@@ -54,6 +54,20 @@ const fakeSpeech = (page, say) => page.evaluate(t => {
   };
 }, say);
 
+/* podvržený hlasový výstup: speak() si jen zapíše text a hlas a hned „domluví“ */
+const fakeVoice = (page, voices = [{ name: "Daniel", lang: "en-GB" }, { name: "Jakub", lang: "cs-CZ" }, { name: "Zuzana", lang: "cs-CZ" }]) => page.evaluate(vs => {
+  window.__spoken = [];
+  window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+  Object.defineProperty(window, "speechSynthesis", { configurable: true, value: {
+    getVoices: () => vs.map(v => ({ ...v, voiceURI: v.name, localService: true })), cancel() {}, addEventListener() {},
+    speak(u) { window.__spoken.push({ text: u.text, voice: u.voice && u.voice.name, lang: u.lang }); setTimeout(() => u.onend && u.onend(), 30); } } });
+}, voices);
+const ymdIn = n => { const d = new Date(); d.setDate(d.getDate() + n); const z = x => String(x).padStart(2, "0"); return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate()); };
+const dmIn = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.getDate() + "." + (d.getMonth() + 1) + "."; };
+const SIKULOVA = { "leads/s1": { name: "Eva Šikulová", phone: "777 333 444", email: "", stage: "kontaktovan", items: [], meetings: [], log: [], _u: 1 } };
+const noFocus = page => page.evaluate(() => document.activeElement && document.activeElement.blur());
+const voiceBars = page => page.evaluate(() => [...document.querySelectorAll(".aiVoice .veq i")].map(i => i.style.transform).join());
+
 export default {
   async "appka naběhne a všechny záložky se vykreslí bez chyb"(env) {
     const { ctx, page, errors } = await openApp(env, { store: STORE });
@@ -448,28 +462,115 @@ export default {
     await page.waitForSelector("dialog[open] .aiPlan:has-text('v minulosti')");
     eq(await page.locator("dialog[open] .aiPlan button:has-text('Provést')").count(), 0, "není co provést");
     await page.fill("dialog[open] .aiIn textarea", "Jak se máš"); await page.click('dialog[open] .aiIn button[aria-label="Odeslat"]');
-    await page.waitForSelector("dialog[open] .aiMsg:has-text('Nerozuměl jsem')");
+    await page.waitForSelector("dialog[open] .aiMsg:has-text('Nerozuměla jsem')");
     await page.waitForTimeout(500);
     eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
-  async "asistent: mezerník na počítači spustí a zastaví diktování, příkaz se provede"(env) {
-    const { ctx, page, errors } = await aiApp(env);
-    await fakeSpeech(page, "Poznámka k Novákovi: volal z práce");
-    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  async "asistent: mezerník rozmaže appku, ukáže ekvalizér, po diktátu provede příkaz a odpoví ženským hlasem"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env, { leads: SIKULOVA });
+    await fakeSpeech(page, "S paní Šikulovou jsem domluvený na schůzku " + dmIn(20) + " v 15h");
+    await fakeVoice(page); await noFocus(page);
     await page.keyboard.press("Space");
-    await page.waitForSelector("dialog[open] .aiIn button.mic.on");
-    eq(await page.evaluate(() => window.__recStarts), 1, "diktování se spustilo");
-    await page.keyboard.press("Space");   /* druhý stisk = konec diktování → příkaz se zpracuje */
-    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Zápis u Jan Novák')", { timeout: 10000 });
-    eq((await aiLead(page, "Jan Novák")).log.map(x => x.t), ["volal z práce"], "zápis podle diktátu");
-    await page.keyboard.press("Space");   /* okno zůstalo otevřené, kurzor mimo pole → znovu diktuje */
-    await page.waitForFunction(() => window.__recStarts === 2);
-    await page.evaluate(() => { window.__say = ""; }); await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice.on");
+    eq(await page.evaluate(() => /blur/.test(getComputedStyle(document.querySelector(".aiVoice")).backdropFilter)), true, "celá appka je rozmazaná");
+    eq(await page.locator(".aiVoice .veq i").count(), 25, "ekvalizér má sloupce");
+    eq(await page.evaluate(() => window.__recStarts), 1, "poslech se spustil sám");
+    assert(/Poslouchám/.test(await page.locator(".aiVoice .vstate").innerText()), "stav: poslouchá");
+    const b1 = await voiceBars(page); await page.waitForTimeout(350);
+    assert(b1 !== await voiceBars(page), "ekvalizér se hýbe");
+    await page.keyboard.press("Space");   /* druhý stisk = konec poslechu → příkaz se zpracuje */
+    await page.waitForSelector(".aiVoice .aiPlan:has-text('✓ Schůzka Eva Šikulová')", { timeout: 10000 });
+    eq(calls.cal.length, 1, "schůzka je v kalendáři");
+    assert(/VK: Eva Šikulová/.test(calls.cal[0].summary), "název události: " + calls.cal[0].summary);
+    assert(/Šikulovou/.test(await page.locator(".aiVoice .vtext").innerText()), "přepis je vidět");
+    await page.waitForFunction(() => window.__spoken.length >= 1);
+    const sp = await page.evaluate(() => window.__spoken);
+    assert(/^Schůzka: Eva Šikulová, (v|ve) \S+ \d+\. \S+ v 15 hodin, osobně\. Hotovo\. SMS je připravená, klepni na Odeslat\.$/.test(sp[0].text), "řekla: " + sp[0].text);
+    eq([sp[0].voice, sp[0].lang], ["Zuzana", "cs-CZ"], "ženský český hlas");
+    await page.waitForFunction(() => /Mezerník = další příkaz/.test(document.querySelector(".aiVoice .vstate").textContent));
+    eq((await aiSms(page)).length, 0, "SMS sama neodešla");
+    await page.click(".aiVoice button:has-text('Odeslat SMS')");
+    eq((await aiSms(page)).length, 1, "SMS se otevřela po klepnutí");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".aiVoice"));
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "asistent: příkaz s odpočtem se novým mezerníkem zruší a nic se neprovede"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env, { delay: 30, leads: SIKULOVA });
+    await fakeSpeech(page, "S paní Šikulovou jsem domluvený na schůzku " + dmIn(20) + " v 15h");
+    await fakeVoice(page); await noFocus(page);
+    await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .aiPlan:has-text('Zrušit (')", { timeout: 10000 });
+    await page.waitForFunction(() => window.__spoken.length >= 1);
+    assert(/Provedu to za 30 sekund, nebo klepni na Zrušit\.$/.test((await page.evaluate(() => window.__spoken))[0].text), "řekla odpočet");
+    await page.keyboard.press("Space");   /* nový poslech ruší čekající příkaz – a je to vidět */
+    await page.waitForSelector(".aiVoice .aiPlan:has-text('Zrušeno – nic se neprovedlo.')");
+    eq(await page.evaluate(() => window.__recStarts), 2, "poslouchá znovu");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "asistent: odpovídá na dotazy z dat appky – úkoly, schůzky, výsledky (klepnutím na tlačítko i mezerníkem)"(env) {
+    const tmr = new Date(); tmr.setDate(tmr.getDate() + 1); tmr.setHours(10, 0, 0, 0);
+    const { ctx, page, errors } = await aiApp(env, { leads: {
+      "mytasks/t1": { text: "Marcinčákovi call schůzku", client: "Marcinčák", due: ymdIn(-5), createdAt: "2026-10-01T10:00:00Z" },
+      "mytasks/t2": { text: "Poslat podklady", due: ymdIn(0), createdAt: "2026-10-02T10:00:00Z" },
+      "leads/c1": { name: "Veronika Kudličková", stage: "kontaktovan", nextDate: ymdIn(0), nextStep: "Zavolat", items: [], meetings: [], log: [], _u: 1 },
+      "leads/m1": { name: "Petr Dvořák", stage: "schuzka", items: [], meetings: [{ id: "local:7", start: tmr.toISOString(), title: "Petr Dvořák", online: true }], log: [], _u: 1 } } });
+    await page.evaluate(() => {   /* výpočet provizí je v testovací kopii zaslepený – dosadí se pevná čísla */
+      window.goalInfo = () => ({ cq: "2026-Q4", cur: { total: 162.4, earned: 24365, rate: 150 }, nx: { rate: 160, t: "P5" }, need: 535, perWeek: 41.2, days: 82 });
+      window.quarterRow = () => ({ rate: 150 }); window.monthPoints = () => ({ total: 100 });
+    });
+    await fakeSpeech(page, "Co mám dneska v úkolech"); await fakeVoice(page);
+    await page.click("#aiFab"); await page.waitForSelector(".aiVoice.on");
+    eq(await page.evaluate(() => window.__recStarts), 1, "tlačítko rovnou poslouchá");
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .vans");
+    const t1 = await page.locator(".aiVoice .vans").innerText();
+    assert(/Dnes máš 2 úkoly: Marcinčákovi call schůzku, po termínu od .*; Poslat podklady\./.test(t1), "úkoly: " + t1);
+    assert(/K telefonování: Veronika Kudličková\./.test(t1), "telefonáty: " + t1);
+    await page.waitForFunction(() => window.__spoken.length >= 1);
+    assert(/^Dnes máš 2 úkoly: Marcinčákovi call schůzku/.test((await page.evaluate(() => window.__spoken))[0].text), "hlas čte odpověď");
+    await page.waitForFunction(() => /Mezerník = další příkaz/.test(document.querySelector(".aiVoice .vstate").textContent));
+    /* další dotaz: mezerník znovu poslouchá, odpověď nahradí předchozí */
+    await page.evaluate(() => { window.__say = "Co mám zítra v kalendáři"; });
+    await page.keyboard.press("Space"); await page.waitForFunction(() => window.__recStarts === 2);
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .vans:has-text('Petr Dvořák, v 10 hodin, online')");
+    await page.waitForFunction(() => window.__spoken.length >= 2);
+    await page.waitForFunction(() => /Mezerník = další příkaz/.test(document.querySelector(".aiVoice .vstate").textContent));
+    await page.evaluate(() => { window.__say = "Jaké jsou moje aktuální výsledky"; });
+    await page.keyboard.press("Space"); await page.waitForFunction(() => window.__recStarts === 3);
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .vans:has-text('čtvrtletí')");
+    const t3 = (await page.locator(".aiVoice .vans").innerText()).replace(/ /g, " ");
+    assert(/Ve 4\. čtvrtletí 2026 máš 162,4 bodu, to je asi 24 365 korun při sazbě 150 korun za bod\./.test(t3), "výsledky: " + t3);
+    await page.waitForFunction(() => window.__spoken.length >= 3);
+    assert(/24365 korun/.test((await page.evaluate(() => window.__spoken))[2].text), "čísla se čtou bez mezer");
+    eq((await page.evaluate(() => window.__spoken)).every(x => x.voice === "Zuzana"), true, "pořád stejný ženský hlas");
+    await page.keyboard.press("Escape");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "asistent: bez českého hlasu odpověď jen zobrazí a nemluví"(env) {
+    const { ctx, page, errors } = await aiApp(env);
+    await fakeSpeech(page, "Co mám zítra v kalendáři"); await fakeVoice(page, [{ name: "Daniel", lang: "en-GB" }]); await noFocus(page);
+    await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on"); await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .vans:has-text('Zítra nemáš žádnou schůzku.')");
     await page.waitForTimeout(300);
-    eq((await aiLead(page, "Jan Novák")).log.length, 1, "prázdné diktování nic nepřidalo");
+    eq(await page.evaluate(() => window.__spoken.length), 0, "cizím hlasem česky nemluví");
+    assert(/Mezerník = další příkaz/.test(await page.locator(".aiVoice .vstate").innerText()), "vrátí se do klidu");
+    await page.keyboard.press("Escape");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
@@ -490,27 +591,33 @@ export default {
     await page.keyboard.press("Space"); await page.waitForTimeout(200);
     eq(await page.evaluate(() => [window.__recStarts, document.getElementById("edTitle").textContent]), [1, "Něco jiného"], "jiné okno zůstalo");
     await closeDialogs(page); await page.waitForTimeout(500);
-    /* tlačítko vybrané klávesnicí (Tab) dál reaguje na mezerník jako dřív (první je právě tlačítko asistenta: otevře okno, ale neposlouchá) */
+    /* tlačítko vybrané klávesnicí (Tab) dál reaguje na mezerník jako dřív (první je právě tlačítko asistenta: jednou ho aktivuje) */
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await page.keyboard.press("Tab"); await page.keyboard.press("Space"); await page.waitForTimeout(300);
-    eq(await page.evaluate(() => [window.__recStarts, !!document.querySelector("dialog[open] .aiIn button.mic.on")]), [1, false], "Tab + mezerník diktování nespouští");
-    await closeDialogs(page); await page.waitForTimeout(500);
+    eq(await page.evaluate(() => [window.__recStarts, document.querySelectorAll(".aiVoice").length]), [2, 1], "Tab + mezerník: tlačítko se aktivuje jednou (otevře hlasové okno), mezerník ho nepřebíjí");
+    await page.keyboard.press("Escape"); await page.waitForFunction(() => !document.querySelector(".aiVoice")); await page.waitForTimeout(300);
     /* vypnuto v nastavení */
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await page.evaluate(() => db.doc("settings/main").set({ ...settings, ai: { ...settings.ai, hotkey: false } })); await page.waitForTimeout(300);
     await page.keyboard.press("Space"); await page.waitForTimeout(200);
-    eq(await page.evaluate(() => [window.__recStarts, !!document.querySelector("dialog[open] .aiIn")]), [1, false], "po vypnutí mezerník nic nedělá");
+    eq(await page.evaluate(() => [window.__recStarts, !!document.querySelector(".aiVoice")]), [2, false], "po vypnutí mezerník nic nedělá");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
 
-  async "asistent: nastavení neobsahuje žádný server ani klíč a nabídne povolení Gmailu"(env) {
+  async "asistent: nastavení neobsahuje žádný server ani klíč, nabídne povolení Gmailu a vybere český hlas"(env) {
     const { ctx, page, errors } = await aiApp(env, { scope: "calendar.events" });
+    await fakeVoice(page);
     await page.evaluate(() => Assistant.renderSettings(document.getElementById("aiCfg"))); await page.waitForTimeout(300);
     const t = await page.locator("#aiCfg").innerText();
-    assert(/žádná AI služba/.test(t) && !/Worker|Anthropic|klíč/.test(t), "texty nastavení: " + t);
+    assert(/Žádná AI služba/.test(t) && !/Worker|Anthropic|klíč/.test(t), "texty nastavení: " + t);
+    assert(/Chrome a Edge posílají nahrávku/.test(t), "upozornění, kam jde diktování: " + t);
+    assert(/Odpovídat hlasem/.test(t), "přepínač hlasu");
     assert(/Povolit odesílání e-mailů z Gmailu/.test(t), "nabídka povolení Gmailu");
     eq(await page.locator("#aiCfg input[placeholder*='workers.dev']").count(), 0, "žádné pole pro adresu serveru");
+    eq(await page.locator("#aiCfg select option").allInnerTexts(), ["Hlas: automaticky (Zuzana)", "Jakub", "Zuzana"], "nabídka českých hlasů");
+    await page.evaluate(() => [...document.querySelectorAll("#aiCfg button")].find(b => /Vyzkoušet/.test(b.textContent)).click()); await page.waitForFunction(() => window.__spoken.length === 1);
+    eq((await page.evaluate(() => window.__spoken))[0].voice, "Zuzana", "ukázka mluví vybraným hlasem");
     await ctx.close();
     eq(errors, [], "chyby v konzoli");
   },

@@ -315,7 +315,7 @@ const tests = {
   "understand: nesmysl a prázdno nic neprovedou, pomůžou příkladem"() {
     for (const t of ["", "   "]) assert.equal(A.understand(t, { now: NOW, leads }).actions.length, 0);
     const r = A.understand("Jak se dneska máš?", { now: NOW, leads });
-    assert.equal(r.actions.length, 0); assert.match(r.reply, /Nerozuměl jsem/);
+    assert.equal(r.actions.length, 0); assert.match(r.reply, /Nerozuměla jsem/);
     const only = A.understand("Dvořák", { now: NOW, leads });
     assert.equal(only.actions.length, 0); assert.match(only.reply, /Dvořák/);
   },
@@ -338,6 +338,103 @@ const tests = {
     assert.equal(A.buildPlan(null, { leads, now: NOW }).steps.length, 0);
     assert.equal(A.buildPlan({ reply: "Kdy to bylo?", actions: [] }, { leads, now: NOW }).reply, "Kdy to bylo?");
     assert.equal(A.buildPlan({ actions: [{ name: "smaž_vše", input: {} }, null] }, { leads, now: NOW }).steps.length, 0);
+  },
+
+  "příkaz z hlasu: „S paní Šikulovou jsem domluvený na schůzku 1.11. v 15h“"() {
+    const ls = [...leads, L("8", "Eva Šikulová", "kontaktovan")];
+    for (const t of ["S paní Šikulovou jsem domluvený na schůzku 1.11. v 15h", "S paní Šikulovou jsem domluvená na schůzku 1. 11. v 15h", "S paní Šikulovou mám schůzku 1.11. v 15h"]) {
+      const r = A.understand(t, { leads: ls, now: NOW });
+      assert.equal(r.query, undefined, t);
+      assert.equal(r.actions.length, 1, t);
+      assert.deepEqual(r.actions[0].input, { client_name: "Šikulová", start: "2026-11-01T15:00", online: false, place: "", send_confirmation: true }, t);
+    }
+  },
+  "dotazy: úkoly, schůzky, výsledky se poznají a nejsou to příkazy"() {
+    const q = t => A.understand(t, { leads, now: NOW });
+    assert.deepEqual(q("Co mám dneska v úkolech").query, { kind: "tasks", day: "today", client: "" });
+    assert.equal(q("Co mám dneska v úkolech").actions.length, 0);
+    assert.equal(q("Jaké jsou moje aktuální výsledky").query.kind, "results");
+    assert.equal(q("Řekni mi, jak na tom jsem").query.kind, "results");
+    assert.equal(q("Kolik mám bodů").query.kind, "results");
+    assert.deepEqual(q("Co mám zítra v kalendáři").query, { kind: "meetings", day: "tomorrow", client: "" });
+    assert.deepEqual(q("Kdy mám schůzku s Novákem").query, { kind: "meetings", day: "next", client: "Novák" });
+    assert.equal(q("Kolik mám schůzek tento týden").query.day, "week");
+    assert.equal(q("Jaké mám schůzky příští týden").query.day, "nextweek");
+    assert.equal(q("Jaké mám schůzky 1.11.").query.day, "2026-11-01");
+    assert.equal(q("Komu mám dneska zavolat").query.kind, "calls");
+    assert.equal(q("Co mám dneska").query.kind, "agenda");
+    assert.equal(q("Co mám dneska v úkolech a v kalendáři").query.kind, "agenda");
+  },
+  "dotazy se nepletou s příkazy a běžnou řečí"() {
+    const q = t => A.understand(t, { leads, now: NOW });
+    const m = q("Mám zítra schůzku s Novákem v 15");
+    assert.equal(m.query, undefined); assert.equal(m.actions[0].name, "schedule_meeting");
+    assert.equal(q("Domluvil jsem schůzku s Novákem na zítra v 10").query, undefined);
+    assert.equal(q("Podepsal jsem smlouvu s Novákem").query, undefined);
+    assert.equal(q("Poznámka k Novákovi: chce vědět výsledky").query, undefined);
+    const x = q("Jak se máš"); assert.equal(x.query, undefined); assert.match(x.reply, /Nerozuměla jsem/);
+  },
+  "answerQuery: úkoly a telefonáty na dnešek, česky a se správnými tvary"() {
+    const F = { today: "2026-10-10", tasks: [{ text: "Marcinčákovi call schůzku", client: "Marcinčák", due: "2026-10-05" }, { text: "Poslat podklady", client: "", due: "2026-10-10" }, { text: "Zítřejší věc", due: "2026-10-11" }, { text: "Bez termínu", due: "" }],
+      calls: [{ name: "Veronika Kudličková", date: "2026-10-10" }, { name: "Aleš Pospíšil", date: "2026-10-08" }, { name: "Jan Novák", date: "" }, { name: "Eva Černá", date: "2026-10-12" }], meets: [] };
+    const a = A.answerQuery({ kind: "tasks", day: "today", client: "" }, F, NOW);
+    const t = a.lines.join(" ");
+    assert.match(t, /Dnes máš 2 úkoly: Marcinčákovi call schůzku, po termínu od 5\. 10\.; Poslat podklady\./);
+    assert.ok(!/Zítřejší/.test(t), "zítřejší úkol tu být nemá");
+    assert.match(t, /Bez termínu máš ještě 1 otevřený úkol\./);
+    assert.match(t, /K telefonování: Veronika Kudličková a Aleš Pospíšil\./);
+    assert.ok(!/Eva Černá|Jan Novák/.test(t));
+    const c = A.answerQuery({ kind: "calls", day: "today", client: "" }, F, NOW).lines.join(" ");
+    assert.equal(c, "Dnes zavolej: Veronika Kudličková a Aleš Pospíšil.");
+    assert.equal(A.answerQuery({ kind: "tasks", day: "tomorrow", client: "" }, F, NOW).lines[0], "Zítra máš 1 úkol: Zítřejší věc.");
+    assert.equal(A.answerQuery({ kind: "tasks", day: "today", client: "" }, { today: "2026-10-10", tasks: [], calls: [], meets: [] }, NOW).lines[0], "Dnes nemáš žádné úkoly (ani po termínu).");
+  },
+  "answerQuery: schůzky – dnes zbývající, konkrétní klient, týden"() {
+    const at = (dd, hh, mm = 0) => new Date(2026, 9, dd, hh, mm).toISOString();
+    const F = { meets: [{ name: "Ranní Klient", start: at(10, 9) }, { name: "Jan Novák", start: at(10, 19), online: true }, { name: "Marie Svobodová", start: at(14, 14, 30) }, { name: "Jan Novák", start: at(20, 8) }] };
+    assert.equal(A.answerQuery({ kind: "meetings", day: "today", client: "" }, F, NOW).lines[0], "Dnes ještě máš 1 schůzku: Jan Novák, v 19 hodin, online.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "today", client: "" }, { meets: [F.meets[0]] }, NOW).lines[0], "Dnešní schůzky už proběhly.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "tomorrow", client: "" }, F, NOW).lines[0], "Zítra nemáš žádnou schůzku.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "week", client: "" }, F, NOW).lines[0], "Tento týden máš 1 schůzku: Jan Novák, dnes v 19 hodin, online.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "nextweek", client: "" }, F, NOW).lines[0], "Příští týden máš 1 schůzku: Marie Svobodová, ve středu 14. října ve 14 hodin 30 minut.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "next", client: "Novák" }, F, NOW).lines[0], "Novák má 2 schůzky: dnes v 19 hodin, online a v úterý 20. října v 8 hodin.");
+    assert.equal(A.answerQuery({ kind: "meetings", day: "next", client: "Černá" }, F, NOW).lines[0], "Černá: žádná budoucí schůzka v kalendáři.");
+  },
+  "answerQuery: výsledky – čtvrtletí, sazba, chybějící body; do řeči bez mezer v číslech"() {
+    const F = { quarter: { label: "4. Q 2026", pts: 162.4, kc: 24365, rate: 150, nextRate: 160, nextTier: "P5", need: 535, perWeek: 41.2, days: 82 }, month: { pts: 100 }, pipe: { active: 10, meetings: 6, pts: 811.9, ptsKc: 121785, late: 0 } };
+    const a = A.answerQuery({ kind: "results", day: "today", client: "" }, F, NOW);
+    const nb = x => x.replace(/\u00a0/g, " ");
+    assert.equal(nb(a.lines[0]), "Ve 4. čtvrtletí 2026 máš 162,4 bodu, to je asi 24 365 korun při sazbě 150 korun za bod.");
+    assert.match(nb(a.lines[1]), /Do vyšší sazby 160 korun \(P5\) ti chybí 535 bodů, zhruba 41,2 bodu týdně, zbývá 82 dní\./);
+    assert.match(nb(a.lines.join(" ")), /V jednání je 811,9 bodu, zhruba 121 785 korun\. Rozjednaných leadů máš 10, domluvených schůzek 6/);
+    assert.match(a.speak, /24365 korun/); assert.ok(!/ /.test(a.speak), "v řeči žádné pevné mezery");
+    assert.match(A.answerQuery({ kind: "results", day: "today", client: "" }, { pipe: F.pipe }, NOW).lines[0], /Čtvrtletní body se teď nepodařilo načíst/);
+    assert.match(A.answerQuery({ kind: "results" }, null, NOW).lines[0], /nedostanu/);
+  },
+  "spokenPlan / spokenDone: co řekne hlas"() {
+    const ls = [...leads, L("8", "Eva Šikulová", "kontaktovan", { phone: "777333444" })];
+    const plan = A.buildPlan(A.understand("S paní Šikulovou jsem domluvený na schůzku 1.11. v 15h", { leads: ls, now: NOW }), { leads: ls, now: NOW });
+    assert.equal(A.spokenPlan(plan, NOW, 10, true), "Schůzka: Eva Šikulová, v neděli 1. listopadu v 15 hodin, osobně. Provedu to za 10 sekund, nebo klepni na Zrušit.");
+    assert.equal(A.spokenPlan(plan, NOW, 0, true), "Schůzka: Eva Šikulová, v neděli 1. listopadu v 15 hodin, osobně.");
+    assert.match(A.spokenPlan(plan, NOW, 0, false), /Zkontroluj to a klepni na Provést\.$/);
+    const odd = A.buildPlan(A.understand("Nová schůzka s Novákem v pondělí v 7", { leads, now: NOW }), { leads, now: NOW });
+    assert.match(A.spokenPlan(odd, NOW, 0, false), /Pozor: /);
+    assert.equal(A.spokenDone({ lines: ["✓ Schůzka"], smsJobs: [{}], manuals: [] }), "Hotovo. SMS je připravená, klepni na Odeslat.");
+    assert.equal(A.spokenDone({ lines: ["✗ Schůzka – chyba"], smsJobs: [], manuals: [{}] }), "Něco se nepovedlo, koukni na výpis. Potvrzení musíš poslat ručně.");
+    assert.equal(A.spokenClock(new Date(2026, 9, 10, 14, 5)), "ve 14 hodin 5 minut");
+    assert.equal(A.spokenClock(new Date(2026, 9, 10, 17, 30)), "v 17 hodin 30 minut");
+    assert.equal(A.spokenClock(new Date(2026, 9, 10, 3, 0)), "ve 3 hodiny");
+  },
+  "pickVoice: český ženský hlas dopředu, bez českého žádný"() {
+    const V = (name, lang, extra = {}) => ({ name, lang, voiceURI: name, ...extra });
+    const vs = [V("Daniel", "en-GB"), V("Jakub", "cs-CZ"), V("Zuzana", "cs-CZ"), V("Zuzana (Enhanced)", "cs-CZ"), V("Samantha", "en-US")];
+    assert.equal(A.pickVoice(vs, "").name, "Zuzana (Enhanced)");
+    assert.equal(A.pickVoice(vs.filter(v => !/Enhanced/.test(v.name)), "").name, "Zuzana");
+    assert.equal(A.pickVoice([V("Microsoft Antonin Online (Natural)", "cs-CZ"), V("Microsoft Vlasta Online (Natural)", "cs-CZ")], "").name, "Microsoft Vlasta Online (Natural)");
+    assert.equal(A.pickVoice(vs, "Jakub").name, "Jakub", "vlastní volba má přednost");
+    assert.equal(A.pickVoice([V("Daniel", "en-GB")], ""), null);
+    assert.equal(A.pickVoice([], ""), null);
+    assert.equal(A.pickVoice([V("Alena", "cs_CZ")], "").name, "Alena");
   },
 };
 

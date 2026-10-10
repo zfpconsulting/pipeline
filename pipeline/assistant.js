@@ -357,7 +357,7 @@ function findNewName(toks, rc) {
 }
 
 const SOURCE_RES = [[/cold\s*-?\s*call|studen\w+/, "Cold call"], [/placen\w+|reklam\w+|facebook|google ads/, "Placený lead"], [/doporuc\w+/, "Doporučení"], [/vlastni kontakt|znamy|kamarad\w*/, "Vlastní kontakt"]];
-const HELP = "Zkus třeba: „Podepsal jsem smlouvu s Novákem a domluvil online schůzku ve středu v 17.“, „Schůzka s Králem 15. 10. v půl páté v Brně“, „Poznámka k Novákovi: chce zvýšit pojistku“ nebo „Nový kontakt Jan Dvořák 777 123 456“.";
+const HELP = "Zkus třeba: „Co mám dneska v úkolech?“, „Jaké jsou moje výsledky?“, „Podepsal jsem smlouvu s Novákem a domluvil online schůzku ve středu v 17.“, „Schůzka s Králem 15. 10. v půl páté v Brně“, „Poznámka k Novákovi: chce zvýšit pojistku“ nebo „Nový kontakt Jan Dvořák 777 123 456“.";
 
 function understand(text, env) {
   env = env || {};
@@ -426,7 +426,9 @@ function understand(text, env) {
       if (f.length) { nf = f[0]; newName = spanName(nf); clientName = newName; nf.span.forEach(t => clientIdx.add(toks.indexOf(t))); if (f.length > 1) res.warnings.push("V příkazu je víc jmen (" + f.map(spanName).join(", ") + ") – beru první."); }
     }
   }
-  if (conflict) { res.reply = "Našel jsem víc různých klientů (" + conflict + "). Řekni příkazy po jednom."; return res; }
+  /* dotaz, ne příkaz („Co mám dneska v úkolech“, „Jaké jsou moje výsledky“) */
+  { const q = detectQuery(s, when, now, knownClient ? clientName : ""); if (q) { res.query = q; return res; } }
+  if (conflict) { res.reply = "Našla jsem víc různých klientů (" + conflict + "). Řekni příkazy po jednom."; return res; }
 
   const holdWarn = w => res.warnings.push(w);
   const A = (name, input) => { const { warn, info, ...rest } = input; res.actions.push({ name, input: rest }); if (warn) holdWarn(warn); if (info) res.notes.push(info); };
@@ -442,8 +444,8 @@ function understand(text, env) {
     const lab = clientName ? " s „" + clientName + "“" : "";
     if (!clientName) missing.push("jméno klienta u schůzky");
     else if (!when.date && when.h == null) missing.push("den a hodina schůzky" + lab + " (např. „ve středu v 17“)");
-    else if (!when.date) missing.push("den schůzky" + lab + " (hodinu jsem slyšel: " + when.h + ":" + String(when.m).padStart(2, "0") + ")");
-    else if (when.h == null) missing.push("hodina schůzky" + lab + " (den jsem slyšel: " + when.date.getDate() + ". " + (when.date.getMonth() + 1) + ".)");
+    else if (!when.date) missing.push("den schůzky" + lab + " (hodinu jsem slyšela: " + when.h + ":" + String(when.m).padStart(2, "0") + ")");
+    else if (when.h == null) missing.push("hodina schůzky" + lab + " (den jsem slyšela: " + when.date.getDate() + ". " + (when.date.getMonth() + 1) + ".)");
     else {
       const d = when.date, z = n => String(n).padStart(2, "0");
       let place = ""; const pm = /\b(?:v|ve)\s+(\p{Lu}\p{L}+(?:\s+\p{Lu}\p{L}+)?)/u.exec(rc) || null;
@@ -478,9 +480,157 @@ function understand(text, env) {
     res.warnings.push("Příkaz nebyl úplný – prověř plán a proveď ho klepnutím.");
   }
   if (!res.actions.length && !res.reply) {
-    res.reply = knownClient ? "Rozumím, že jde o „" + clientName + "“, ale nevím, co s tím mám udělat. " + HELP : "Nerozuměl jsem. " + HELP;
+    res.reply = knownClient ? "Rozumím, že jde o „" + clientName + "“, ale nevím, co s tím mám udělat. " + HELP : "Nerozuměla jsem. " + HELP;
   }
   return res;
+}
+
+/* ================= dotazy a odpovědi (čistá logika) =================
+   „Co mám dneska v úkolech“, „Jaké jsou moje výsledky“, „Kdy mám schůzku s Novákem“ → understand() vrátí res.query,
+   answerQuery() z dat appky (facts) složí odpověď: lines = text do okna, speak = totéž pro hlasový výstup. */
+const NB = " ";
+const ymd = d => d.getFullYear() + "-" + z2(d.getMonth() + 1) + "-" + z2(d.getDate());
+const plural = (n, a, b, c) => n === 1 ? a : n >= 2 && n <= 4 ? b : c;
+const MONTHS_G = ["ledna", "února", "března", "dubna", "května", "června", "července", "srpna", "září", "října", "listopadu", "prosince"];
+const DOW_ACC = ["v neděli", "v pondělí", "v úterý", "ve středu", "ve čtvrtek", "v pátek", "v sobotu"];
+const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+const hoursPrep = hh => [2, 3, 4, 12, 13, 14, 20, 21, 22, 23].includes(hh) ? "ve" : "v";
+const spokenClock = d => hoursPrep(d.getHours()) + " " + d.getHours() + " " + plural(d.getHours(), "hodinu", "hodiny", "hodin") + (d.getMinutes() ? " " + d.getMinutes() + " " + plural(d.getMinutes(), "minutu", "minuty", "minut") : "");
+function spokenDay(d, now) {
+  const t = now || new Date(), dd = ymd(d);
+  if (dd === ymd(t)) return "dnes";
+  if (dd === ymd(addDays(t, 1))) return "zítra";
+  return DOW_ACC[d.getDay()] + " " + d.getDate() + ". " + MONTHS_G[d.getMonth()];
+}
+const cnum = x => { const r = Math.round(x * 10) / 10; return String(r).replace(".", ","); };
+const thou = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NB);
+const korun = n => thou(n) + NB + plural(Math.round(n), "koruna", "koruny", "korun");
+const bodu = x => { const r = Math.round(x * 10) / 10; return cnum(r) + NB + (Number.isInteger(r) ? plural(r, "bod", "body", "bodů") : "bodu"); };
+const speechClean = t => String(t).replace(/(\d) (?=\d{3}(?!\d))/g, "$1").replace(/ /g, " ").replace(/[„“”"]/g, "").replace(/\s+/g, " ").trim();
+const qLab = l => String(l).replace(/^(\d)\. Q (\d{4})$/, "$1. čtvrtletí $2");
+const qPrep = l => (/^[234]\./.test(l) ? "Ve " : "V ") + qLab(l);
+const joinList = a => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " a " + a[a.length - 1];
+const shortDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? +m[3] + ". " + +m[2] + "." : ""; };
+
+const Q_WH = /^(?:(?:ahoj|hej|prosim|asistentko|asistente|a|tak|no|mi|nam)\s+)*(?:co|jake|jaky|jaka|jakou|jaci|kolik|kdy|kdo|komu|koho|kde|jak|ktere|ktery|ukaz|rekni|povez|precti|vypis|zobraz|shrn|prehled|reknes|muzes|mohla|mohl)\b/;
+function detectQuery(t, when, now, client) {
+  t = t.replace(/\s+/g, " ").trim();
+  if (!Q_WH.test(t)) return null;
+  const R = /\b(?:vysledk\w*|produkc\w*|bod(?:y|u|ech|ove)?|provize|provizi|vydelal\w*|vydelek|vydelk\w*|obrat\w*|statistik\w*|tarif\w*|sazb\w*|leadu|leady|lead|pipelin\w*|na tom jsem|si vedu|se mi dari|dopadl\w*)\b/.test(t);
+  const M = /\b(?:schuz\w*|kalendar\w*|sejd\w*|meeting\w*|videohovor\w*|konzultac\w*)\b/.test(t);
+  const Kt = /\b(?:ukol\w*|todo|k vyrizeni|na praci|udelat|ceka|cekaji|na programu)\b/.test(t);
+  const Kc = /\b(?:zavolat|volat|telefonat|zatelefonovat|ozvat|zavolej|volani)\b/.test(t);
+  const K = Kt;
+  const G = /\bco (?:vsechno )?(?:mam|me ceka|mame|bude)\b/.test(t);
+  const kind = R && !K ? "results" : K && M ? "agenda" : K ? "tasks" : Kc ? "calls" : M ? "meetings" : G ? "agenda" : null;
+  if (!kind) return null;
+  let day = "today";
+  if (/\bpristi tyden|\bpristim tydnu/.test(t)) day = "nextweek";
+  else if (/\b(?:tento|tenhle|tohle|tomto|teto|tuhle) tyd\w*|\btyden\b|\btydnu\b/.test(t) && !when.date) day = "week";
+  else if (/\bzitra\b/.test(t)) day = "tomorrow";
+  else if (/\bdnes\w*/.test(t)) day = "today";
+  else if (when.date) day = ymd(when.date);
+  else if (kind === "meetings" && client) day = "next";
+  return { kind, day, client: client || "" };
+}
+
+function dayRange(day, now) {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (day === "week") return { from: ymd(t0), to: ymd(addDays(t0, (7 - t0.getDay()) % 7)), label: "tento týden", single: false };
+  if (day === "nextweek") { const mon = addDays(t0, ((8 - t0.getDay()) % 7) || 7); return { from: ymd(mon), to: ymd(addDays(mon, 6)), label: "příští týden", single: false }; }
+  const d = day === "tomorrow" ? addDays(t0, 1) : /^\d{4}-\d{2}-\d{2}$/.test(day) ? parseLocal(day + "T00:00") || t0 : t0;
+  return { from: ymd(d), to: ymd(d), label: spokenDay(d, now), single: true };
+}
+
+function answerQuery(q, F, now) {
+  now = now || new Date();
+  const L = [], out = { lines: L, speak: "" };
+  const done = () => { out.speak = speechClean(L.join(" ")); return out; };
+  if (!q) return done();
+  if (!F) { L.push("K datům v appce se teď nedostanu."); return done(); }
+  const today = ymd(now), R = dayRange(q.day, now), isToday = R.single && R.from === today;
+  const inR = iso => iso >= R.from && iso <= R.to;
+  const meetsAll = (F.meets || []).filter(m => m && m.start && !isNaN(new Date(m.start))).map(m => ({ ...m, d: new Date(m.start) })).sort((a, b) => a.d - b.d);
+  const meetItem = (m, withDay) => (m.name || "Schůzka") + ", " + (withDay ? spokenDay(m.d, now) + " " : "") + spokenClock(m.d) + (m.online ? ", online" : "");
+
+  if (q.kind === "results") {
+    const Q = F.quarter, P = F.pipe;
+    if (Q) {
+      L.push(qPrep(Q.label) + " máš " + bodu(Q.pts) + (Q.rate ? ", to je asi " + korun(Q.kc != null ? Q.kc : Q.pts * Q.rate) + " při sazbě " + korun(Q.rate) + " za bod" : "") + ".");
+      if (Q.nextRate && Q.need > 0) L.push("Do vyšší sazby " + korun(Q.nextRate) + (Q.nextTier ? " (" + Q.nextTier + ")" : "") + " ti chybí " + bodu(Q.need) + ", zhruba " + bodu(Q.perWeek) + " týdně, zbývá " + Q.days + " " + plural(Q.days, "den", "dny", "dní") + ".");
+      else if (!Q.nextRate) L.push("Jsi na nejvyšší sazbě.");
+    } else L.push("Čtvrtletní body se teď nepodařilo načíst.");
+    if (F.month && F.month.pts != null) L.push("Tento měsíc máš " + bodu(F.month.pts) + ".");
+    if (P) L.push("V jednání je " + bodu(P.pts) + (P.ptsKc ? ", zhruba " + korun(P.ptsKc) : "") + ". Rozjednaných leadů máš " + P.active + ", domluvených schůzek " + P.meetings + ", po termínu nebo bez dalšího kroku " + P.late + ".");
+    return done();
+  }
+
+  if (q.client) {
+    const cw = words(q.client), cl = cw[cw.length - 1] || "";
+    const mine = meetsAll.filter(m => { const w = words(m.name); return w.length && cl && sim(w[w.length - 1], cl) && m.d.getTime() > now.getTime() - 60 * MIN; });
+    if (!mine.length) L.push(q.client + ": žádná budoucí schůzka v kalendáři.");
+    else L.push(q.client + " má " + (mine.length > 1 ? mine.length + " " + plural(mine.length, "schůzku", "schůzky", "schůzek") + ": " : "schůzku ") + joinList(mine.slice(0, 3).map(m => (mine.length > 1 ? "" : "") + spokenDay(m.d, now) + " " + spokenClock(m.d) + (m.online ? ", online" : ""))) + ".");
+    return done();
+  }
+
+  const callList = () => (F.calls || []).filter(c => c && c.name && c.date && (isToday ? c.date <= today : inR(c.date) || (R.from === today && c.date < today)));
+  if (q.kind === "calls") {
+    const calls = callList();
+    L.push(calls.length ? cap(R.label) + " zavolej: " + joinList(calls.slice(0, 6).map(c => c.name)) + (calls.length > 6 ? " a dalším " + (calls.length - 6) : "") + "." : cap(R.label) + " nemáš nikoho k zavolání.");
+    return done();
+  }
+  const wantTasks = q.kind === "tasks" || q.kind === "agenda";
+  if (wantTasks) {
+    const tasks = (F.tasks || []).filter(t => t && t.text && (isToday ? t.due && t.due <= today : t.due && inR(t.due) || (R.from === today && t.due && t.due < today)));
+    const undated = (F.tasks || []).filter(t => t && t.text && !t.due).length;
+    const item = t => t.text + (t.client && !SD(t.text).includes(SD(t.client).slice(0, 5)) ? ", klient " + t.client : "") + (t.due && t.due < today ? ", po termínu od " + shortDate(t.due) : "") + (t.who ? ", od asistentky" : "");
+    if (tasks.length) L.push(cap(R.label) + " máš " + tasks.length + " " + plural(tasks.length, "úkol", "úkoly", "úkolů") + ": " + tasks.slice(0, 5).map(item).join("; ") + (tasks.length > 5 ? "; a dalších " + (tasks.length - 5) : "") + ".");
+    else L.push(cap(R.label) + " nemáš žádné úkoly" + (isToday ? " (ani po termínu)" : "") + ".");
+    if (isToday && undated) L.push("Bez termínu máš ještě " + undated + " " + plural(undated, "otevřený úkol", "otevřené úkoly", "otevřených úkolů") + ".");
+    const calls = callList();
+    if (calls.length) L.push("K telefonování: " + joinList(calls.slice(0, 5).map(c => c.name)) + (calls.length > 5 ? " a dalších " + (calls.length - 5) : "") + ".");
+  }
+  if (q.kind === "meetings" || q.kind === "agenda" || wantTasks) {
+    const dayMs = meetsAll.filter(m => inR(ymd(m.d))), ms = R.from === today ? dayMs.filter(m => m.d.getTime() > now.getTime() - 45 * MIN) : dayMs;
+    if (isToday && !ms.length && dayMs.length) L.push("Dnešní schůzky už proběhly.");
+    else if (ms.length) L.push(cap(R.label) + (isToday ? " ještě" : "") + " máš " + ms.length + " " + plural(ms.length, "schůzku", "schůzky", "schůzek") + ": " + ms.slice(0, 6).map(m => meetItem(m, !R.single)).join("; ") + (ms.length > 6 ? "; a dalších " + (ms.length - 6) : "") + ".");
+    else if (q.kind !== "tasks") L.push(cap(R.label) + " nemáš žádnou schůzku.");
+  }
+  return done();
+}
+
+/* ---- co řekne hlas ---- */
+function spokenPlan(plan, now, countdown, auto) {
+  const s = [], first = x => String(x).split(/(?<=[.!?])\s/)[0];
+  if (plan.reply) s.push(first(plan.reply));
+  for (const st of plan.steps) {
+    const who = leadLabel(st);
+    if (st.type === "add_lead") s.push("Založím nový kontakt: " + who + ".");
+    else if (st.type === "meeting") s.push("Schůzka: " + who + ", " + spokenDay(st.start, now) + " " + spokenClock(st.start) + ", " + (st.online ? "online" : st.place ? st.place : "osobně") + ".");
+    else if (st.type === "stage") s.push(who + ": nová fáze " + STAGE_TITLES[st.stage] + ".");
+    else if (st.type === "note") s.push("Zapíšu poznámku: " + who + ".");
+  }
+  if (plan.problems.length) s.push(plan.problems[0]);
+  if (plan.warnings.length) s.push("Pozor: " + first(plan.warnings[0]));
+  if (runnable(plan)) { if (!auto) s.push("Zkontroluj to a klepni na Provést."); else if (countdown > 0) s.push("Provedu to za " + countdown + " " + plural(countdown, "sekundu", "sekundy", "sekund") + ", nebo klepni na Zrušit."); }
+  else if (plan.problems.length || unresolved(plan).length) s.push(unresolved(plan).length ? "Vyber prosím správného klienta." : "Řekni příkaz znovu.");
+  return speechClean(s.join(" "));
+}
+function spokenDone(out) {
+  const bad = out.lines.some(l => /^✗/.test(l)), s = [bad ? "Něco se nepovedlo, koukni na výpis." : "Hotovo."];
+  if (out.smsJobs && out.smsJobs.length) s.push(out.smsJobs.length === 1 ? "SMS je připravená, klepni na Odeslat." : "SMS jsou připravené, klepni na Odeslat.");
+  if (out.manuals && out.manuals.length) s.push("Potvrzení musíš poslat ručně.");
+  return s.join(" ");
+}
+
+/* nejlepší český hlas: ženský, přirozenější varianty dopředu (Zuzana, Vlasta…); bez českého hlasu null (radši mlčet než číst česky anglickým hlasem) */
+const FEMALE_CS = /zuzana|vlasta|iveta|eliska|klara|lenka|petra|jana|marie|zdenka|ludmila|female|zena|žena/i;
+function pickVoice(voices, pref) {
+  const vs = (voices || []).filter(v => v && /^cs([-_]|$)/i.test(v.lang || ""));
+  if (!vs.length) return null;
+  if (pref) { const p = vs.find(v => v.voiceURI === pref || v.name === pref); if (p) return p; }
+  const score = v => (FEMALE_CS.test(v.name) ? 50 : 0) + (/premium|enhanced|natural|neural|siri|online|vylepšen|rozšířen/i.test(v.name) ? 25 : 0) + (v.localService === false ? 5 : 0) - (/jakub|antonin|male|muz|muž|david|pavel/i.test(v.name) && !FEMALE_CS.test(v.name) ? 100 : 0);
+  return vs.slice().sort((a, b) => score(b) - score(a))[0];
 }
 
 /* ================= hlas ================= */
@@ -504,13 +654,13 @@ function listen({ onText, onEnd, onError, lang }) {
 }
 const VOICE_ERR = { "not-allowed": "Mikrofon není povolený – povol ho v nastavení prohlížeče.", "service-not-allowed": "Rozpoznávání řeči je v tomhle prohlížeči zakázané. Použij mikrofon na klávesnici.", "no-speech": "Nic jsem neslyšel.", "network": "Rozpoznávání řeči potřebuje internet.", "unsupported": "Tenhle prohlížeč neumí rozpoznávat řeč. Použij mikrofon na klávesnici." };
 
-const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm, words, sim, matchLeads, resolveClient, parseLocal, fmtWhen, checkMeeting, normPhone, validEmail, hasPlaceholders, pickTemplate, mimeEmail, encodeWord, buildPlan, runnable, autoOk, unresolved, pickLead, describeStep, leadLabel, STAGE_TITLES, voiceSupported, listen, VOICE_ERR };
+const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm, words, sim, matchLeads, resolveClient, parseLocal, fmtWhen, checkMeeting, normPhone, validEmail, hasPlaceholders, pickTemplate, mimeEmail, encodeWord, buildPlan, runnable, autoOk, unresolved, pickLead, describeStep, leadLabel, STAGE_TITLES, voiceSupported, listen, VOICE_ERR, detectQuery, answerQuery, spokenPlan, spokenDone, spokenClock, spokenDay, pickVoice, speechClean };
 
 /* ================= část s prohlížečem (jen když existuje document) ================= */
 if (typeof document === "undefined") return api;
 
 let H = null, fab = null, busy = false, cur = null, hotkeyBound = false;
-const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true };
+const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true, speak: true, voice: "" };
 const cfg = () => ({ ...DEFAULTS, ...((H && H.settings() && H.settings().ai) || {}) });
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -537,6 +687,21 @@ const CSS = `
 .aiIn button{width:44px;height:44px;border-radius:50%;flex:none;background:var(--tint);color:#fff;font-size:18px}
 .aiIn button.mic.on{background:var(--red)}
 .aiHint{color:var(--label2);font-size:13px;margin:8px 2px 0}
+.aiVoice{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0px));background:rgba(8,10,20,.38);-webkit-backdrop-filter:blur(26px) saturate(1.25);backdrop-filter:blur(26px) saturate(1.25);opacity:0;transition:opacity .18s ease;color:#fff;outline:none;overflow:auto}
+.aiVoice.on{opacity:1}
+.aiVoice .vbox{width:min(560px,100%);display:grid;gap:14px;justify-items:center;text-align:center}
+.aiVoice .veq{height:120px;display:flex;align-items:center;justify-content:center;gap:5px}
+.aiVoice .veq i{display:block;width:7px;height:100%;border-radius:4px;background:linear-gradient(180deg,#9fd0ff,#5b8cff 55%,#b08cff);box-shadow:0 0 14px rgba(110,150,255,.55);transform:scaleY(.06);transform-origin:center;will-change:transform}
+.aiVoice[data-mode=speaking] .veq i{background:linear-gradient(180deg,#ffd0e8,#ff7ab8 55%,#ffb27a);box-shadow:0 0 14px rgba(255,122,184,.5)}
+.aiVoice .vstate{font-size:15px;opacity:.85;letter-spacing:.01em}
+.aiVoice .vtext{font-size:22px;font-weight:600;line-height:1.3;min-height:1.3em;overflow-wrap:anywhere;text-shadow:0 1px 12px rgba(0,0,0,.35)}
+.aiVoice .vlog{width:100%;display:grid;gap:10px;text-align:left;max-height:42vh;overflow:auto;color:var(--label,#000)}
+.aiVoice .vans{background:var(--bg2,#fff);border:1px solid var(--sep,rgba(120,120,128,.28));border-radius:14px;padding:12px 14px;display:grid;gap:6px;font-size:15px;line-height:1.4}
+.aiVoice .vans p{margin:0}
+.aiVoice .vbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.aiVoice .vbtns button{padding:10px 18px;border-radius:999px;font-weight:600;font-size:15px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.28)}
+.aiVoice .vx{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:16px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:18px;border:0}
+@media (prefers-reduced-motion:reduce){.aiVoice{transition:none}}
 `;
 
 function addStyle() { if (document.getElementById("aiStyle")) return; const s = h("style", { id: "aiStyle" }); s.textContent = CSS; document.head.append(s); }
@@ -546,7 +711,7 @@ function refresh() {
   const on = cfg().on && !H.demo;
   if (!on) { if (fab) fab.hidden = true; return; }
   addStyle();
-  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent (na počítači mezerník = diktovat)", "aria-label": "Asistent", onclick: () => open() }, "🎙︎"); document.body.append(fab); }
+  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent (na počítači mezerník = mluvit)", "aria-label": "Asistent", onclick: () => (api.voiceSupported() ? openVoice({ listen: true }) : open()) }, "🎙︎"); document.body.append(fab); }
   fab.hidden = false;
 }
 
@@ -634,19 +799,88 @@ async function execute(plan) {
   return { lines, manuals, smsJobs };
 }
 
-/* ---- okno asistenta ---- */
+/* ---- karta s plánem (společná pro psací okno i hlasový překryv) ---- */
+function planCard(plan, hooks) {
+  hooks = hooks || {};
+  const card = h("div", { class: "aiPlan" });
+  let timer = null, phase = "pending";
+  const stopTimer = () => { clearInterval(timer); timer = null; };
+  const cancelNote = () => card.replaceChildren(h("div", { class: "note" }, "Zrušeno – nic se neprovedlo."));
+  const delay = Math.max(0, Math.min(60, +cfg().delay || 0));
+  const auto = runnable(plan) && autoOk(plan);
+  const draw = (countdown) => {
+    card.replaceChildren();
+    plan.steps.forEach(s => {
+      card.append(h("div", { class: "st" }, h("span", {}, s.type === "meeting" ? "📅" : s.type === "stage" ? "➡️" : s.type === "note" ? "📝" : "➕"), h("span", {}, describeStep(s))));
+      if (s.type === "add_lead" && countdown == null) {
+        const nm = h("input", { value: s.name, "aria-label": "Jméno nového kontaktu", autocomplete: "off", style: "margin-left:26px;width:calc(100% - 26px)" }); nm.value = s.name;
+        nm.onchange = () => { const v = nm.value.trim(); if (v) s.name = v; draw(); };
+        card.append(h("div", { class: "note" }, "Jméno ve správném tvaru (1. pád):"), nm);
+      }
+      if (s.kind === "fuzzy") card.append(h("div", { class: "warn" }, "Jen podobné jméno: „" + s.lead.name + "“ – je to on?"));
+      if (s.kind === "ambiguous" && !s.lead) {
+        card.append(h("div", { class: "warn" }, "Víc kontaktů pasuje na „" + s.client_name + "“ – vyber:"));
+        card.append(h("div", { class: "btns" }, s.candidates.map(c => h("button", { type: "button", onclick: () => { pickLead(plan, s, c); draw(); } }, c.name + (c.stage ? " · " + (STAGE_TITLES[c.stage] || c.stage) : "")))));
+      }
+      if (s.implicit) card.append(h("div", { class: "warn" }, "„" + s.name + "“ v pipeline není – založím nový kontakt."));
+      if (s.type === "meeting" && s.confirm) {
+        const ch = channelsFor(s, s.lead || s.newRef);
+        card.append(h("div", { class: ch.length ? "note" : "warn" }, ch.length ? "Potvrzení klientovi: " + ch.join(" + ") : "Potvrzení nejde poslat automaticky (chybí telefon / e-mail / nastavení) – nabídnu ruční odeslání."));
+      }
+    });
+    plan.problems.forEach(p => card.append(h("div", { class: "err" }, "✗ " + p)));
+    plan.warnings.forEach(p => card.append(h("div", { class: "warn" }, "⚠ " + p)));
+    plan.notes.forEach(p => card.append(h("div", { class: "note" }, p)));
+    if (!runnable(plan)) { if (plan.problems.length) card.append(h("div", { class: "note" }, "Oprav příkaz a řekni ho znovu.")); return; }
+    const go = () => { stopTimer(); run(); };
+    const no = () => { stopTimer(); phase = "cancelled"; cancelNote(); };
+    if (countdown != null) card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést hned"), h("button", { type: "button", class: "no", onclick: no }, "Zrušit (" + countdown + " s)")));
+    else card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést"), h("button", { type: "button", class: "no", onclick: no }, "Zrušit")));
+  };
+  async function run() {
+    phase = "running";
+    card.replaceChildren(h("div", { class: "note" }, "Provádím…"));
+    busy = true;
+    let out;
+    try { out = await execute(plan); } catch (e) { out = { lines: ["✗ " + e.message], manuals: [], smsJobs: [] }; }
+    busy = false; phase = "done";
+    card.replaceChildren(...out.lines.map(l => h("div", { class: /^✓/.test(l) ? "st" : /^⚠/.test(l) ? "warn" : "err" }, l)));
+    out.smsJobs.forEach(job => {
+      const b = h("button", { type: "button", class: "go", onclick: () => { H.openSms(job.tel, job.text); H.logLeadMsg(job.lead, { ch: "SMS", tpl: job.tpl, start: job.start, meetId: job.meetId }); b.disabled = true; b.textContent = "✓ SMS otevřená: " + job.lead.name; } }, "💬 Odeslat SMS: " + job.lead.name);
+      card.append(h("div", { class: "btns" }, b));
+    });
+    out.manuals.forEach(mn => card.append(h("div", { class: "btns" }, h("button", { type: "button", onclick: () => { hooks.beforeManual ? hooks.beforeManual() : H.closeSheet(); H.openMsg(mn.ctx, mn.tplId, r => H.logLeadMsg(mn.lead, r)); } }, "Poslat ručně: " + mn.lead.name))));
+    hooks.afterRun && hooks.afterRun(out);
+  }
+  return {
+    card, auto, countdown: auto && delay > 0 ? delay : 0,
+    start() {
+      draw();
+      if (!auto) return;
+      let left = delay;
+      if (left === 0) { run(); return; }
+      draw(left);
+      timer = setInterval(() => { left--; if (left <= 0) { stopTimer(); run(); } else draw(left); }, 1000);
+    },
+    stop: stopTimer,
+    cancel() { if (phase === "pending") { stopTimer(); phase = "cancelled"; cancelNote(); } },
+  };
+}
+
+/* ---- okno asistenta (psaní; diktování tlačítkem 🎙︎) ---- */
 function open(opts) {
   if (!H) return;
   if (!cfg().on) { H.toast("Asistent je vypnutý – zapni ho v nastavení."); return; }
+  closeVoice();
   addStyle();
   const log = h("div", { class: "aiLog" });
   const ta = h("textarea", { rows: 1, placeholder: "Řekni nebo napiš, co se stalo…", "aria-label": "Příkaz pro asistenta", enterkeyhint: "send" });
-  let rec = null, timer = null;
+  let rec = null;
+  const uis = [];
   const say = (cls, ...kids) => { const m = h("div", { class: "aiMsg " + cls }, ...kids); log.append(m); log.scrollTop = log.scrollHeight; return m; };
-  const stopTimer = () => { clearInterval(timer); timer = null; };
   const dlg = document.getElementById("edDlg");
   const ctl = { ta, listening: () => !!rec, toggleMic: () => {} };
-  const onClose = () => { stopTimer(); try { rec && rec.abort(); } catch (e) {} if (cur === ctl) cur = null; dlg && dlg.removeEventListener("close", onClose); };
+  const onClose = () => { uis.forEach(u => u.stop()); try { rec && rec.abort(); } catch (e) {} stopSpeech(); if (cur === ctl) cur = null; dlg && dlg.removeEventListener("close", onClose); };
   dlg && dlg.addEventListener("close", onClose);
 
   const mic = api.voiceSupported() ? h("button", { type: "button", class: "mic", "aria-label": "Diktovat", onclick: () => toggleMic() }, "🎙︎") : null;
@@ -669,70 +903,22 @@ function open(opts) {
     ta.value = ""; say("me", text);
     try {
       const res = understand(text, { leads: H.leads(), now: new Date() });
+      if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, new Date()); say("bot", a.lines.join("\n")); return; }
       const plan = buildPlan(res, { leads: H.leads(), now: new Date(), calEvents: H.calEvents(), meetMinutes: 60 });
       if (plan.reply) say("bot", plan.reply);
-      if (plan.steps.length || plan.problems.length) showPlan(plan);
+      if (plan.steps.length || plan.problems.length) {
+        const ui = planCard(plan, {});
+        uis.push(ui);
+        log.append(h("div", { class: "aiMsg bot", style: "max-width:100%;width:100%;padding:0;background:none" }, ui.card)); log.scrollTop = log.scrollHeight;
+        ui.start();
+      }
     } catch (e) { say("bot", "⚠ " + (e.message || "Něco se pokazilo")); }
-  }
-
-  function showPlan(plan) {
-    const card = h("div", { class: "aiPlan" });
-    const m = h("div", { class: "aiMsg bot", style: "max-width:100%;width:100%;padding:0;background:none" }, card);
-    log.append(m);
-    const draw = (countdown) => {
-      card.replaceChildren();
-      plan.steps.forEach(s => {
-        card.append(h("div", { class: "st" }, h("span", {}, s.type === "meeting" ? "📅" : s.type === "stage" ? "➡️" : s.type === "note" ? "📝" : "➕"), h("span", {}, describeStep(s))));
-        if (s.type === "add_lead" && countdown == null) {
-          const nm = h("input", { value: s.name, "aria-label": "Jméno nového kontaktu", autocomplete: "off", style: "margin-left:26px;width:calc(100% - 26px)" }); nm.value = s.name;
-          nm.onchange = () => { const v = nm.value.trim(); if (v) s.name = v; draw(); };
-          card.append(h("div", { class: "note" }, "Jméno ve správném tvaru (1. pád):"), nm);
-        }
-        if (s.kind === "fuzzy") card.append(h("div", { class: "warn" }, "Jen podobné jméno: „" + s.lead.name + "“ – je to on?"));
-        if (s.kind === "ambiguous" && !s.lead) {
-          card.append(h("div", { class: "warn" }, "Víc kontaktů pasuje na „" + s.client_name + "“ – vyber:"));
-          card.append(h("div", { class: "btns" }, s.candidates.map(c => h("button", { type: "button", onclick: () => { pickLead(plan, s, c); draw(); } }, c.name + (c.stage ? " · " + (STAGE_TITLES[c.stage] || c.stage) : "")))));
-        }
-        if (s.implicit) card.append(h("div", { class: "warn" }, "„" + s.name + "“ v pipeline není – založím nový kontakt."));
-        if (s.type === "meeting" && s.confirm) {
-          const ch = channelsFor(s, s.lead || s.newRef);
-          card.append(h("div", { class: ch.length ? "note" : "warn" }, ch.length ? "Potvrzení klientovi: " + ch.join(" + ") : "Potvrzení nejde poslat automaticky (chybí telefon / e-mail / nastavení) – nabídnu ruční odeslání."));
-        }
-      });
-      plan.problems.forEach(p => card.append(h("div", { class: "err" }, "✗ " + p)));
-      plan.warnings.forEach(p => card.append(h("div", { class: "warn" }, "⚠ " + p)));
-      plan.notes.forEach(p => card.append(h("div", { class: "note" }, p)));
-      if (!runnable(plan)) { if (plan.problems.length) card.append(h("div", { class: "note" }, "Oprav příkaz a řekni ho znovu.")); return; }
-      const go = () => { stopTimer(); run(); };
-      if (countdown != null) card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést hned"), h("button", { type: "button", class: "no", onclick: () => { stopTimer(); card.replaceChildren(h("div", { class: "note" }, "Zrušeno – nic se neprovedlo.")); } }, "Zrušit (" + countdown + " s)")));
-      else card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést"), h("button", { type: "button", class: "no", onclick: () => card.replaceChildren(h("div", { class: "note" }, "Zrušeno – nic se neprovedlo.")) }, "Zrušit")));
-    };
-    async function run() {
-      card.replaceChildren(h("div", { class: "note" }, "Provádím…"));
-      busy = true;
-      let out;
-      try { out = await execute(plan); } catch (e) { out = { lines: ["✗ " + e.message], manuals: [] }; }
-      busy = false;
-      card.replaceChildren(...out.lines.map(l => h("div", { class: /^✓/.test(l) ? "st" : /^⚠/.test(l) ? "warn" : "err" }, l)));
-      out.smsJobs.forEach(job => {
-        const b = h("button", { type: "button", class: "go", onclick: () => { H.openSms(job.tel, job.text); H.logLeadMsg(job.lead, { ch: "SMS", tpl: job.tpl, start: job.start, meetId: job.meetId }); b.disabled = true; b.textContent = "✓ SMS otevřená: " + job.lead.name; } }, "💬 Odeslat SMS: " + job.lead.name);
-        card.append(h("div", { class: "btns" }, b));
-      });
-      out.manuals.forEach(mn => card.append(h("div", { class: "btns" }, h("button", { type: "button", onclick: () => { H.closeSheet(); H.openMsg(mn.ctx, mn.tplId, r => H.logLeadMsg(mn.lead, r)); } }, "Poslat ručně: " + mn.lead.name))));
-    }
-    draw();
-    if (runnable(plan) && autoOk(plan)) {
-      let left = Math.max(0, Math.min(60, +cfg().delay || 0));
-      if (left === 0) { run(); return; }
-      draw(left);
-      timer = setInterval(() => { left--; if (left <= 0) { stopTimer(); run(); } else draw(left); }, 1000);
-    }
   }
 
   H.openSheet("Asistent", [
     log,
     h("div", { class: "aiIn" }, ta, mic, send),
-    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Vyhodnocuje se přímo v zařízení." + (mic ? " Na počítači: mezerník (když nepíšeš) spustí a zastaví diktování." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
+    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Nebo se zeptej: „Co mám dneska v úkolech?“ Vyhodnocuje se přímo v zařízení." + (mic ? " Na počítači: mezerník (když nepíšeš) spustí hlasového asistenta." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
   ]);
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(ta.value); } });
   ctl.toggleMic = mic ? toggleMic : () => H.toast("Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.");
@@ -743,18 +929,183 @@ function open(opts) {
   setTimeout(() => { if (!rec) ta.focus(); }, 80);
 }
 
-/* ---- mezerník na počítači: spustí / zastaví diktování ---- */
+/* ---- hlasový výstup (systémový hlas zařízení – žádná služba, žádné poplatky) ---- */
+let speakToken = 0;
+const speakOn = () => cfg().speak !== false && !!(root.speechSynthesis && root.SpeechSynthesisUtterance);
+function stopSpeech() { speakToken++; try { root.speechSynthesis && root.speechSynthesis.cancel(); } catch (e) {} }
+/* iOS pustí hlas jen po „odemčení“ v rámci klepnutí – jinak by odpověď po rozpoznání řeči (mimo gesto) mlčela */
+let speechUnlocked = false;
+function unlockSpeech() {
+  if (speechUnlocked || !speakOn()) return;
+  const ua = navigator.userAgent || "";
+  if (!(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1))) return;
+  speechUnlocked = true;
+  try { const u = new root.SpeechSynthesisUtterance(" "); u.volume = 0; root.speechSynthesis.speak(u); } catch (e) {}
+}
+function speak(text, done) {
+  const ss = root.speechSynthesis;
+  if (!ss || !root.SpeechSynthesisUtterance || !text) { done && done(); return false; }
+  const vs = ss.getVoices ? ss.getVoices() : [], v = pickVoice(vs, cfg().voice);
+  if (vs.length && !v) { done && done(); return false; }   /* žádný český hlas → radši mlčet než číst česky cizím hlasem */
+  const tok = ++speakToken;
+  try { ss.cancel(); } catch (e) {}
+  const u = new root.SpeechSynthesisUtterance(text);
+  u.lang = (v && v.lang) || "cs-CZ"; if (v) u.voice = v; u.rate = 1; u.pitch = 1; u.volume = 1;
+  const fin = () => { if (tok === speakToken) done && done(); };
+  u.onend = fin; u.onerror = fin;
+  u.onboundary = () => { if (V) V.pulse = 1; };
+  setTimeout(() => { if (tok !== speakToken) return; try { ss.speak(u); } catch (e) { fin(); } }, 40);   /* Chrome někdy zahodí speak() hned po cancel() */
+  return true;
+}
+
+/* ---- hlasový asistent: rozmazaná appka, uprostřed ekvalizér, odpovídá hlasem ---- */
+let V = null;
+const EQ_BARS = 25, IDLE_HINT = "Mezerník = další příkaz · Esc = zavřít";
+function setMode(mode, text) {
+  if (!V) return;
+  V.mode = mode; V.el.dataset.mode = mode; V.stateEl.textContent = text || "";
+  V.micBtn.textContent = mode === "listening" ? "■ Hotovo" : "🎙︎ Mluvit";
+}
+function startMeter(v) {
+  /* skutečná hlasitost z mikrofonu jen v Chromu/Edgi na počítači (jinde by druhý přístup k mikrofonu mohl rušit rozpoznávání) – jinak se ekvalizér jen animuje */
+  const ua = navigator.userAgent || "";
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || !/Chrome|Edg\//.test(ua) || /Android|iPhone|iPad|iPod|Mobile/.test(ua)) return;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    if (V !== v || !v.rec) { stream.getTracks().forEach(t => t.stop()); return; }
+    try {
+      const AC = root.AudioContext || root.webkitAudioContext, ctx = new AC(), an = ctx.createAnalyser();
+      an.fftSize = 256; an.smoothingTimeConstant = 0.55;
+      ctx.createMediaStreamSource(stream).connect(an); ctx.resume && ctx.resume();
+      v.meter = { stream, ctx, an, data: new Uint8Array(an.frequencyBinCount) };
+    } catch (e) { stream.getTracks().forEach(t => t.stop()); }
+  }).catch(() => {});
+}
+function stopMeter(v) {
+  const m = v && v.meter; if (!m) return; v.meter = null;
+  try { m.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { m.ctx.close(); } catch (e) {}
+}
+function tick(ts) {
+  const v = V; if (!v) return;
+  v.raf = requestAnimationFrame(tick);
+  if (v.reduce) return;
+  const t = ts / 1000, n = v.bars.length, mode = v.mode, m = v.meter;
+  if (m) m.an.getByteFrequencyData(m.data);
+  v.pulse = Math.max(0, v.pulse - 0.04);
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 + 0.5 * Math.sin(Math.PI * (i + 0.5) / n);
+    let tgt;
+    if (mode === "listening") tgt = m ? Math.pow(m.data[1 + Math.floor(i * 22 / n)] / 255, 1.1) * 1.5 * w : (0.12 + 0.5 * v.pulse) * (0.55 + 0.45 * Math.sin(t * 7 + i * 0.9)) * w + 0.06;
+    else if (mode === "speaking") tgt = (0.35 + 0.45 * v.pulse + 0.2 * Math.sin(t * 3.1)) * (0.5 + 0.5 * Math.sin(t * 9 + i * 1.3) * Math.cos(t * 4.3 + i * 0.5)) * w + 0.05;
+    else if (mode === "thinking") tgt = 0.1 + 0.35 * Math.max(0, Math.sin(t * 6 - i * 0.55));
+    else tgt = 0.05 + 0.04 * Math.sin(t * 1.6 + i * 0.4);
+    const c = v.hs[i]; v.hs[i] = c + (tgt - c) * (tgt > c ? 0.55 : 0.16);
+    v.bars[i].style.transform = "scaleY(" + Math.max(0.06, Math.min(1, v.hs[i])).toFixed(3) + ")";
+  }
+}
+function openVoice(opts) {
+  if (!H) return;
+  if (!cfg().on) { H.toast("Asistent je vypnutý – zapni ho v nastavení."); return; }
+  if (!api.voiceSupported()) { open(); return; }
+  if (V) { if (opts && opts.listen) voiceToggle(); return; }
+  unlockSpeech();
+  addStyle();
+  if (document.getElementById("edDlg") && document.getElementById("edDlg").open && cur) document.getElementById("edDlg").close();
+  const bars = Array.from({ length: EQ_BARS }, () => h("i"));
+  const stateEl = h("div", { class: "vstate", "aria-live": "polite" }), textEl = h("div", { class: "vtext", "aria-live": "polite" }), logEl = h("div", { class: "vlog" });
+  const micBtn = h("button", { type: "button", class: "vmic", onclick: () => voiceToggle() }, "🎙︎ Mluvit");
+  const el = h("div", { class: "aiVoice", id: "aiVoice", role: "dialog", "aria-modal": "true", "aria-label": "Hlasový asistent", tabindex: "-1" },
+    h("button", { type: "button", class: "vx", "aria-label": "Zavřít", onclick: () => closeVoice() }, "✕"),
+    h("div", { class: "vbox" }, h("div", { class: "veq", "aria-hidden": "true" }, bars), stateEl, textEl, logEl,
+      h("div", { class: "vbtns" }, micBtn, h("button", { type: "button", onclick: () => { closeVoice(); open(); } }, "⌨︎ Psát"))));
+  document.body.append(el);
+  const reduce = !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  V = { el, bars, stateEl, textEl, logEl, micBtn, mode: "idle", rec: null, meter: null, ui: null, pulse: 0, hs: bars.map(() => 0.06), reduce, raf: 0, err: "" };
+  if (reduce) bars.forEach(b => { b.style.transform = "scaleY(.3)"; });
+  requestAnimationFrame(() => { if (el.isConnected) el.classList.add("on"); });
+  el.focus({ preventScroll: true });
+  V.raf = requestAnimationFrame(tick);
+  setMode("idle", IDLE_HINT);
+  if (!opts || opts.listen !== false) vListen();
+}
+function closeVoice() {
+  if (!V) return;
+  const v = V; V = null;
+  try { v.rec && v.rec.abort(); } catch (e) {}
+  stopMeter(v); stopSpeech(); v.ui && v.ui.stop(); cancelAnimationFrame(v.raf);
+  v.el.classList.remove("on"); setTimeout(() => v.el.remove(), 200);
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();   /* ať mezerník po zavření nemačká dřívější tlačítko */
+}
+function voiceToggle() {
+  if (!V || busy) return;
+  unlockSpeech();
+  if (V.rec) { V.rec.stop(); return; }
+  stopSpeech(); vListen();
+}
+function vListen() {
+  const v = V; if (!v || v.rec) return;
+  v.ui && v.ui.cancel();   /* čekající příkaz s odpočtem se novou větou ruší – a je to vidět */
+  v.textEl.textContent = ""; v.err = "";
+  setMode("listening", "Poslouchám… (mezerník = hotovo)");
+  const handle = listen({
+    onText: t => { if (V === v) { v.textEl.textContent = t; v.pulse = 1; } },
+    onEnd: t => {
+      if (V !== v || v.rec !== handle) return;
+      v.rec = null; stopMeter(v);
+      if (t && t.trim()) { vHandle(t.trim()); return; }
+      setMode("idle", v.err && v.err !== "aborted" ? (VOICE_ERR[v.err] || "Mikrofon: " + v.err) : "Nic jsem neslyšela. Stiskni mezerník a řekni to znovu.");
+    },
+    onError: e => { if (V === v) v.err = e; },
+  });
+  if (!handle) { setMode("idle", VOICE_ERR[v.err] || VOICE_ERR.unsupported); return; }
+  v.rec = handle; startMeter(v);
+}
+function vSay(text) {
+  const v = V; if (!v) return;
+  if (!text || !speakOn()) { setMode("idle", IDLE_HINT); return; }
+  setMode("speaking", "Odpovídám…");
+  const ok = speak(text, () => { if (V === v && v.mode === "speaking") setMode("idle", IDLE_HINT); });
+  if (!ok) setMode("idle", IDLE_HINT);
+}
+function vHandle(text) {
+  const v = V; if (!v) return;
+  v.textEl.textContent = text; v.logEl.replaceChildren(); v.ui = null;
+  setMode("thinking", "Zpracovávám…");
+  const now = new Date(), say = (...lines) => v.logEl.append(h("div", { class: "vans" }, lines.map(l => h("p", {}, l))));
+  try {
+    const res = understand(text, { leads: H.leads(), now });
+    if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, now); say(...a.lines); vSay(a.speak); return; }
+    const plan = buildPlan(res, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: 60 });
+    if (plan.reply) say(plan.reply);
+    if (!plan.steps.length && !plan.problems.length) { vSay(spokenPlan(plan, now, 0)); return; }
+    let pre = "";
+    const ui = planCard(plan, { beforeManual: () => closeVoice(), afterRun: out => { if (V === v) vSay((pre ? pre + " " : "") + spokenDone(out)); } });
+    v.ui = ui; v.logEl.append(ui.card);
+    const said = spokenPlan(plan, now, ui.countdown, ui.auto);
+    if (ui.auto && !ui.countdown) pre = said;   /* provede se hned: nahlas řekne, co udělala, až po provedení */
+    ui.start();
+    if (!pre) vSay(said);
+  } catch (e) { say("⚠ " + (e.message || "Něco se pokazilo")); setMode("idle", IDLE_HINT); }
+}
+
+/* ---- mezerník na počítači: otevře hlasového asistenta / spustí a zastaví poslech; Esc ho zavře ---- */
 const assistantOpen = () => { const d = document.getElementById("edDlg"), t = document.getElementById("edTitle"); return !!(cur && d && d.open && t && t.textContent === "Asistent"); };
 const INTERACTIVE = "input,textarea,select,summary,a[href],button,[contenteditable],[role='button'],[role='tab'],[role='switch'],[role='checkbox'],[role='menuitem'],[role='option'],[role='link']";
 let swallowUp = false;
 function onHotkey(e) {
-  if (!H || (e.code !== "Space" && e.key !== " ") || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+  if (!H) return;
+  if (V && e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); closeVoice(); return; }
+  if ((e.code !== "Space" && e.key !== " ") || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
   const c = cfg();
   if (!c.on || c.hotkey === false || H.demo) return;
-  const open_ = assistantOpen();
+  const voice = !!V, open_ = assistantOpen();
   const hit = (document.activeElement && document.activeElement.closest) ? document.activeElement.closest(INTERACTIVE) : null;
   if (hit) {
-    if (open_ && cur.listening()) { /* diktuje se → mezerník zastaví, ať je kurzor kdekoli */ }
+    if (voice) {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(hit.tagName) || hit.isContentEditable) return;   /* píšeš (např. jméno nového kontaktu v kartě) */
+      if (hit.matches(":focus-visible")) return;                                          /* tlačítko vybrané klávesnicí: mezerník ho aktivuje */
+    }
+    else if (open_ && cur.listening()) { /* diktuje se → mezerník zastaví, ať je kurzor kdekoli */ }
     else if (open_ && hit === cur.ta && !hit.value.trim()) { /* prázdné pole asistenta: mezerník nic nepíše, spustí diktování */ }
     else if (/^(INPUT|TEXTAREA|SELECT)$/.test(hit.tagName) || hit.isContentEditable) return;   /* píšeš / přepínáš pole */
     else if (hit.matches(":focus-visible")) return;                                          /* tlačítko vybrané klávesnicí: mezerník ho aktivuje */
@@ -762,7 +1113,7 @@ function onHotkey(e) {
   const od = document.querySelector("dialog[open]");
   if (od && !open_) return;   /* jiné okno (editace, zámek, …) – nerušit */
   e.preventDefault(); swallowUp = true;
-  if (open_) cur.toggleMic(); else open({ listen: true });
+  if (open_) cur.toggleMic(); else if (voice) voiceToggle(); else openVoice({ listen: true });
 }
 function onHotkeyUp(e) { if (swallowUp && (e.code === "Space" || e.key === " ")) { swallowUp = false; e.preventDefault(); } }
 
@@ -776,12 +1127,29 @@ function renderSettings(box) {
   const from = h("input", { type: "email", placeholder: "vojtech.kudlicka@zfpa.cz (volitelné)", autocomplete: "off" }); from.value = c.from || "";
   from.onchange = () => save({ from: from.value.trim() });
   const gm = H.hasScope("gmail.send");
+  const voiceSel = h("select", { "aria-label": "Hlas asistentky" });
+  const fillVoices = () => {
+    const vs = (root.speechSynthesis && root.speechSynthesis.getVoices ? root.speechSynthesis.getVoices() : []).filter(v => /^cs([-_]|$)/i.test(v.lang || ""));
+    const best = pickVoice(vs, "");
+    voiceSel.replaceChildren(h("option", { value: "" }, "Hlas: automaticky" + (best ? " (" + best.name + ")" : "")), ...vs.map(v => h("option", { value: v.voiceURI || v.name }, v.name)));
+    voiceSel.value = c.voice && vs.some(v => (v.voiceURI || v.name) === c.voice) ? c.voice : "";
+    const hint = document.getElementById("aiVoiceHint");
+    if (hint) hint.textContent = vs.length ? "Hlas dodává systém zařízení (zdarma, bez internetu). Na Macu a iPhonu je to Zuzana; kvalitnější verzi stáhneš v nastavení systému (Zpřístupnění → Mluvený obsah → Systémový hlas → Spravovat hlasy). V Edgi může být k dispozici přirozenější hlas (Vlasta)." : (root.speechSynthesis ? "V tomhle zařízení není nainstalovaný žádný český hlas – odpovědi se jen zobrazí. Český hlas se přidává v nastavení systému (Mluvený obsah / Řeč)." : "Tenhle prohlížeč neumí mluvit – odpovědi se jen zobrazí.");
+  };
+  voiceSel.onchange = () => save({ voice: voiceSel.value });
+  fillVoices();
+  renderSettings.fill = fillVoices;
+  if (root.speechSynthesis && root.speechSynthesis.addEventListener && !renderSettings.bound) { renderSettings.bound = true; root.speechSynthesis.addEventListener("voiceschanged", () => { if (document.getElementById("aiVoiceHint") && renderSettings.fill) renderSettings.fill(); }); }
+  setTimeout(() => { if (document.getElementById("aiVoiceHint") && renderSettings.fill === fillVoices) fillVoices(); }, 300);
   box.replaceChildren(
     h("label", {}, "Asistent (psaní a hlas)"),
     h("label", { class: "frow" }, h("span", {}, "Zapnout asistenta"), sw(c.on, v => save({ on: v }))),
-    h("p", { class: "hint" }, "Běží celý v telefonu: žádná AI služba, žádné předplatné, věta se nikam neposílá. Rozumí příkazům typu schůzka / podpis / nabídka / zápis / nový kontakt. Diktování dělá systém (Safari nebo klávesnice iPhonu), asistent jen zpracuje výsledný text."),
-    h("label", { class: "frow" }, h("span", {}, "Mezerník spustí diktování (počítač)"), sw(c.hotkey !== false, v => save({ hotkey: v }))),
-    h("p", { class: "hint" }, "Když zrovna nic nepíšeš a není otevřené jiné okno, mezerník otevře asistenta a začne poslouchat; druhým stiskem diktování skončí a příkaz se zpracuje. Potřebuje Chrome, Edge nebo Safari s povoleným mikrofonem."),
+    h("p", { class: "hint" }, "Žádná AI služba ani předplatné: větu vyhodnocuje appka přímo v zařízení. Rozumí příkazům (schůzka, podpis, nabídka, zápis, nový kontakt) a dotazům („Co mám dneska v úkolech?“, „Jaké jsou moje výsledky?“, „Kdy mám schůzku s Novákem?“). Pozor: převod hlasu na text dělá prohlížeč – Chrome a Edge posílají nahrávku svému rozpoznávání řeči (Google, Microsoft), Safari Applu. Jména klientů tak při diktování mohou opustit zařízení; co napíšeš, zůstává jen tady."),
+    h("label", { class: "frow" }, h("span", {}, "Mezerník spustí hlasového asistenta (počítač)"), sw(c.hotkey !== false, v => save({ hotkey: v }))),
+    h("p", { class: "hint" }, "Když zrovna nic nepíšeš a není otevřené jiné okno, mezerník rozmaže appku, otevře ekvalizér a začne poslouchat; druhým stiskem poslech skončí a příkaz se zpracuje, dalším začneš nový. Esc zavře. Potřebuje Chrome, Edge nebo Safari s povoleným mikrofonem."),
+    h("label", { class: "frow" }, h("span", {}, "Odpovídat hlasem"), sw(c.speak !== false, v => save({ speak: v }))),
+    voiceSel, h("button", { type: "button", class: "dbtn", onclick: () => { stopSpeech(); if (!speak("Dobrý den, tady vaše asistentka. Schůzka s paní Šikulovou je v neděli prvního listopadu v patnáct hodin.")) H.toast("V tomhle zařízení není český hlas."); } }, "▶ Vyzkoušet hlas"),
+    h("p", { class: "hint", id: "aiVoiceHint" }),
     h("label", {}, "Počkat před provedením (s) ", delay),
     h("p", { class: "hint" }, "Po rozpoznání příkazu máš tuhle chvíli na zrušení. Příkazy s jiným než jednoznačným jménem, varováním nebo novým kontaktem se vždy provádějí až po tvém klepnutí."),
     h("label", { class: "frow" }, h("span", {}, "Připravit SMS klientovi po schůzce"), sw(c.sms !== false, v => save({ sms: v }))),
@@ -798,7 +1166,7 @@ function init(host) {
   if (!hotkeyBound) { hotkeyBound = true; document.addEventListener("keydown", onHotkey, true); document.addEventListener("keyup", onHotkeyUp, true); }
 }
 
-return Object.assign(api, { init, refresh, open, renderSettings });
+return Object.assign(api, { init, refresh, open, openVoice, closeVoice, renderSettings });
 });
 
 /* Host (dodává index.html):
@@ -808,4 +1176,6 @@ return Object.assign(api, { init, refresh, open, renderSettings });
    hasScope(s), requestScope(scope), gfetch(url,opt)
    addLead(data) → lead;  saveMeeting(lead,Date,online,{moveStage}) → {evId,...};  addNote(lead,text);  moveTo(lead,stage)
    tpls(), fillTpl(text,ctx), ensureMeet(eventId) → odkaz;  logLeadMsg(lead,{ch,tpl,start,meetId});  openMsg(ctx,tplId,onSent),  openSms(tel,text) → otevře Zprávy s předvyplněným textem
+   facts() → data pro odpovědi na dotazy: {today, tasks:[{text,client,due,who}], calls:[{name,date,step}], meets:[{name,start,online}],
+                quarter:{label,pts,kc,rate,nextRate,nextTier,need,perWeek,days}, month:{pts}, pipe:{active,meetings,pts,ptsKc,late}}
    openSheet(title,nodes), closeSheet(), toast(msg), demo (prezentační režim – nikdy neodesílá) */
