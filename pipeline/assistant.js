@@ -1,8 +1,10 @@
 /* Asistent v Pipeline: hlasový nebo psaný příkaz → plán akcí (schůzka, fáze, nový lead, zápis) → po krátkém okně na zrušení
    se provede stávajícími funkcemi appky a klientovi se pošle potvrzení ze šablony (e-mail přes Gmail sám, SMS jedním klepnutím).
 
-   Všechno běží přímo v telefonu: větu rozebírá pravidlový parser češtiny níže (understand), žádná AI služba, žádný server,
+   Základ běží přímo v zařízení: větu rozebírá pravidlový parser češtiny níže (understand), žádná AI služba, žádný server,
    žádné předplatné a z appky nic neodchází (kromě e-mailu klientovi přes tvůj Gmail). Diktování obstarává systém (Web Speech API / klávesnice).
+   Volitelně chytrý režim (jarvis.js, Gemini od Googlu, vlastní bezplatný klíč): volná konverzace, živý hovor, nástroje nad daty pipeline.
+   Zápisy z něj jdou stejnou cestou jako z parseru (buildPlan → karta s odpočtem → execute), model nic neprovádí sám.
 
    Čistá logika (párování jmen, čas, rozbor věty, plán akcí, MIME e-mail) nezávisí na prohlížeči a má testy: tests/assistant.run.mjs.
    Assistant.init(host) – host dodává funkce appky (viz konec souboru); Assistant.refresh() po změně nastavení. */
@@ -660,7 +662,7 @@ const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm,
 if (typeof document === "undefined") return api;
 
 let H = null, fab = null, busy = false, cur = null, hotkeyBound = false;
-const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true, speak: true, voice: "" };
+const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true, speak: true, voice: "", smart: true, mode: "live", barge: false, gvoice: "", gspeak: true, callMe: "" };
 const cfg = () => ({ ...DEFAULTS, ...((H && H.settings() && H.settings().ai) || {}) });
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -694,10 +696,12 @@ const CSS = `
 .aiVoice .veq i{display:block;width:7px;height:100%;border-radius:4px;background:linear-gradient(180deg,#9fd0ff,#5b8cff 55%,#b08cff);box-shadow:0 0 14px rgba(110,150,255,.55);transform:scaleY(.06);transform-origin:center;will-change:transform}
 .aiVoice[data-mode=speaking] .veq i{background:linear-gradient(180deg,#ffd0e8,#ff7ab8 55%,#ffb27a);box-shadow:0 0 14px rgba(255,122,184,.5)}
 .aiVoice .vstate{font-size:15px;opacity:.85;letter-spacing:.01em}
+.aiVoice .vcap{font-size:16px;line-height:1.35;opacity:.8;font-style:italic;max-width:100%;overflow-wrap:anywhere;min-height:1.35em}
 .aiVoice .vtext{font-size:22px;font-weight:600;line-height:1.3;min-height:1.3em;overflow-wrap:anywhere;text-shadow:0 1px 12px rgba(0,0,0,.35)}
 .aiVoice .vlog{width:100%;display:grid;gap:10px;text-align:left;max-height:42vh;overflow:auto;color:var(--label,#000)}
 .aiVoice .vans{background:var(--bg2,#fff);border:1px solid var(--sep,rgba(120,120,128,.28));border-radius:14px;padding:12px 14px;display:grid;gap:6px;font-size:15px;line-height:1.4}
 .aiVoice .vans p{margin:0}
+.aiVoice .vans[hidden]{display:none}
 .aiVoice .vbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .aiVoice .vbtns button{padding:10px 18px;border-radius:999px;font-weight:600;font-size:15px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.28)}
 .aiVoice .vx{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:16px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:18px;border:0}
@@ -711,7 +715,7 @@ function refresh() {
   const on = cfg().on && !H.demo;
   if (!on) { if (fab) fab.hidden = true; return; }
   addStyle();
-  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent (na počítači mezerník = mluvit)", "aria-label": "Asistent", onclick: () => (api.voiceSupported() ? openVoice({ listen: true }) : open()) }, "🎙︎"); document.body.append(fab); }
+  if (!fab) { fab = h("button", { id: "aiFab", type: "button", title: "Asistent (na počítači mezerník = mluvit)", "aria-label": "Asistent", onclick: () => (api.voiceSupported() || liveOk() ? openVoice({ listen: true }) : open()) }, "🎙︎"); document.body.append(fab); }
   fab.hidden = false;
 }
 
@@ -833,7 +837,7 @@ function planCard(plan, hooks) {
     plan.notes.forEach(p => card.append(h("div", { class: "note" }, p)));
     if (!runnable(plan)) { if (plan.problems.length) card.append(h("div", { class: "note" }, "Oprav příkaz a řekni ho znovu.")); return; }
     const go = () => { stopTimer(); run(); };
-    const no = () => { stopTimer(); phase = "cancelled"; cancelNote(); };
+    const no = () => { stopTimer(); phase = "cancelled"; cancelNote(); hooks.afterCancel && hooks.afterCancel(); };
     if (countdown != null) card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést hned"), h("button", { type: "button", class: "no", onclick: no }, "Zrušit (" + countdown + " s)")));
     else card.append(h("div", { class: "btns" }, h("button", { type: "button", class: "go", onclick: go }, "Provést"), h("button", { type: "button", class: "no", onclick: no }, "Zrušit")));
   };
@@ -863,8 +867,84 @@ function planCard(plan, hooks) {
       timer = setInterval(() => { left--; if (left <= 0) { stopTimer(); run(); } else draw(left); }, 1000);
     },
     stop: stopTimer,
-    cancel() { if (phase === "pending") { stopTimer(); phase = "cancelled"; cancelNote(); } },
+    phase: () => phase,
+    cancel() { if (phase === "pending") { stopTimer(); phase = "cancelled"; cancelNote(); return true; } return false; },
   };
+}
+
+/* ================= chytrý režim (jarvis.js, Gemini) =================
+   Model nic neprovádí sám: zápisové nástroje jen předají akce do buildPlan → planCard (odpočet / klepnutí) → execute.
+   sink = kam se karta s plánem zobrazí a co se má dít po provedení / zrušení: {owner, show(node, ui), beforeManual, onRun(out), onCancel()} */
+const JV = () => root.Jarvis || null;
+const smartOn = () => !!(JV() && H && !H.demo && cfg().smart !== false && JV().getKey());
+function liveOk() {
+  if (!smartOn() || cfg().mode === "rest") return false;
+  const nav = root.navigator || {};
+  return !!(nav.mediaDevices && nav.mediaDevices.getUserMedia && (root.AudioContext || root.webkitAudioContext) && root.AudioWorkletNode && root.WebSocket);
+}
+let pend = null;   /* plán, který čeká na odpočet / klepnutí: {ui, owner} */
+const pendingPlan = () => (pend && pend.ui.phase() === "pending" ? pend : null);
+function cancelPending() {
+  const p = pendingPlan();
+  if (!p) return { ok: true, cancelled: false, note: "Nic nečeká na provedení." };
+  p.ui.cancel(); pend = null;
+  return { ok: true, cancelled: true };
+}
+function proposePlan(actions, sink) {
+  const now = new Date();
+  const plan = buildPlan({ reply: "", actions }, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: 60 });
+  const prev = pendingPlan();
+  if (prev) prev.ui.cancel();   /* nový návrh nahrazuje starý, který ještě nebyl proveden */
+  if (!plan.steps.length && !plan.problems.length) return { ok: false, error: "Není co provést – klienta jsem v pipeline nenašla.", notes: plan.notes };
+  const ui = planCard(plan, {
+    beforeManual: sink.beforeManual,
+    afterRun: out => { if (pend && pend.ui === ui) pend = null; sink.onRun && sink.onRun(out); },
+    afterCancel: () => { if (pend && pend.ui === ui) pend = null; sink.onCancel && sink.onCancel(); },
+  });
+  pend = { ui, owner: sink.owner };
+  sink.show(ui.card, ui);
+  ui.start();
+  const amb = unresolved(plan), r = { ok: runnable(plan), steps: plan.steps.map(describeStep), problems: plan.problems, warnings: plan.warnings, notes: plan.notes };
+  if (amb.length) r.ambiguous = amb.map(s => ({ client: s.client_name, candidates: (s.candidates || []).map(c => c.name) }));
+  if (!runnable(plan)) r.instruction = amb.length ? "Víc klientů pasuje, zeptej se uživatele, kterého myslí (řekni jména). Uživatel může vybrat i klepnutím na obrazovce." : "Plán nejde provést. Řekni uživateli stručně, co je špatně, a zeptej se, jak dál.";
+  else if (ui.auto) { r.runs_automatically = true; r.seconds = ui.countdown; r.instruction = ui.countdown ? "Plán je na obrazovce a provede se sám za " + ui.countdown + " s, pokud ho uživatel nezruší. Řekni jednou větou, co se chystá (kdo, kdy, online nebo osobně). Výsledek ti pošle systém." : "Plán se právě provádí. Řekni jednou větou, co se děje. Výsledek ti pošle systém."; }
+  else { r.needs_tap = true; r.instruction = "Plán je na obrazovce, ale kvůli varování nebo nejistotě ho musí uživatel potvrdit klepnutím na Provést. Řekni mu to a přečti varování."; }
+  return r;
+}
+
+/* textový mozek: jedna konverzace na zařízení, nový klíč = nová konverzace */
+let brain = null, brainKey = "", brainSink = null;
+function getBrain() {
+  const J = JV(), key = J.getKey();
+  if (brain && brainKey === key) return brain;
+  const tools = J.makeTools(api, { now: () => new Date(), leads: () => H.leads(), facts: () => (H.facts ? H.facts() : null), propose: actions => proposePlan(actions, brainSink || { show() {}, owner: null }), cancelPending });
+  brainKey = key;
+  return (brain = new J.Brain({ key, sdk: J.loadSdk, system: () => J.systemPrompt(new Date(), { callMe: cfg().callMe }), declarations: tools.declarations, onTools: tools.runBatch }));
+}
+function smartAsk(text, sink) { const b = getBrain(); brainSink = sink; return b.ask(text); }
+
+/* hlas Gemini pro rychlý režim; bez úspěchu (limit, síť) se použije systémový hlas */
+let ttsToken = 0;
+function ensurePlayer(v) {
+  if (v.player) return v.player;
+  try { const AC = root.AudioContext || root.webkitAudioContext, ctx = new AC(); ctx.resume && ctx.resume(); v.player = new (JV().Player)(ctx); } catch (e) { v.player = null; }
+  return v.player;
+}
+function stopSmartSpeech() { ttsToken++; if (V && V.player) V.player.stop(); }
+async function speakSmart(text, done) {
+  const v = V, J = JV(), tok = ++ttsToken;
+  text = speechClean(text);
+  if (!text) { done && done(); return false; }
+  if (v && smartOn() && cfg().speak !== false && ensurePlayer(v)) {
+    try {
+      const d = await J.synth({ key: J.getKey(), sdk: J.loadSdk, voice: cfg().gvoice || J.DEFAULT_VOICE }, text);
+      if (V !== v || tok !== ttsToken) return true;
+      v.player.enqueue(d.pcm, d.rate);
+      setTimeout(() => { if (V === v && tok === ttsToken) done && done(); }, v.player.endsInMs + 80);
+      return true;
+    } catch (e) { /* hlas Gemini teď nejde → systémový hlas */ }
+  }
+  return speak(text, done);
 }
 
 /* ---- okno asistenta (psaní; diktování tlačítkem 🎙︎) ---- */
@@ -880,7 +960,7 @@ function open(opts) {
   const say = (cls, ...kids) => { const m = h("div", { class: "aiMsg " + cls }, ...kids); log.append(m); log.scrollTop = log.scrollHeight; return m; };
   const dlg = document.getElementById("edDlg");
   const ctl = { ta, listening: () => !!rec, toggleMic: () => {} };
-  const onClose = () => { uis.forEach(u => u.stop()); try { rec && rec.abort(); } catch (e) {} stopSpeech(); if (cur === ctl) cur = null; dlg && dlg.removeEventListener("close", onClose); };
+  const onClose = () => { uis.forEach(u => u.stop()); if (pend && pend.owner === ctl) { pend.ui.cancel(); pend = null; } try { rec && rec.abort(); } catch (e) {} stopSpeech(); if (cur === ctl) cur = null; dlg && dlg.removeEventListener("close", onClose); };
   dlg && dlg.addEventListener("close", onClose);
 
   const mic = api.voiceSupported() ? h("button", { type: "button", class: "mic", "aria-label": "Diktovat", onclick: () => toggleMic() }, "🎙︎") : null;
@@ -897,11 +977,10 @@ function open(opts) {
     if (!rec) mic.classList.remove("on");
   }
 
-  function submit(text) {
-    text = String(text || "").trim();
-    if (!text || busy) return;
-    ta.value = ""; say("me", text);
+  /* základní režim: pravidlový parser v zařízení */
+  function offline(text, note) {
     try {
+      if (note) say("bot", note);
       const res = understand(text, { leads: H.leads(), now: new Date() });
       if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, new Date()); say("bot", a.lines.join("\n")); return; }
       const plan = buildPlan(res, { leads: H.leads(), now: new Date(), calEvents: H.calEvents(), meetMinutes: 60 });
@@ -914,11 +993,28 @@ function open(opts) {
       }
     } catch (e) { say("bot", "⚠ " + (e.message || "Něco se pokazilo")); }
   }
+  let asking = false;
+  function submit(text) {
+    text = String(text || "").trim();
+    if (!text || busy || asking) return;
+    ta.value = ""; say("me", text);
+    if (!smartOn()) { offline(text); return; }
+    /* chytrý režim: odpověď Gemini; karty s plánem se řadí pod její bublinu */
+    asking = true;
+    const wait = say("bot", "…");
+    let anchor = wait;
+    const sink = { owner: ctl, show: (node, ui) => { uis.push(ui); const w = h("div", { class: "aiMsg bot", style: "max-width:100%;width:100%;padding:0;background:none" }, node); anchor.after(w); anchor = w; log.scrollTop = log.scrollHeight; } };
+    smartAsk(text, sink).then(r => {
+      asking = false;
+      if (r.text) wait.textContent = r.text; else wait.remove();
+      log.scrollTop = log.scrollHeight;
+    }, e => { asking = false; wait.remove(); offline(text, "⚠ " + JV().friendlyError(e) + " Zkouším základní režim."); });
+  }
 
   H.openSheet("Asistent", [
     log,
     h("div", { class: "aiIn" }, ta, mic, send),
-    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Nebo se zeptej: „Co mám dneska v úkolech?“ Vyhodnocuje se přímo v zařízení." + (mic ? " Na počítači: mezerník (když nepíšeš) spustí hlasového asistenta." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
+    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Nebo se zeptej: „Co mám dneska v úkolech?“ " + (smartOn() ? "Odpovídá chytrý režim (Gemini)." : "Vyhodnocuje se přímo v zařízení.") + (mic ? " Na počítači: mezerník (když nepíšeš) spustí hlasového asistenta." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
   ]);
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(ta.value); } });
   ctl.toggleMic = mic ? toggleMic : () => H.toast("Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.");
@@ -961,10 +1057,11 @@ function speak(text, done) {
 /* ---- hlasový asistent: rozmazaná appka, uprostřed ekvalizér, odpovídá hlasem ---- */
 let V = null;
 const EQ_BARS = 25, IDLE_HINT = "Mezerník = další příkaz · Esc = zavřít";
+const liveBtn = () => { const c = V && V.call; return !c || c.state === "closed" ? "🎙︎ Mluvit" : c.state === "speaking" ? "✋ Přerušit" : c.muted ? "🎙︎ Zapnout mikrofon" : "🔇 Ztlumit"; };
 function setMode(mode, text) {
   if (!V) return;
   V.mode = mode; V.el.dataset.mode = mode; V.stateEl.textContent = text || "";
-  V.micBtn.textContent = mode === "listening" ? "■ Hotovo" : "🎙︎ Mluvit";
+  V.micBtn.textContent = V.live ? liveBtn() : mode === "listening" ? "■ Hotovo" : "🎙︎ Mluvit";
 }
 function startMeter(v) {
   /* skutečná hlasitost z mikrofonu jen v Chromu/Edgi na počítači (jinde by druhý přístup k mikrofonu mohl rušit rozpoznávání) – jinak se ekvalizér jen animuje */
@@ -985,18 +1082,25 @@ function stopMeter(v) {
   try { m.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   try { m.ctx.close(); } catch (e) {}
 }
+/* skutečná hlasitost pro ekvalizér: živý hovor (mikrofon / hlas modelu), hlas Gemini v rychlém režimu, mikrofon při diktování; jinak null → animace */
+function eqLevels(v, mode) {
+  if (v.call && v.call.state !== "closed") return mode === "speaking" ? v.call.outLevels() : mode === "listening" && !v.call.muted ? v.call.micLevels() : null;
+  if (mode === "speaking" && v.player && v.player.playing) return v.player.levels();
+  if (mode === "listening" && v.meter) { v.meter.an.getByteFrequencyData(v.meter.data); return v.meter.data; }
+  return null;
+}
 function tick(ts) {
   const v = V; if (!v) return;
   v.raf = requestAnimationFrame(tick);
   if (v.reduce) return;
-  const t = ts / 1000, n = v.bars.length, mode = v.mode, m = v.meter;
-  if (m) m.an.getByteFrequencyData(m.data);
+  const t = ts / 1000, n = v.bars.length, mode = v.mode, d = eqLevels(v, mode);
   v.pulse = Math.max(0, v.pulse - 0.04);
   for (let i = 0; i < n; i++) {
     const w = 0.5 + 0.5 * Math.sin(Math.PI * (i + 0.5) / n);
+    const real = d ? Math.pow(d[1 + Math.floor(i * 22 / n)] / 255, 1.1) * 1.5 * w : 0;
     let tgt;
-    if (mode === "listening") tgt = m ? Math.pow(m.data[1 + Math.floor(i * 22 / n)] / 255, 1.1) * 1.5 * w : (0.12 + 0.5 * v.pulse) * (0.55 + 0.45 * Math.sin(t * 7 + i * 0.9)) * w + 0.06;
-    else if (mode === "speaking") tgt = (0.35 + 0.45 * v.pulse + 0.2 * Math.sin(t * 3.1)) * (0.5 + 0.5 * Math.sin(t * 9 + i * 1.3) * Math.cos(t * 4.3 + i * 0.5)) * w + 0.05;
+    if (mode === "listening") tgt = d ? real : (0.12 + 0.5 * v.pulse) * (0.55 + 0.45 * Math.sin(t * 7 + i * 0.9)) * w + 0.06;
+    else if (mode === "speaking") tgt = d ? real + 0.05 : (0.35 + 0.45 * v.pulse + 0.2 * Math.sin(t * 3.1)) * (0.5 + 0.5 * Math.sin(t * 9 + i * 1.3) * Math.cos(t * 4.3 + i * 0.5)) * w + 0.05;
     else if (mode === "thinking") tgt = 0.1 + 0.35 * Math.max(0, Math.sin(t * 6 - i * 0.55));
     else tgt = 0.05 + 0.04 * Math.sin(t * 1.6 + i * 0.4);
     const c = v.hs[i]; v.hs[i] = c + (tgt - c) * (tgt > c ? 0.55 : 0.16);
@@ -1006,46 +1110,53 @@ function tick(ts) {
 function openVoice(opts) {
   if (!H) return;
   if (!cfg().on) { H.toast("Asistent je vypnutý – zapni ho v nastavení."); return; }
-  if (!api.voiceSupported()) { open(); return; }
+  const live = liveOk();
+  if (!api.voiceSupported() && !live) { open(); return; }
   if (V) { if (opts && opts.listen) voiceToggle(); return; }
   unlockSpeech();
   addStyle();
   if (document.getElementById("edDlg") && document.getElementById("edDlg").open && cur) document.getElementById("edDlg").close();
   const bars = Array.from({ length: EQ_BARS }, () => h("i"));
-  const stateEl = h("div", { class: "vstate", "aria-live": "polite" }), textEl = h("div", { class: "vtext", "aria-live": "polite" }), logEl = h("div", { class: "vlog" });
-  const micBtn = h("button", { type: "button", class: "vmic", onclick: () => voiceToggle() }, "🎙︎ Mluvit");
+  const stateEl = h("div", { class: "vstate", "aria-live": "polite" }), textEl = h("div", { class: "vtext", "aria-live": "polite" }), capEl = h("div", { class: "vcap", "aria-live": "polite" }), logEl = h("div", { class: "vlog" });
+  const micBtn = h("button", { type: "button", class: "vmic", onclick: () => (V && V.live ? liveButton() : voiceToggle()) }, "🎙︎ Mluvit");
   const el = h("div", { class: "aiVoice", id: "aiVoice", role: "dialog", "aria-modal": "true", "aria-label": "Hlasový asistent", tabindex: "-1" },
     h("button", { type: "button", class: "vx", "aria-label": "Zavřít", onclick: () => closeVoice() }, "✕"),
-    h("div", { class: "vbox" }, h("div", { class: "veq", "aria-hidden": "true" }, bars), stateEl, textEl, logEl,
+    h("div", { class: "vbox" }, h("div", { class: "veq", "aria-hidden": "true" }, bars), stateEl, textEl, capEl, logEl,
       h("div", { class: "vbtns" }, micBtn, h("button", { type: "button", onclick: () => { closeVoice(); open(); } }, "⌨︎ Psát"))));
   document.body.append(el);
   const reduce = !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  V = { el, bars, stateEl, textEl, logEl, micBtn, mode: "idle", rec: null, meter: null, ui: null, pulse: 0, hs: bars.map(() => 0.06), reduce, raf: 0, err: "" };
+  V = { el, bars, stateEl, textEl, capEl, logEl, micBtn, mode: "idle", rec: null, meter: null, ui: null, pulse: 0, hs: bars.map(() => 0.06), reduce, raf: 0, err: "", live, call: null, player: null };
   if (reduce) bars.forEach(b => { b.style.transform = "scaleY(.3)"; });
   requestAnimationFrame(() => { if (el.isConnected) el.classList.add("on"); });
   el.focus({ preventScroll: true });
   V.raf = requestAnimationFrame(tick);
-  setMode("idle", IDLE_HINT);
-  if (!opts || opts.listen !== false) vListen();
+  setMode("idle", live ? "Připojuju se…" : IDLE_HINT);
+  if (live) vLive(); else if (!opts || opts.listen !== false) vListen();
 }
 function closeVoice() {
   if (!V) return;
   const v = V; V = null;
   try { v.rec && v.rec.abort(); } catch (e) {}
-  stopMeter(v); stopSpeech(); v.ui && v.ui.stop(); cancelAnimationFrame(v.raf);
+  try { v.call && v.call.stop(); } catch (e) {}
+  stopMeter(v); stopSpeech(); ttsToken++;
+  if (v.player) { try { v.player.stop(); v.player.ctx.close(); } catch (e) {} }
+  v.ui && v.ui.stop();
+  if (pend && pend.owner === v) { pend.ui.cancel(); pend = null; }
+  cancelAnimationFrame(v.raf);
   v.el.classList.remove("on"); setTimeout(() => v.el.remove(), 200);
   if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();   /* ať mezerník po zavření nemačká dřívější tlačítko */
 }
 function voiceToggle() {
   if (!V || busy) return;
   unlockSpeech();
+  if (V.live) { liveSpace(); return; }
   if (V.rec) { V.rec.stop(); return; }
-  stopSpeech(); vListen();
+  stopSpeech(); stopSmartSpeech(); vListen();
 }
 function vListen() {
   const v = V; if (!v || v.rec) return;
   v.ui && v.ui.cancel();   /* čekající příkaz s odpočtem se novou větou ruší – a je to vidět */
-  v.textEl.textContent = ""; v.err = "";
+  v.textEl.textContent = ""; v.capEl.textContent = ""; v.err = "";
   setMode("listening", "Poslouchám… (mezerník = hotovo)");
   const handle = listen({
     onText: t => { if (V === v) { v.textEl.textContent = t; v.pulse = 1; } },
@@ -1062,16 +1173,95 @@ function vListen() {
 }
 function vSay(text) {
   const v = V; if (!v) return;
-  if (!text || !speakOn()) { setMode("idle", IDLE_HINT); return; }
+  if (!text || cfg().speak === false) { setMode("idle", IDLE_HINT); return; }
+  const smart = smartOn();
+  if (!smart && !speakOn()) { setMode("idle", IDLE_HINT); return; }
   setMode("speaking", "Odpovídám…");
-  const ok = speak(text, () => { if (V === v && v.mode === "speaking") setMode("idle", IDLE_HINT); });
-  if (!ok) setMode("idle", IDLE_HINT);
+  const fin = () => { if (V === v && v.mode === "speaking") setMode("idle", IDLE_HINT); };
+  Promise.resolve(smart ? speakSmart(text, fin) : speak(text, fin)).then(ok => { if (!ok) fin(); });
 }
-function vHandle(text) {
+
+/* ---- živý hovor (Gemini Live): mluvíš volně, mikrofon běží, odpovídá přirozeným hlasem ---- */
+function liveMode(v, st) {
+  const c = v.call;
+  if (st === "listening") setMode("listening", c && c.muted ? "Mikrofon je ztlumený." : "Poslouchám… (mluv volně)");
+  else if (st === "thinking" || st === "connecting") setMode("thinking", st === "connecting" ? "Připojuju se…" : "Zpracovávám…");
+  else if (st === "speaking") setMode("speaking", "Odpovídám… (mezerník = přeruš)");
+}
+function liveSink(v, call) {
+  return {
+    owner: v,
+    show: (node, ui) => { v.ui = ui; v.logEl.append(node); while (v.logEl.children.length > 3) v.logEl.firstChild.remove(); },
+    beforeManual: () => closeVoice(),
+    onRun: out => {
+      const bad = out.lines.some(l => /^✗/.test(l));
+      call.sendText("[Systém] " + (bad ? "Chyba při provedení: " : "Provedeno: ") + out.lines.join(" | ").slice(0, 600)
+        + (out.smsJobs.length ? " SMS klientovi je připravená, stačí klepnout na Odeslat." : "") + (out.manuals.length ? " Potvrzení klientovi je nutné poslat ručně (tlačítko na obrazovce)." : "") + (bad ? " Řekni uživateli, že se něco nepovedlo." : ""));
+    },
+    onCancel: () => call.sendText("[Systém] Zrušeno. Uživatel plán zrušil, nic se neprovedlo."),
+  };
+}
+function vLive() {
+  const v = V, J = JV(); if (!v || !J || v.call) return;
+  v.live = true; v.textEl.textContent = ""; v.capEl.textContent = "";
+  setMode("thinking", "Připojuju se…");
+  const tools = J.makeTools(api, { now: () => new Date(), leads: () => H.leads(), facts: () => (H.facts ? H.facts() : null), propose: actions => proposePlan(actions, liveSink(v, call)), cancelPending });
+  const call = new J.LiveCall({
+    key: J.getKey(), sdk: J.loadSdk, voice: cfg().gvoice || J.DEFAULT_VOICE, system: J.systemPrompt(new Date(), { callMe: cfg().callMe }), declarations: tools.declarations,
+    bargeIn: cfg().barge === true, idleMs: 2 * 60000,
+    onTools: calls => tools.runBatch(calls),
+    onState: st => { if (V === v && v.call === call) liveMode(v, st); },
+    onUser: t => { if (V === v && v.call === call) { v.textEl.textContent = t; v.capEl.textContent = ""; } },
+    onModel: t => { if (V === v && v.call === call) v.capEl.textContent = t; },
+    onClosed: msg => liveEnded(v, call, msg),
+    onIdle: () => { if (V === v && v.call === call) { v.call = null; setMode("idle", "Spím. Stiskni mezerník a vzbudím se."); } },
+  });
+  v.call = call;
+  call.start().catch(e => liveEnded(v, call, J.friendlyError(e)));
+}
+function liveEnded(v, call, msg) {
+  if (V !== v || v.call !== call) return;
+  v.call = null; v.live = false;   /* další příkaz půjde rychlým režimem (rozpoznávání řeči prohlížeče), pokud ho prohlížeč umí */
+  setMode("idle", msg + (api.voiceSupported() ? " Přepnula jsem na rychlý režim – stiskni mezerník." : ""));
+}
+function liveSpace() {
+  const v = V, c = v.call;
+  if (v.ui && v.ui.auto && v.ui.phase() === "pending") {   /* běží odpočet → mezerník plán zruší */
+    v.ui.cancel(); if (pend && pend.ui === v.ui) pend = null;
+    if (c) c.sendText("[Systém] Zrušeno. Uživatel plán zrušil, nic se neprovedlo.");
+    return;
+  }
+  if (!c) { vLive(); return; }
+  if (c.state === "speaking") c.interrupt();
+}
+function liveButton() {
+  const v = V, c = v.call;
+  if (!c || c.state === "closed") { vLive(); return; }
+  if (c.state === "speaking") { c.interrupt(); return; }
+  c.setMuted(!c.muted); liveMode(v, c.state);
+}
+
+/* ---- rychlý režim: rozpoznávání řeči prohlížeče → mozek Gemini → hlas Gemini ---- */
+function vHandle(text) { if (smartOn()) vSmart(text); else vHandleOffline(text); }
+function vSmart(text) {
+  const v = V; if (!v) return;
+  v.textEl.textContent = text; v.capEl.textContent = ""; v.logEl.replaceChildren(); v.ui = null;
+  setMode("thinking", "Přemýšlím…");
+  const ans = h("div", { class: "vans", hidden: true }); v.logEl.append(ans);
+  const sink = { owner: v, show: (node, ui) => { v.ui = ui; v.logEl.append(node); }, beforeManual: () => closeVoice(), onRun: out => { if (V === v) vSay(spokenDone(out)); } };
+  smartAsk(text, sink).then(r => {
+    if (V !== v) return;
+    if (r.text) { ans.hidden = false; ans.append(h("p", {}, r.text)); vSay(r.text); } else setMode("idle", IDLE_HINT);
+  }, e => { if (V === v) vHandleOffline(text, JV().friendlyError(e) + " Používám základní režim."); });
+}
+
+/* ---- základní režim: pravidlový parser v zařízení ---- */
+function vHandleOffline(text, note) {
   const v = V; if (!v) return;
   v.textEl.textContent = text; v.logEl.replaceChildren(); v.ui = null;
   setMode("thinking", "Zpracovávám…");
   const now = new Date(), say = (...lines) => v.logEl.append(h("div", { class: "vans" }, lines.map(l => h("p", {}, l))));
+  if (note) say("⚠ " + note);
   try {
     const res = understand(text, { leads: H.leads(), now });
     if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, now); say(...a.lines); vSay(a.speak); return; }
@@ -1118,6 +1308,53 @@ function onHotkey(e) {
 function onHotkeyUp(e) { if (swallowUp && (e.code === "Space" || e.key === " ")) { swallowUp = false; e.preventDefault(); } }
 
 /* ---- nastavení ---- */
+/* ---- nastavení chytrého režimu (klíč, režim, hlas, zkouška spojení) ---- */
+function smartSettings(c, save, sw) {
+  const J = JV();
+  if (!J) return [h("label", {}, "Chytrý režim (Gemini)"), h("p", { class: "hint" }, "Chytrý režim se nenačetl (chybí jarvis.js). Obnov stránku.")];
+  const status = h("p", { class: "hint", id: "aiKeyStatus" });
+  const upd = () => { const k = J.getKey(); status.textContent = k ? "Klíč je uložený jen v tomhle zařízení (" + J.maskKey(k) + ")." : "Klíč není vložený – asistentka používá základní režim."; };
+  const key = h("input", { type: "password", placeholder: "Vlož klíč z AI Studia (AIza…)", autocomplete: "off", spellcheck: "false", "aria-label": "Klíč Gemini", name: "gem-key-field" });
+  const saveKey = h("button", { type: "button", class: "dbtn", onclick: () => { if (J.setKey(key.value)) { key.value = ""; upd(); H.toast("Klíč uložen jen v tomhle zařízení"); refresh(); } else H.toast("Tohle nevypadá jako klíč (bez mezer, aspoň 20 znaků)."); } }, "Uložit klíč");
+  const delKey = h("button", { type: "button", class: "dbtn", onclick: () => { J.clearKey(); upd(); refresh(); H.toast("Klíč smazán"); } }, "Smazat klíč");
+  upd();
+  const modeSel = h("select", { "aria-label": "Režim chytrého asistenta" }, h("option", { value: "live" }, "Živý hovor – mluvíš volně, mikrofon poslouchá"), h("option", { value: "rest" }, "Rychlý – diktování prohlížeče + hlas Gemini"));
+  modeSel.value = c.mode === "rest" ? "rest" : "live"; modeSel.onchange = () => save({ mode: modeSel.value });
+  const voiceSel = h("select", { "aria-label": "Hlas Gemini" }, J.VOICES.map(([id, label]) => h("option", { value: id }, label)));
+  voiceSel.value = J.VOICES.some(v => v[0] === c.gvoice) ? c.gvoice : J.DEFAULT_VOICE; voiceSel.onchange = () => save({ gvoice: voiceSel.value });
+  const play = h("button", { type: "button", class: "dbtn", onclick: async () => {
+    if (!J.getKey()) { H.toast("Nejdřív vlož klíč."); return; }
+    let ctx; try { const AC = root.AudioContext || root.webkitAudioContext; ctx = new AC(); ctx.resume && ctx.resume(); } catch (e) { H.toast("Přehrávání zvuku tu nejde."); return; }
+    play.disabled = true;
+    try { const d = await J.synth({ key: J.getKey(), sdk: J.loadSdk, voice: voiceSel.value, noCache: true }, "Dobrý den, tady vaše asistentka. Schůzka s paní Šikulovou je v neděli prvního listopadu v patnáct hodin."); const pl = new J.Player(ctx); pl.enqueue(d.pcm, d.rate); setTimeout(() => { try { ctx.close(); } catch (e) {} }, pl.endsInMs + 600); }
+    catch (e) { H.toast(J.friendlyError(e)); try { ctx.close(); } catch (e2) {} }
+    play.disabled = false;
+  } }, "▶ Vyzkoušet hlas Gemini");
+  const callMe = h("input", { placeholder: "např. Vojto (volitelné)", autocomplete: "off", "aria-label": "Oslovení" }); callMe.value = c.callMe || ""; callMe.onchange = () => save({ callMe: callMe.value.trim().slice(0, 30) });
+  const out = h("div", { class: "hint", id: "aiTestOut" });
+  const test = h("button", { type: "button", class: "dbtn", onclick: async () => {
+    if (!J.getKey()) { H.toast("Nejdřív vlož klíč."); return; }
+    let ctx; try { const AC = root.AudioContext || root.webkitAudioContext; ctx = new AC(); ctx.resume && ctx.resume(); } catch (e) { ctx = null; }
+    test.disabled = true; out.replaceChildren(h("div", {}, "Zkouším spojení s Gemini…"));
+    const r = await J.selfTest({ key: J.getKey(), sdk: J.loadSdk, voice: voiceSel.value }, (ok, t) => out.append(h("div", { style: "color:var(--" + (ok ? "green" : "red") + ")" }, (ok ? "✓ " : "✗ ") + t))).catch(e => { out.append(h("div", { style: "color:var(--red)" }, "✗ " + J.friendlyError(e))); return {}; });
+    if (ctx) { if (r.ttsAudio) { const pl = new J.Player(ctx); pl.enqueue(r.ttsAudio.pcm, r.ttsAudio.rate); setTimeout(() => { try { ctx.close(); } catch (e) {} }, pl.endsInMs + 600); } else try { ctx.close(); } catch (e) {} }
+    test.disabled = false;
+  } }, "Otestovat spojení s Gemini");
+  return [
+    h("label", {}, "Chytrý režim (Gemini od Googlu)"),
+    h("p", { class: "hint" }, "Volná konverzace jako s Jarvisem: asistentka rozumí běžné češtině, doptává se, čte ti data z pipeline a navrhuje zápisy (provádí je stejná karta s odpočtem jako dřív). Zdarma: klíč si vytvoříš na aistudio.google.com/apikey (účet Google, bez karty) a vložíš sem."),
+    key, h("div", { class: "btns", style: "display:flex;gap:8px;flex-wrap:wrap;margin:6px 0" }, saveKey, delKey), status,
+    h("label", { class: "frow" }, h("span", {}, "Použít chytrý režim"), sw(c.smart !== false, v => save({ smart: v }))),
+    h("label", {}, "Režim"), modeSel,
+    h("label", {}, "Hlas asistentky (Gemini)"), voiceSel, play,
+    h("label", { class: "frow" }, h("span", {}, "Skákání do řeči (doporučena sluchátka)"), sw(c.barge === true, v => save({ barge: v }))),
+    h("p", { class: "hint" }, "Vypnuto: když asistentka mluví, mikrofon mlčí (nezachytí vlastní hlas z reproduktorů); přerušíš ji mezerníkem nebo tlačítkem. Zapnuto: můžeš jí skočit do řeči hlasem, ale na reproduktorech se může slyšet sama."),
+    h("label", {}, "Oslovení", callMe),
+    test, out,
+    h("p", { class: "hint" }, "Soukromí: Googlu jde to, co řekneš nebo napíšeš, a data z pipeline, na která se asistentka zeptá (jména klientů, termíny, úkoly, tvoje body a provize). Telefony, e-maily ani poznámky o klientech se modelu neposílají (kromě toho, co sám nadiktuješ). Podle podmínek Gemini API (ai.google.dev/gemini-api/terms) platí pro vývojáře z EU, Švýcarska a Británie i u bezplatné kvóty pravidla placených služeb: obsah se nepoužívá ke zlepšování produktů, jen se krátce loguje kvůli zneužití. Jestli smíš jména klientů takhle zpracovávat, si ověř u ZFP (GDPR). Klíč smaž, kdybys zařízení ztratil/a (a zruš ho v AI Studiu). Bez klíče nebo při výpadku funguje základní režim v zařízení."),
+  ];
+}
+
 function renderSettings(box) {
   if (!box || !H) return;
   const c = cfg(), save = async patch => { try { await H.saveSettings({ ai: { ...cfg(), ...patch } }); refresh(); } catch (e) { H.toast("Nepodařilo se uložit"); } };
@@ -1144,7 +1381,8 @@ function renderSettings(box) {
   box.replaceChildren(
     h("label", {}, "Asistent (psaní a hlas)"),
     h("label", { class: "frow" }, h("span", {}, "Zapnout asistenta"), sw(c.on, v => save({ on: v }))),
-    h("p", { class: "hint" }, "Žádná AI služba ani předplatné: větu vyhodnocuje appka přímo v zařízení. Rozumí příkazům (schůzka, podpis, nabídka, zápis, nový kontakt) a dotazům („Co mám dneska v úkolech?“, „Jaké jsou moje výsledky?“, „Kdy mám schůzku s Novákem?“). Pozor: převod hlasu na text dělá prohlížeč – Chrome a Edge posílají nahrávku svému rozpoznávání řeči (Google, Microsoft), Safari Applu. Jména klientů tak při diktování mohou opustit zařízení; co napíšeš, zůstává jen tady."),
+    h("p", { class: "hint" }, "Základní režim (bez klíče): větu vyhodnocuje appka přímo v zařízení, žádná AI služba ani předplatné. Rozumí pevným příkazům (schůzka, podpis, nabídka, zápis, nový kontakt) a dotazům („Co mám dneska v úkolech?“, „Jaké jsou moje výsledky?“, „Kdy mám schůzku s Novákem?“). Pozor: převod hlasu na text dělá prohlížeč – Chrome a Edge posílají nahrávku svému rozpoznávání řeči (Google, Microsoft), Safari Applu. Jména klientů tak při diktování mohou opustit zařízení; co napíšeš, zůstává jen tady."),
+    ...smartSettings(c, save, sw),
     h("label", { class: "frow" }, h("span", {}, "Mezerník spustí hlasového asistenta (počítač)"), sw(c.hotkey !== false, v => save({ hotkey: v }))),
     h("p", { class: "hint" }, "Když zrovna nic nepíšeš a není otevřené jiné okno, mezerník rozmaže appku, otevře ekvalizér a začne poslouchat; druhým stiskem poslech skončí a příkaz se zpracuje, dalším začneš nový. Esc zavře. Potřebuje Chrome, Edge nebo Safari s povoleným mikrofonem."),
     h("label", { class: "frow" }, h("span", {}, "Odpovídat hlasem"), sw(c.speak !== false, v => save({ speak: v }))),

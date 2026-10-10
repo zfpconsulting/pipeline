@@ -36,9 +36,10 @@ const canon = v => JSON.stringify(v, (k, x) => x && typeof x === "object" && !Ar
 export function eq(a, b, msg) { if (canon(a) !== canon(b)) throw new AssertionError(`${msg}: čekáno ${canon(b)}, je ${canon(a)}`); }
 
 /* nová stránka s přihlášeným (fiktivně) adminem, bez sítě ke Googlu; store = počáteční data appky */
-export async function openApp(env, { store = null, width = 430, height = 900, extra = null } = {}) {
+export async function openApp(env, { store = null, width = 430, height = 900, extra = null, pre = null } = {}) {
   const ctx = await env.browser.newContext({ viewport: { width, height } });
   const page = await ctx.newPage();
+  if (pre) await pre(page, ctx);   /* např. podvržené WebSockety – musí být zaregistrované před načtením stránky */
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   const hb = [];

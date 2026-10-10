@@ -1340,7 +1340,7 @@ const AppLock=(()=>{
     $("lockPin").addEventListener("keydown",e=>{if(e.key==="Enter")tryPin($("lockPin").value)});
     $("lockPin").addEventListener("input",()=>{const v=$("lockPin").value,c=cfg();if(c&&c.pin&&v.length>=(c.pin.len||4))tryPin(v)});
     $("lockForgot").onclick=()=>{if(!confirm("Odemknout nejde? Data z tohoto zařízení se smažou a zámek se vypne. Na Google Disku zůstanou – po přihlášení Googlem se stáhnou zpět."))return;
-      setCfg(null);let w;try{LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","g_tok","g_ok","pp_docs_folder"].forEach(k=>localStorage.removeItem(k));w=window.Docs?Docs.wipe():indexedDB.deleteDatabase("pp_docs")}catch(e){}reloadAfter(w)};
+      setCfg(null);let w;try{LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","g_tok","g_ok","pp_docs_folder","gem_key"].forEach(k=>localStorage.removeItem(k));w=window.Docs?Docs.wipe():indexedDB.deleteDatabase("pp_docs")}catch(e){}reloadAfter(w)};
     ["pointerdown","keydown","touchstart","wheel"].forEach(ev=>addEventListener(ev,()=>{if(!locked)lastAct=Date.now()},{capture:true,passive:true}));
     document.addEventListener("visibilitychange",()=>{const c=cfg();if(!c)return;
       if(document.visibilityState==="hidden"){hiddenAt=Date.now();if(!(+c.min))show()}
@@ -1535,7 +1535,7 @@ async function gfetch(url,opt={}){
   return r;
 }
 
-function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","fc_draft_v1","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at","as_snap_sig","as_auto","as_inv_at","pp_docs_folder"].forEach(k=>localStorage.removeItem(k));
+function wipeLocal(){LStore.replace({});["g_fid","g_synced","cal_cache","cal_hist","fc_draft_v1","as_flag","as_adv","as_asst","as_invites","as_notified","as_snap_at","as_snap_sig","as_auto","as_inv_at","pp_docs_folder","gem_key"].forEach(k=>localStorage.removeItem(k));
   /* obsah souborů u klientů (IndexedDB) – vrací slib, ať s ním jde počkat před reloadem */
   try{return window.Docs?Docs.wipe():Promise.resolve()}catch(e){return Promise.resolve()}}
 /* reload až po smazání souborů (max 1,5 s), jinak by ho přerušil */
@@ -6978,7 +6978,8 @@ const PP_ENC="v1.bNSPw2v-Scx2Eiccfg4sgg.tSwvUcdpKuOqe1fI.OnaA_T5EC7cR2HJOM8Y_omz
 </script>
 <script src="photoedit.js?v=1" defer></script>
 <script src="docs.js?v=2" defer></script>
-<script src="assistant.js?v=3" defer></script>
+<script src="assistant.js?v=4" defer></script>
+<script src="jarvis.js?v=1" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */

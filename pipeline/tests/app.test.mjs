@@ -19,12 +19,12 @@ const DAY_PH = ["v neděli", "v pondělí", "v úterý", "ve středu", "ve čtvr
 /* „za n dní“ jako česká věta a jako ISO čas – n = 2…6, ať se nikdy netrefí na dnešek ani na „zítra“ */
 const inDays = (n, hour) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(hour, 0, 0, 0);
   const z = x => String(x).padStart(2, "0"); return { say: DAY_PH[d.getDay()], iso: d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate()) + "T" + z(hour) + ":00" }; };
-async function aiApp(env, { delay = 0, tpls = [TPL_ONLINE, TPL_MEET], leads = {}, ai = {}, scope = "calendar.events gmail.send" } = {}) {
+async function aiApp(env, { delay = 0, tpls = [TPL_ONLINE, TPL_MEET], leads = {}, ai = {}, scope = "calendar.events gmail.send", pre = null } = {}) {
   const store = { ...STORE,
     "settings/main": { ...STORE["settings/main"], calPrefix: "VK:", calId: "primary", tpls, ai: { on: true, delay, sms: true, mail: true, from: "", ...ai } },
     "leads/n1": { name: "Jan Novák", phone: "777 111 222", email: "novak@example.com", stage: "kontaktovan", items: [], meetings: [], log: [], _u: 1 },
     ...leads };
-  const { ctx, page, errors } = await openApp(env, { store });
+  const { ctx, page, errors } = await openApp(env, { store, pre });
   const calls = { cal: [], mail: [], outside: [] };
   const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
   const json = (route, obj, status = 200) => route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify(obj) });
@@ -67,6 +67,56 @@ const dmIn = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.g
 const SIKULOVA = { "leads/s1": { name: "Eva Šikulová", phone: "777 333 444", email: "", stage: "kontaktovan", items: [], meetings: [], log: [], _u: 1 } };
 const noFocus = page => page.evaluate(() => document.activeElement && document.activeElement.blur());
 const voiceBars = page => page.evaluate(() => [...document.querySelectorAll(".aiVoice .veq i")].map(i => i.style.transform).join());
+
+/* ---------- chytrý režim (Gemini): síť k Googlu AI je podvržená (REST i WebSocket), klíč je testovací ---------- */
+const GKEY = "AIzaSyTESTKEY0123456789abcdefghij";
+const GEM_CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
+const gen = parts => ({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP", index: 0 }] });
+const pcmPart = (n, rate = 24000) => ({ inlineData: { data: Buffer.from(new Int16Array(n).fill(1000).buffer).toString("base64"), mimeType: "audio/L16;codec=pcm;rate=" + rate } });
+const fcPart = (name, args, id) => ({ functionCall: { id, name, args } });
+const lastPart = body => { const c = body.contents[body.contents.length - 1]; return c.parts[0]; };
+const until = async (f, what, ms = 10000) => { const t0 = Date.now(); for (;;) { const v = await f(); if (v) return v; if (Date.now() - t0 > ms) throw new Error("nedočkáno: " + what); await new Promise(r => setTimeout(r, 40)); } };
+const PRIVATE = ["777 111 222", "777111222", "novak@example.com"];
+/* rest({model, body, n, all}) → {status?, body}; ws(sock, msg) se zavolá na každou zprávu od appky (setup se potvrdí sám, pokud ws nevrátí false) */
+async function smartApp(env, { rest = null, ws = null, key = GKEY, ...o } = {}) {
+  const gem = { rest: [], socks: [] };
+  const r = await aiApp(env, { ...o, pre: page => page.routeWebSocket(/BidiGenerateContent/, w => {
+    const sock = { url: w.url(), sent: [], closed: false, send: m => w.send(JSON.stringify(m)), close: (code, reason) => w.close({ code, reason }) };
+    gem.socks.push(sock);
+    w.onMessage(raw => {
+      const m = JSON.parse(String(raw)); sock.sent.push(m);
+      const handled = ws ? ws(sock, m) : undefined;
+      if (m.setup && handled !== false) sock.send({ setupComplete: {} });
+    });
+    w.onClose(() => { sock.closed = true; });
+  }) });
+  await r.ctx.route(/generativelanguage\.googleapis\.com/, async route => {
+    const q = route.request();
+    if (q.method() === "OPTIONS") return route.fulfill({ status: 204, headers: GEM_CORS });
+    const body = JSON.parse(q.postData() || "null"), model = (q.url().match(/models\/([^:/]+):/) || [])[1];
+    const rec = { url: q.url(), model, body, headers: q.headers() }; gem.rest.push(rec);
+    const out = rest ? await rest({ model, body, n: gem.rest.length, all: gem.rest }) : { body: /tts/.test(model) ? gen([pcmPart(7200)]) : gen([{ text: "Dobře." }]) };
+    await route.fulfill({ status: out.status || 200, headers: GEM_CORS, contentType: "application/json", body: JSON.stringify(out.body) });
+  });
+  if (key) await r.page.evaluate(k => { Jarvis.setKey(k); Assistant.refresh(); }, key);
+  gem.everything = () => JSON.stringify([gem.rest.map(x => x.body), gem.socks.map(s => s.sent)]);
+  return { ...r, gem };
+}
+/* mikrofon: tón 440 Hz jako MediaStream (stránka nemá skutečný mikrofon); počítá otevření a zastavení stopy */
+const fakeMic = page => page.evaluate(() => {
+  window.__mic = { asked: 0, stopped: 0 };
+  navigator.mediaDevices.getUserMedia = async () => {
+    window.__mic.asked++;
+    const ac = new AudioContext(), o = ac.createOscillator(), d = ac.createMediaStreamDestination();
+    o.frequency.value = 440; o.connect(d); o.start(); ac.resume && ac.resume();
+    const tr = d.stream.getAudioTracks()[0], stop = tr.stop.bind(tr);
+    tr.stop = () => { window.__mic.stopped++; stop(); ac.close().catch(() => {}); };
+    return d.stream;
+  };
+});
+/* nastavení asistenta je v okně Data a synchronizace */
+const openData = async page => { await page.evaluate(() => { document.getElementById("dataDlg").showModal(); Assistant.renderSettings(document.getElementById("aiCfg")); }); await page.waitForTimeout(300); };
+const noPrivate = (gem, msg) => { const s = gem.everything(); for (const p of PRIVATE) assert(!s.includes(p), msg + ": modelu se poslalo „" + p + "“"); };
 
 export default {
   async "appka naběhne a všechny záložky se vykreslí bez chyb"(env) {
@@ -605,20 +655,252 @@ export default {
     await ctx.close();
   },
 
-  async "asistent: nastavení neobsahuje žádný server ani klíč, nabídne povolení Gmailu a vybere český hlas"(env) {
-    const { ctx, page, errors } = await aiApp(env, { scope: "calendar.events" });
+  async "asistent: nastavení nabízí klíč Gemini (bez něj nejde nic Googlu AI), povolení Gmailu a český hlas systému"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env, { scope: "calendar.events" });
     await fakeVoice(page);
     await page.evaluate(() => Assistant.renderSettings(document.getElementById("aiCfg"))); await page.waitForTimeout(300);
     const t = await page.locator("#aiCfg").innerText();
-    assert(/Žádná AI služba/.test(t) && !/Worker|Anthropic|klíč/.test(t), "texty nastavení: " + t);
+    assert(/Základní režim \(bez klíče\)/.test(t) && !/Worker|Anthropic/.test(t), "texty nastavení: " + t);
+    assert(/Klíč není vložený/.test(t), "bez klíče: " + t);
+    assert(/aistudio\.google\.com\/apikey/.test(t) && /GDPR/.test(t), "návod ke klíči a upozornění na soukromí");
     assert(/Chrome a Edge posílají nahrávku/.test(t), "upozornění, kam jde diktování: " + t);
     assert(/Odpovídat hlasem/.test(t), "přepínač hlasu");
     assert(/Povolit odesílání e-mailů z Gmailu/.test(t), "nabídka povolení Gmailu");
     eq(await page.locator("#aiCfg input[placeholder*='workers.dev']").count(), 0, "žádné pole pro adresu serveru");
-    eq(await page.locator("#aiCfg select option").allInnerTexts(), ["Hlas: automaticky (Zuzana)", "Jakub", "Zuzana"], "nabídka českých hlasů");
-    await page.evaluate(() => [...document.querySelectorAll("#aiCfg button")].find(b => /Vyzkoušet/.test(b.textContent)).click()); await page.waitForFunction(() => window.__spoken.length === 1);
+    eq(await page.locator("#aiCfg input[aria-label='Klíč Gemini']").count(), 1, "pole pro klíč");
+    eq(await page.locator("#aiCfg select[aria-label='Hlas asistentky'] option").allInnerTexts(), ["Hlas: automaticky (Zuzana)", "Jakub", "Zuzana"], "nabídka českých hlasů");
+    await page.evaluate(() => [...document.querySelectorAll("#aiCfg button")].find(b => b.textContent.trim() === "▶ Vyzkoušet hlas").click()); await page.waitForFunction(() => window.__spoken.length === 1);
     eq((await page.evaluate(() => window.__spoken))[0].voice, "Zuzana", "ukázka mluví vybraným hlasem");
-    await ctx.close();
+    /* bez klíče asistent funguje v zařízení a Googlu AI se nic neposílá */
+    await closeDialogs(page); await page.waitForTimeout(400);
+    await aiSay(page, "Poznámka k Novákovi: ahoj");
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Zápis u Jan Novák')", { timeout: 10000 });
+    eq(calls.outside.filter(u => /generativelanguage/.test(u)), [], "bez klíče nic Googlu AI");
     eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim: klíč zůstává jen v zařízení (ne v synchronizovaných datech), špatný tvar se odmítne, jde smazat"(env) {
+    const { ctx, page, errors, calls } = await aiApp(env);
+    await openData(page);
+    const fld = "#aiCfg input[aria-label='Klíč Gemini']";
+    await page.fill(fld, "tohle není klíč"); await page.click("#aiCfg button:has-text('Uložit klíč')");
+    eq(await page.evaluate(() => localStorage.getItem("gem_key")), null, "špatný tvar se neuloží");
+    await page.fill(fld, GKEY); await page.click("#aiCfg button:has-text('Uložit klíč')"); await page.waitForTimeout(500);
+    eq(await page.evaluate(() => localStorage.getItem("gem_key")), GKEY, "klíč je v zařízení");
+    const st = await page.locator("#aiKeyStatus").innerText();
+    assert(/uložený jen v tomhle zařízení/.test(st) && !st.includes(GKEY), "stav ukáže jen zakrytý klíč: " + st);
+    eq(await page.inputValue(fld), "", "pole se po uložení vyprázdní");
+    await page.waitForTimeout(600);   /* ať proběhne případné ukládání nastavení do úložiště */
+    const leak = await page.evaluate(k => { const bad = []; for (let i = 0; i < localStorage.length; i++) { const n = localStorage.key(i); if (n !== "gem_key" && localStorage.getItem(n).includes(k)) bad.push(n); } if (JSON.stringify(settings).includes(k)) bad.push("settings"); return bad; }, GKEY);
+    eq(leak, [], "klíč není nikde jinde (synchronizace do Disku, nastavení)");
+    await page.evaluate(() => Assistant.open()); await page.waitForSelector("dialog[open] .aiHint");
+    assert(/chytrý režim/i.test(await page.locator("dialog[open] .aiHint").innerText()), "okno asistenta hlásí chytrý režim");
+    await closeDialogs(page); await page.waitForTimeout(400);
+    await openData(page);
+    await page.click("#aiCfg button:has-text('Smazat klíč')");
+    eq(await page.evaluate(() => localStorage.getItem("gem_key")), null, "klíč smazán");
+    assert(/Klíč není vložený/.test(await page.locator("#aiKeyStatus").innerText()), "stav po smazání");
+    eq(calls.outside.filter(u => /generativelanguage/.test(u)), [], "samotné uložení klíče nic neposílá");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (psaní): Gemini hledá klienta a navrhne schůzku nástrojem; provede ji až karta s odpočtem; modelu jde jen to nutné"(env) {
+    const w = inDays(3, 17);
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 2, rest: ({ body }) => {
+      const p = lastPart(body);
+      if (p.text) return { body: gen([fcPart("find_client", { name: "Novák" }, "fc1")]) };
+      if (p.functionResponse.name === "find_client") return { body: gen([fcPart("schedule_meeting", { client_name: "Jan Novák", start: w.iso, online: true }, "fc2")]) };
+      return { body: gen([{ text: "Mám připravenou online schůzku s Janem Novákem, provedu ji za dvě sekundy." }]) };
+    } });
+    await aiSay(page, "Domluv mi online schůzku s Novákem " + w.say + " v 17");
+    await page.waitForSelector("dialog[open] .aiMsg.bot:has-text('Mám připravenou online schůzku')", { timeout: 15000 });
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Schůzka Jan Novák')", { timeout: 15000 });
+    eq(gem.rest.length, 3, "tři kola: hledání, návrh, odpověď");
+    eq(gem.rest.map(x => x.model), ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.8-flash"], "model");
+    const b1 = gem.rest[0].body;
+    assert(/\[Systém\] Provedeno/.test(b1.systemInstruction.parts[0].text), "pravidla pro asistentku jsou v instrukci");
+    const names = b1.tools[0].functionDeclarations.map(d => d.name);
+    eq(names.includes("schedule_meeting") && names.includes("find_client") && names.includes("cancel_pending_plan"), true, "nástroje: " + names);
+    const fr = lastPart(gem.rest[1].body).functionResponse;
+    eq([fr.id, fr.name], ["fc1", "find_client"], "odpověď nástroje má id volání");
+    const found = JSON.stringify(fr.response);
+    assert(/Jan Novák/.test(found) && /"has_phone":true/.test(found), "klient nalezen, telefon jen jako ano/ne: " + found);
+    const fr2 = lastPart(gem.rest[2].body).functionResponse;
+    eq([fr2.name, fr2.response.output ? fr2.response.output.ok : fr2.response.ok], ["schedule_meeting", true], "plán je v pořádku");
+    noPrivate(gem, "soukromí");
+    eq(calls.cal.length, 1, "po odpočtu jedna událost"); eq(calls.cal[0].summary, "VK: Jan Novák (online)", "název události");
+    eq(new Date(calls.cal[0].start.dateTime).getHours(), 17, "17:00");
+    eq((await aiLead(page, "Jan Novák")).meetings.length, 1, "schůzka v leadu");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (psaní): navržený plán jde zrušit a nic se nezapíše"(env) {
+    const w = inDays(3, 17);
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 20, rest: ({ body }) => lastPart(body).text
+      ? { body: gen([fcPart("schedule_meeting", { client_name: "Jan Novák", start: w.iso, online: false, place: "Brno" }, "fc1")]) }
+      : { body: gen([{ text: "Mám to připravené." }]) } });
+    await aiSay(page, "Schůzka s Novákem " + w.say + " v 17 v Brně");
+    await page.waitForSelector("dialog[open] .aiPlan button:has-text('Zrušit')", { timeout: 15000 });
+    await page.waitForSelector("dialog[open] .aiMsg.bot:has-text('Mám to připravené.')");
+    await page.click("dialog[open] .aiPlan button:has-text('Zrušit')");
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('Zrušeno')");
+    await page.waitForTimeout(500);
+    eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
+    eq((await aiLead(page, "Jan Novák")).meetings.length, 0, "lead beze změny");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (psaní): limit nebo chyba Googlu → hláška česky a příkaz se vyřídí základním režimem"(env) {
+    const { ctx, page, errors, gem } = await smartApp(env, { rest: () => ({ status: 429, body: { error: { code: 429, message: "Quota exceeded", status: "RESOURCE_EXHAUSTED" } } }) });
+    await aiSay(page, "Poznámka k Novákovi: nezvedl telefon");
+    await page.waitForSelector("dialog[open] .aiMsg:has-text('Došel bezplatný limit')", { timeout: 15000 });
+    assert(/Zkouším základní režim/.test(await page.locator("dialog[open] .aiLog").innerText()), "hláška o přepnutí");
+    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Zápis u Jan Novák')", { timeout: 10000 });
+    eq((await aiLead(page, "Jan Novák")).log.map(x => x.t), ["nezvedl telefon"], "zápis proběhl v zařízení");
+    eq(gem.rest[0].model, "gemini-3.8-flash", "první pokus nejnovějším modelem");
+    assert(gem.rest.length <= 4, "záložní modely, ne nekonečné opakování: " + gem.rest.length);
+    eq(await page.locator("dialog[open] .aiMsg:has-text('…')").count(), 0, "čekací bublina zmizela");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (rychlý): diktát → Gemini odpoví → mluví hlasem Gemini; když hlas Gemini selže, použije se systémový"(env) {
+    const mk = ttsFail => smartApp(env, { ai: { mode: "rest" }, rest: ({ model, body }) => /tts/.test(model)
+      ? (ttsFail ? { status: 500, body: { error: { code: 500, message: "boom", status: "INTERNAL" } } } : { body: gen([pcmPart(36000)]) })
+      : { body: gen([{ text: "Dnes nemáš žádný úkol, můžeš zavolat Novákovi." }]) } });
+    { /* hlas Gemini */
+      const { ctx, page, errors, gem } = await mk(false);
+      await fakeSpeech(page, "Co mám dneska v úkolech"); await fakeVoice(page); await noFocus(page);
+      await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
+      eq(await page.evaluate(() => window.__recStarts), 1, "rychlý režim poslouchá přes rozpoznávání prohlížeče");
+      eq(gem.socks.length, 0, "žádný živý hovor");
+      await page.keyboard.press("Space");
+      await page.waitForSelector(".aiVoice .vans:has-text('Dnes nemáš žádný úkol')", { timeout: 15000 });
+      await page.waitForSelector(".aiVoice[data-mode='speaking']", { timeout: 10000 });
+      const tts = gem.rest.find(x => /tts/.test(x.model));
+      eq(tts.model, "gemini-3.8-flash-tts", "model hlasu");
+      eq(tts.body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Aoede", "výchozí hlas");
+      assert(/^Dnes nemáš žádný úkol/.test(tts.body.contents[0].parts[0].text), "čte odpověď");
+      eq(await page.evaluate(() => window.__spoken.length), 0, "systémový hlas mlčí");
+      await page.keyboard.press("Escape"); await page.waitForFunction(() => !document.querySelector(".aiVoice"));
+      eq(errors, [], "chyby v konzoli (Gemini hlas)");
+      await ctx.close();
+    }
+    { /* hlas Gemini selže → systémový */
+      const { ctx, page, errors } = await mk(true);
+      await fakeSpeech(page, "Co mám dneska v úkolech"); await fakeVoice(page); await noFocus(page);
+      await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on"); await page.keyboard.press("Space");
+      await page.waitForSelector(".aiVoice .vans:has-text('Dnes nemáš žádný úkol')", { timeout: 15000 });
+      await page.waitForFunction(() => window.__spoken.length === 1, null, { timeout: 10000 });
+      const sp = (await page.evaluate(() => window.__spoken))[0];
+      eq([sp.voice, /^Dnes nemáš žádný úkol/.test(sp.text)], ["Zuzana", true], "záloha: systémový ženský hlas");
+      await page.keyboard.press("Escape");
+      eq(errors, [], "chyby v konzoli (záloha)");
+      await ctx.close();
+    }
+  },
+
+  async "chytrý režim (živý hovor): mikrofon teče do Gemini, nástroj navrhne plán, mezerník ho zruší a model se to dozví; Esc hovor ukončí"(env) {
+    const w = inDays(3, 17);
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 30 });
+    await fakeMic(page); await fakeSpeech(page, ""); await noFocus(page);
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice.on");
+    const sock = await until(() => gem.socks[0], "spojení s Gemini Live");
+    assert(/BidiGenerateContent/.test(sock.url) && !/anthropic|workers\.dev/.test(sock.url), "adresa: " + sock.url);
+    await page.waitForSelector(".aiVoice[data-mode='listening']", { timeout: 10000 });
+    assert(/mluv volně/.test(await page.locator(".aiVoice .vstate").innerText()), "stav: poslouchá");
+    const set = sock.sent[0].setup, cfg = set.generationConfig || set;
+    eq(set.model, "models/gemini-3.8-live", "model");
+    eq(cfg.responseModalities, ["AUDIO"], "odpovídá hlasem");
+    eq(cfg.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Aoede", "hlas");
+    assert(/hlasová asistentka/.test(set.systemInstruction.parts[0].text), "instrukce");
+    eq(set.tools[0].functionDeclarations.map(d => d.name).sort(), ["add_lead", "add_note", "cancel_pending_plan", "find_client", "get_overview", "schedule_meeting", "set_stage"], "nástroje");
+    /* mikrofon → 16 kHz PCM po 32 ms */
+    await until(() => sock.sent.filter(m => m.realtimeInput && m.realtimeInput.audio).length >= 3, "zvuk z mikrofonu");
+    const au = sock.sent.find(m => m.realtimeInput && m.realtimeInput.audio).realtimeInput.audio, raw = Buffer.from(au.data, "base64");
+    eq([au.mimeType, raw.length], ["audio/pcm;rate=16000", 1024], "formát zvuku");
+    assert(raw.some(x => x !== 0), "zvuk není ticho");
+    eq(await page.evaluate(() => window.__mic.asked), 1, "mikrofon se otevřel jednou");
+    /* uživatel mluví → přepis; model zavolá nástroj */
+    sock.send({ serverContent: { inputTranscription: { text: "Domluv schůzku " } } }); sock.send({ serverContent: { inputTranscription: { text: "s Novákem" } } });
+    await page.waitForFunction(() => /Domluv schůzku s Novákem/.test(document.querySelector(".aiVoice .vtext").textContent));
+    sock.send({ toolCall: { functionCalls: [{ id: "fc1", name: "schedule_meeting", args: { client_name: "Novák", start: w.iso, online: true } }] } });
+    await page.waitForSelector(".aiVoice .aiPlan button:has-text('Zrušit (')", { timeout: 10000 });
+    const tr = (await until(() => sock.sent.find(m => m.toolResponse), "odpověď nástroje")).toolResponse.functionResponses[0];
+    const out = tr.response.output || tr.response;
+    eq([tr.id, tr.name, out.ok, out.runs_automatically, out.seconds], ["fc1", "schedule_meeting", true, true, 30], "odpověď nástroje: " + JSON.stringify(tr));
+    /* model mluví */
+    sock.send({ serverContent: { modelTurn: { parts: [pcmPart(4800)] } } }); sock.send({ serverContent: { outputTranscription: { text: "Mám připravenou schůzku s Janem Novákem." } } }); sock.send({ serverContent: { turnComplete: true } });
+    await page.waitForFunction(() => /Mám připravenou schůzku/.test(document.querySelector(".aiVoice .vcap").textContent));
+    /* mezerník = zrušit plán */
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .aiPlan:has-text('Zrušeno – nic se neprovedlo.')", { timeout: 5000 });
+    const sys = (await until(() => sock.sent.find(m => m.realtimeInput && /^\[Systém\] Zrušeno/.test(m.realtimeInput.text || "")), "zpráva o zrušení")).realtimeInput.text;
+    assert(/nic se neprovedlo/.test(sys), "model se dozví o zrušení: " + sys);
+    await page.waitForTimeout(400);
+    eq([calls.cal.length, calls.mail.length, (await aiSms(page)).length], [0, 0, 0], "nic neodešlo");
+    noPrivate(gem, "soukromí");
+    eq(gem.rest.length, 0, "živý hovor nepoužívá REST");
+    /* Esc = konec hovoru: spojení zavřeno, mikrofon vypnutý */
+    await page.keyboard.press("Escape"); await page.waitForFunction(() => !document.querySelector(".aiVoice"));
+    await until(() => sock.closed, "zavření spojení");
+    eq(await page.evaluate(() => window.__mic.stopped >= 1), true, "mikrofon se uvolnil");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (živý hovor): plán se po odpočtu provede sám, modelu se pošle výsledek a klient dostane potvrzení"(env) {
+    const w = inDays(3, 17);
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 1 });
+    await fakeMic(page); await fakeSpeech(page, ""); await noFocus(page);
+    await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
+    const sock = await until(() => gem.socks[0], "spojení s Gemini Live");
+    await page.waitForSelector(".aiVoice[data-mode='listening']", { timeout: 10000 });
+    sock.send({ toolCall: { functionCalls: [{ id: "fc1", name: "schedule_meeting", args: { client_name: "Jan Novák", start: w.iso, online: true } }] } });
+    await page.waitForSelector(".aiVoice .aiPlan:has-text('✓ Schůzka Jan Novák')", { timeout: 15000 });
+    const sys = (await until(() => sock.sent.find(m => m.realtimeInput && /^\[Systém\] Provedeno/.test(m.realtimeInput.text || "")), "zpráva o provedení")).realtimeInput.text;
+    assert(/Schůzka Jan Novák/.test(sys), "výsledek pro model: " + sys);
+    eq(calls.cal.length, 1, "událost v kalendáři"); eq(calls.cal[0].summary, "VK: Jan Novák (online)", "název");
+    eq(calls.mail.length, 1, "potvrzení e-mailem");
+    noPrivate(gem, "soukromí");
+    eq((await page.evaluate(() => window.__mic.asked)), 1, "mikrofon jednou");
+    await page.keyboard.press("Escape");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (živý hovor): odmítnutý klíč → srozumitelná hláška, přechod na rychlý režim a nakonec základní režim"(env) {
+    const { ctx, page, errors, gem } = await smartApp(env, { ai: {}, ws: sock => { sock.close(1007, "API key not valid. Please pass a valid API key."); return false; },
+      rest: () => ({ status: 400, body: { error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } } }) });
+    await fakeMic(page); await fakeSpeech(page, "Co mám zítra v kalendáři"); await fakeVoice(page); await noFocus(page);
+    await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
+    await page.waitForFunction(() => /Klíč Gemini není platný/.test(document.querySelector(".aiVoice .vstate").textContent), null, { timeout: 15000 });
+    assert(/Přepnula jsem na rychlý režim/.test(await page.locator(".aiVoice .vstate").innerText()), "informace o přepnutí");
+    eq(await page.evaluate(() => window.__mic.stopped >= 1), true, "mikrofon se po chybě uvolnil");
+    await page.keyboard.press("Space"); await page.waitForFunction(() => window.__recStarts === 1);
+    await page.keyboard.press("Space");
+    await page.waitForSelector(".aiVoice .vans:has-text('Zítra nemáš žádnou schůzku.')", { timeout: 15000 });
+    assert(/Klíč Gemini není platný/.test(await page.locator(".aiVoice .vlog").innerText()) && /základní režim/.test(await page.locator(".aiVoice .vlog").innerText()), "u odpovědi je důvod");
+    await page.keyboard.press("Escape");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim: v prezentačním režimu se nikdy nepoužije a klíč je při odhlášení/smazání dat pryč"(env) {
+    const { ctx, page, errors, calls } = await smartApp(env, { delay: 0 });
+    eq(await page.evaluate(() => Jarvis.getKey()), GKEY, "klíč je");
+    await page.evaluate(() => demoSwitch(true, true)); await page.waitForTimeout(2500);
+    eq(await page.evaluate(() => { const f = document.getElementById("aiFab"); return !f || f.hidden }), true, "v prezentačním režimu asistent není");
+    eq(calls.outside.filter(u => /generativelanguage/.test(u)), [], "nic Googlu AI");
+    await page.evaluate(() => demoSwitch(false)); await page.waitForTimeout(1800);
+    await page.evaluate(() => wipeLocal());
+    eq(await page.evaluate(() => localStorage.getItem("gem_key")), null, "smazání místních dat odstraní i klíč");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
   },
 };
