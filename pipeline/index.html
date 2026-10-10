@@ -1233,6 +1233,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
         <label>Tapeta<select id="dWp"><option value="auto">Automaticky (podle měsíce)</option><option value="1">Leden – zima</option><option value="2">Únor – zima</option><option value="3">Březen – tání</option><option value="4">Duben – déšť a duha</option><option value="5">Květen – rozkvetlé stromy</option><option value="6">Červen – léto</option><option value="7">Červenec – léto</option><option value="8">Srpen – západ slunce</option><option value="9">Září – javorové listí</option><option value="10">Říjen – podzim</option><option value="11">Listopad – Halloween</option><option value="12">Prosinec – Vánoce</option></select></label>
       </div>
       <div class="dcfg keepas" id="asCfg"></div>
+      <div class="dcfg" id="aiCfg"></div>
       <div class="dcfg">
         <label>Šablony zpráv</label>
         <label>Podpis <input id="dSign" placeholder="např. Vojtěch Kudlička, ZFP Group" autocomplete="off"></label>
@@ -1242,7 +1243,7 @@ html.asmode #dataDlg .dcfg:not(.keepas),html.asmode #dCsvC,html.asmode #dCsvL,ht
       </div>
       <button type="button" class="dbtn red" id="dLogout">Odhlásit Google</button>
       <p>Data jsou uložená v tomhle zařízení a zároveň v souboru „Vojtova pipeline – data.json“ na tvém Google Disku. Přes něj se synchronizuje Mac a iPhone. Aplikace funguje i bez internetu – změny se odešlou, až budeš online.</p>
-      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se neodesílají nikam – jedinou výjimkou je asistentka, které zadáš úkol: jen s jejím souhlasem se jí sdílí jméno, telefon, e-mail a stav klienta, ke kterému úkol zadáš. Druhou výjimkou je sdílený obchod: jen poradci, kterému obchod výslovně sdílíš a který sdílení přijme, se pošle jméno klienta, produkty, fáze obchodu a jeho podíl bodů (bez telefonu a e-mailu).</p>
+      <p class="hint">Při přihlášení se pro správu přístupů zaznamená tvůj e-mail, typ zařízení a čas strávený v aplikaci. Data klientů se neodesílají nikam – jedinou výjimkou je asistentka, které zadáš úkol: jen s jejím souhlasem se jí sdílí jméno, telefon, e-mail a stav klienta, ke kterému úkol zadáš. Druhou výjimkou je sdílený obchod: jen poradci, kterému obchod výslovně sdílíš a který sdílení přijme, se pošle jméno klienta, produkty, fáze obchodu a jeho podíl bodů (bez telefonu a e-mailu). Třetí výjimkou je volitelný AI asistent (vypnutý, dokud ho nezapneš): věta, kterou mu řekneš nebo napíšeš, se přes tvůj vlastní Worker pošle do AI (Anthropic) – bez seznamu klientů. Automatické potvrzení schůzky pak odchází klientovi přes tvůj Gmail nebo SMS bránu.</p>
     </div>
   </div>
 </dialog>
@@ -1456,10 +1457,10 @@ const GAuth={
   token(){const t=lsGet("g_tok");return t&&t.exp>Date.now()+60000?t.at:null},
   hasScope(x){return ((lsGet("g_tok")||{}).scope||"").includes(x)},
   configured:()=>!/^__/.test(GCFG.clientId),
-  login(silent){
+  login(silent,extra){
     if(!GAuth.configured()){toast("Aplikace ještě nemá nastavené Google přihlášení.");return}
     const st=newId();lsSet("g_state",st);lsSet("g_last",Date.now());
-    const p=new URLSearchParams({client_id:GCFG.clientId,redirect_uri:location.origin+location.pathname.replace(/index\.html$/,""),response_type:"token",scope:GCFG.scope,include_granted_scopes:"true",state:st});
+    const p=new URLSearchParams({client_id:GCFG.clientId,redirect_uri:location.origin+location.pathname.replace(/index\.html$/,""),response_type:"token",scope:GCFG.scope+(extra?" "+extra:""),include_granted_scopes:"true",state:st});
     const hint=lsGet("g_hint");if(hint)p.set("login_hint",hint);else if(!silent)p.set("prompt","select_account");
     if(silent)p.set("prompt","none");
     location.assign("https://accounts.google.com/o/oauth2/v2/auth?"+p);
@@ -3311,6 +3312,39 @@ function openToday(preserve){
   openSheet("Co tě dneska čeká",nodes);
 }
 /* volací blok */
+/* zápis schůzky do kalendáře (je-li to možné) a do leadu – společné pro ruční formulář i pro asistenta.
+   opt.moveStage:false = fázi nesahat (jinak se lead přesune do „Schůzka domluvena“) */
+async function saveMeeting(l,start,online,opt={}){
+  const cfg=calCfg(), canWrite=!!(GAuth.token()&&GAuth.hasScope("calendar.events")&&cfg.prefix), startISO=start.toISOString();
+  let evId=null;
+  if(canWrite){
+    try{
+      const end=new Date(start.getTime()+60*60000);
+      const title=(cfg.prefix?cfg.prefix+" ":"")+(l.name||"Schůzka")+(online?" (online)":"");
+      const base="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events";
+      const r=await gfetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({summary:title,start:{dateTime:startISO},end:{dateTime:end.toISOString()}})});
+      const j=await r.json();evId=j.id;
+    }catch(e){toast("Nepodařilo se zapsat do kalendáře, ukládám aspoň do leadu")}
+  }
+  const meeting={id:evId||("local:"+Date.now()),start:startISO,title:l.name||"",online};
+  const meetings=[...(l.meetings||[]).filter(m=>m.id!==meeting.id),meeting].sort((a,b)=>a.start.localeCompare(b.start));
+  try{await db.doc("leads/"+l.id).update({meetings})}catch(e){}
+  l.meetings=meetings;
+  if(opt.moveStage!==false&&l.stage!=="schuzka")await moveTo(l,"schuzka");
+  return {evId,startISO,canWrite,cfg};
+}
+/* pomocné zápisy pro asistenta (assistant.js) */
+async function aiAddLead(d){
+  const now=new Date().toISOString();
+  const data={name:d.name,phone:d.phone||"",email:d.email||"",source:d.source||"",referredBy:"",stage:"novy",stageAt:now,items:[],share:null,pointsManual:null,points:null,signedAt:null,products:[],nextStep:"",nextDate:null,note:"",log:[],meetings:[],lastContact:now,createdAt:now,updatedAt:now};
+  const ref=await db.collection("leads").add(data);
+  return {id:ref.id,...data};
+}
+async function aiAddNote(l,text){
+  const now=new Date().toISOString(), cur=leads.find(x=>x.id===l.id)||l;
+  const log=[...(cur.log||[]),{d:now,t:text}].slice(-100);
+  await db.doc("leads/"+cur.id).update({log,lastContact:now,updatedAt:now});
+}
 function scheduleMeeting(l,onDone){
   const cfg=calCfg(), canWrite=!!(GAuth.token()&&GAuth.hasScope("calendar.events")&&cfg.prefix);
   const def=new Date();def.setDate(def.getDate()+1);def.setHours(10,0,0,0);
@@ -3320,22 +3354,8 @@ function scheduleMeeting(l,onDone){
   const saveBtn=el("button",{type:"button",class:"g"},"Uložit schůzku");
   saveBtn.onclick=async()=>{
     if(!dt.value){toast("Vyber datum a čas");return}
-    const start=new Date(dt.value), startISO=start.toISOString(), online=onl.checked;
-    let evId=null;
-    if(canWrite){
-      try{
-        const end=new Date(start.getTime()+60*60000);
-        const title=(cfg.prefix?cfg.prefix+" ":"")+(l.name||"Schůzka")+(online?" (online)":"");
-        const base="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events";
-        const r=await gfetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({summary:title,start:{dateTime:startISO},end:{dateTime:end.toISOString()}})});
-        const j=await r.json();evId=j.id;
-      }catch(e){toast("Nepodařilo se zapsat do kalendáře, ukládám aspoň do leadu")}
-    }
-    const meeting={id:evId||("local:"+Date.now()),start:startISO,title:l.name||"",online};
-    const meetings=[...(l.meetings||[]).filter(m=>m.id!==meeting.id),meeting].sort((a,b)=>a.start.localeCompare(b.start));
-    try{await db.doc("leads/"+l.id).update({meetings})}catch(e){}
-    l.meetings=meetings;
-    if(l.stage!=="schuzka")await moveTo(l,"schuzka");
+    const start=new Date(dt.value), online=onl.checked;
+    const {evId,startISO}=await saveMeeting(l,start,online);
     const ctx={name:l.name,phone:l.phone,email:l.email,start:startISO,online,meetId:evId};
     openSheet("Schůzka domluvena",[
       el("div",{class:"tdh"},el("div",{class:"big"},"Hotovo ✓"),el("div",{class:"s"},fmtMeet(startISO)+(online?" · online":"")+(evId?" · zapsáno do kalendáře":cfg.prefix?" · kalendář nedostupný, uloženo aspoň do leadu":" · zápis do kalendáře čeká na nastavení předpony schůzek"))),
@@ -6582,6 +6602,15 @@ async function updateEurRate(){
   updateEurRate();
   /* soubory u klientů (docs.js se načítá odděleně a může naběhnout o chvilku později než tahle appka) */
   {let tries=0;const start=()=>{if(window.Docs){Docs.init({db,newId,toast,gfetch,token:()=>GAuth.token(),demo:DEMO});Docs.onChange(()=>{try{render()}catch(e){}})}else if(tries++<60)setTimeout(start,100)};start()}
+  /* AI asistent: hlas / chat → schůzka, fáze, zápis + automatické potvrzení (assistant.js; vypnutý, dokud ho v nastavení nezapneš) */
+  {let tries=0;const start=()=>{if(window.Assistant){Assistant.init({
+      settings:()=>settings,
+      saveSettings:async patch=>{settings={...settings,...patch};await db.doc("settings/main").set(settings)},
+      leads:()=>leads, calEvents:()=>calEvents||[],
+      token:()=>GAuth.token(), hasScope:s=>GAuth.hasScope(s), requestScope:sc=>GAuth.login(false,sc), gfetch,
+      addLead:aiAddLead, saveMeeting, addNote:aiAddNote, moveTo,
+      tpls, fillTpl, ensureMeet, logLeadMsg, openMsg,
+      openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli"||view==="duch")render();pfSyncClientsSoon()});
   db.collection("duchod").onSnapshot(snap=>{duchod=snap.docs.map(d=>({id:d.id,...d.data()}))});
@@ -6590,7 +6619,7 @@ async function updateEurRate(){
   db.collection("pfmodels").onSnapshot(snap=>{pfModels=snap.docs.map(d=>({id:d.id,...d.data()}));pfSyncClientsSoon();if(view==="pf")renderPf()});
   db.collection("pfinv").onSnapshot(snap=>{pfInv=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="pf")renderPf();pfSyncClientsSoon()});
   db.collection("recruits").onSnapshot(snap=>{recruits=snap.docs.map(d=>({id:d.id,...d.data()}));if(view==="net")render()});
-  db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};clLoaded.settings=true;setTimeout(clMigrate,0);applyAppName();if(typeof applyAsMode==="function")applyAsMode();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks()});
+  db.doc("settings/main").onSnapshot(d=>{settings=d.exists?{manual:{},...d.data()}:{manual:{}};clLoaded.settings=true;setTimeout(clMigrate,0);applyAppName();if(typeof applyAsMode==="function")applyAsMode();renderTabBar();if(!visibleTabs().includes(view))setView(visibleTabs()[0]);else render();scheduleTasks();if(window.Assistant)Assistant.refresh()});
   $("todayBtn").onclick=openToday;maybeOpenToday();
   $("addRecruit").onclick=addRecruit;$("addMember2").onclick=()=>addMember(null);$("addMember3").onclick=()=>addMember(null);
   $("cbBtn").onclick=()=>openCallBlock(callBlockIds());
@@ -6614,7 +6643,7 @@ async function updateEurRate(){
       const a=document.activeElement;if(a&&(/INPUT|TEXTAREA|SELECT/.test(a.tagName)||a.isContentEditable))return;e.preventDefault();go(k==="y"||e.shiftKey?1:-1)})}
   const saveCal=async patch=>{try{await db.doc("settings/main").set({...settings,...patch});lsSet("cal_cache",null);lsSet("cal_hist",null);calHist=null;calEvents=null;calState="loading";render();refreshCalendar().then(()=>fetchCalHistory(true))}catch(e){toast("Nepodařilo se uložit")}};
   sb.addEventListener("click",async()=>{
-    if(!dd.open)return;renderTpls();if(typeof renderAsCfg==="function")renderAsCfg();{const b=lsGet("bk_last");$("bkInfo").textContent="Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů)."+(b?" Poslední: "+fmtDate(b)+" "+b.slice(0,4)+".":"")}const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
+    if(!dd.open)return;renderTpls();if(typeof renderAsCfg==="function")renderAsCfg();if(window.Assistant)Assistant.renderSettings($("aiCfg"));{const b=lsGet("bk_last");$("bkInfo").textContent="Každý týden se navíc automaticky uloží samostatná záloha na tvůj Google Disk (posledních 8 týdnů)."+(b?" Poslední: "+fmtDate(b)+" "+b.slice(0,4)+".":"")}const c=calCfg(),sel=$("dCal");$("dPrefix").value=c.prefix;$("dTasks").hidden=!GAuth.token()||GAuth.hasScope("calendar.events");
     const me=lsGet("g_owner");$("dataInfo").textContent=(me&&!DEMO?"Účet "+me+" · ":"")+($("syncBtn").title||"");
     if(!GAuth.token()){sel.replaceChildren(new Option(c.name,c.id));return}
     try{const cals=await listCalendars();sel.replaceChildren(...cals.map(k=>new Option((k.primary?"★ ":"")+(k.summary||k.id),k.id)));sel.value=cals.some(k=>k.id===c.id)?c.id:(cals.find(k=>k.primary)?.id||"primary")}catch(e){sel.replaceChildren(new Option(c.name,c.id))}
@@ -6935,6 +6964,7 @@ const PP_ENC="v1.bNSPw2v-Scx2Eiccfg4sgg.tSwvUcdpKuOqe1fI.OnaA_T5EC7cR2HJOM8Y_omz
 </script>
 <script src="photoedit.js?v=1" defer></script>
 <script src="docs.js?v=2" defer></script>
+<script src="assistant.js?v=1" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */

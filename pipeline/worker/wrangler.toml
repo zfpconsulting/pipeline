@@ -1,0 +1,23 @@
+# Cloudflare Worker pro asistenta v Pipeline (zdarma stačí). Postup nasazení: viz README.md
+name = "pipeline-asistent"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# odkud smí appka volat Worker (CORS) – hosting appky na GitHub Pages
+ALLOWED_ORIGINS = "https://zfpconsulting.github.io,https://kudla2002.github.io"
+# přihlašovací klient appky (veřejné ID) – Worker přijme jen tokeny vydané pro něj
+GOOGLE_CLIENT_ID = "1020263773048-8cq5kp6cbmhgssmusfe7m7vno0f0s61l.apps.googleusercontent.com"
+MODEL = "claude-haiku-5-5"
+AI_DAILY_LIMIT = "200"
+SMS_DAILY_LIMIT = "30"
+
+# Tajné hodnoty se NEPÍŠOU SEM, ale přes `npx wrangler secret put <NÁZEV>`:
+#   ANTHROPIC_API_KEY   klíč z console.anthropic.com
+#   ALLOWED_EMAILS      Google e-maily, které smí asistenta používat (oddělené čárkou); bez nich Worker odmítá vše
+#   TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM   jen když chceš automatické SMS (jinak se SMS neodesílá)
+
+# Volitelné denní limity (doporučeno): npx wrangler kv namespace create LIMITS  a odkomentuj:
+# [[kv_namespaces]]
+# binding = "LIMITS"
+# id = "…"
