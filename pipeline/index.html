@@ -3319,7 +3319,7 @@ async function saveMeeting(l,start,online,opt={}){
   let evId=null;
   if(canWrite){
     try{
-      const end=new Date(start.getTime()+60*60000);
+      const end=new Date(start.getTime()+45*60000);
       const title=(cfg.prefix?cfg.prefix+" ":"")+(l.name||"Schůzka")+(online?" (online)":"");
       const base="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cfg.id)+"/events";
       const r=await gfetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({summary:title,start:{dateTime:startISO},end:{dateTime:end.toISOString()}})});
@@ -3358,6 +3358,48 @@ async function aiAddNote(l,text){
   const now=new Date().toISOString(), cur=leads.find(x=>x.id===l.id)||l;
   const log=[...(cur.log||[]),{d:now,t:text}].slice(-100);
   await db.doc("leads/"+cur.id).update({log,lastContact:now,updatedAt:now});
+}
+/* úprava existujícího klienta hlasem (telefon, e-mail, zdroj, doporučitel, jméno, další krok); telefon a e-mail se propíšou i do karty klienta */
+async function aiUpdateLead(l,patch){
+  const now=new Date().toISOString(), cur=leads.find(x=>x.id===l.id)||l;
+  await db.doc("leads/"+cur.id).update({...patch,updatedAt:now});
+  const lk={};["phone","email"].forEach(k=>{if(k in patch)lk[k]=patch[k]});
+  if(Object.keys(lk).length)await linkPushToClient(cur.id,lk);
+}
+/* zápis telefonátu stejně jako tlačítka „Volal“ v kartě klienta: nezvedl → další pokus příští pracovní den */
+async function aiLogCall(l,res,text){
+  const now=new Date().toISOString(), cur=leads.find(x=>x.id===l.id)||l, no=res==="no", extra=String(text||"").trim();
+  const n=(cur.log||[]).filter(x=>x.call==="no").length+1;
+  const t=(no?"Volal, nezvedl"+(n>1?" ("+n+". pokus)":""):"Volal · hovor proběhl")+(extra?" – "+extra:"");
+  const log=[...(cur.log||[]),{d:now,t,call:no?"no":"yes"}].slice(-100);
+  const patch={log,lastContact:now,updatedAt:now};
+  if(no&&(!cur.nextDate||cur.nextDate<=todayStr())){patch.nextDate=addWorkDays(1);if(!cur.nextStep)patch.nextStep="Zavolat znovu"}
+  await db.doc("leads/"+cur.id).update(patch);
+}
+const aiTasks=()=>myTasks.filter(t=>!t.done).map(t=>({id:t.id,text:t.text||"",client:t.client||"",due:t.due||""}));
+async function aiAddTask(t){await db.collection("mytasks").add({text:t.text,client:t.client||"",due:t.due||"",done:"",createdAt:new Date().toISOString()})}
+async function aiDoneTask(t){await db.doc("mytasks/"+t.id).update({done:new Date().toISOString()})}
+/* všechna jména osob v appce – štít soukromí podle nich pozná, co nesmí k modelu */
+function aiPeople(){
+  const out=[];const add=n=>{if(n&&typeof n==="string")out.push(n)};
+  leads.forEach(l=>add(l.name));clients.forEach(c=>add(c.name));recruits.forEach(r=>add(r.name));team.forEach(m=>add(m.name));
+  (calEvents||[]).forEach(e=>add(e&&e.name));myTasks.forEach(t=>add(t.client));
+  return out;
+}
+/* otevření obrazovky: vrací {ok,run}; run provede asistent, až domluví (hlasové okno se mezitím zavře) */
+function aiNavigate({screen,view:vw,lead}){
+  if(screen==="today")return {ok:true,run:()=>openToday()};
+  if(screen==="client"){const l=lead&&(leads.find(x=>x.id===lead.id)||lead);if(!l)return {ok:false,error:"klient nenalezen"};return {ok:true,run:()=>openEdit(l)}}
+  if(!vw)return {ok:false,error:"neznámá obrazovka"};
+  if(!visibleTabs().includes(vw))return {ok:false,error:"tahle záložka teď není zapnutá"};
+  return {ok:true,run:()=>setView(vw)};
+}
+function aiOpenMessage(lead,tplId){
+  const l=leads.find(x=>x.id===lead.id)||lead, T=tpls();
+  if(tplId&&!T.find(t=>t.id===tplId))return {ok:false,error:"taková šablona není, dostupné: "+T.map(t=>t.id+" ("+t.name+")").join(", ")};
+  const ctx=leadMsgCtx(l), cur=T.find(t=>t.id===tplId)||T[0];
+  const note=!ctx.start&&/\{(den|datum|cas|vcas)\}/.test(cur.text||"")?"Klient nemá žádnou budoucí schůzku, v textu zůstanou doplňky [den] [čas] – uživatel je musí doplnit.":"";
+  return {ok:true,template:cur.name,note,run:()=>openMsg(ctx,tplId||null,r=>logLeadMsg(l,r))};
 }
 function scheduleMeeting(l,onDone){
   const cfg=calCfg(), canWrite=!!(GAuth.token()&&GAuth.hasScope("calendar.events")&&cfg.prefix);
@@ -6624,7 +6666,8 @@ async function updateEurRate(){
       hasScope:s=>GAuth.hasScope(s), requestScope:sc=>GAuth.login(false,sc), gfetch,
       addLead:aiAddLead, saveMeeting, addNote:aiAddNote, moveTo,
       tpls, fillTpl, ensureMeet, logLeadMsg, openMsg, openSms:(t,x)=>aiOpenSms(t,x),
-      facts:aiFacts, openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
+      facts:aiFacts, updateLead:aiUpdateLead, logCall:aiLogCall, tasks:aiTasks, addTask:aiAddTask, doneTask:aiDoneTask, people:aiPeople, navigate:aiNavigate, openLeadMessage:aiOpenMessage,
+      openSheet, closeSheet:()=>$("edDlg").close(), toast, demo:DEMO})}else if(tries++<60)setTimeout(start,100)};start()}
   db.collection("leads").onSnapshot(snap=>{leads=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();render();scheduleSync();scheduleTasks();if(typeof Deals!=="undefined")Deals.tick()});
   db.collection("clients").onSnapshot(snap=>{clients=snap.docs.map(d=>({id:d.id,...d.data()}));linkSyncSoon();stafleOv.clear();if(view==="cli"||view==="duch")render();pfSyncClientsSoon()});
   db.collection("duchod").onSnapshot(snap=>{duchod=snap.docs.map(d=>({id:d.id,...d.data()}))});
@@ -6978,8 +7021,8 @@ const PP_ENC="v1.bNSPw2v-Scx2Eiccfg4sgg.tSwvUcdpKuOqe1fI.OnaA_T5EC7cR2HJOM8Y_omz
 </script>
 <script src="photoedit.js?v=1" defer></script>
 <script src="docs.js?v=2" defer></script>
-<script src="assistant.js?v=4" defer></script>
-<script src="jarvis.js?v=1" defer></script>
+<script src="assistant.js?v=5" defer></script>
+<script src="jarvis.js?v=2" defer></script>
 <script>
 /* ===== v35: Asistentka – propojení poradce ↔ asistentka, sdílené úkoly, asistentský režim ===== */
 /* ===== Síťová vrstva: Firestore – změny se doručují samy (bez dotazování), operace napodobují dřívější server ===== */

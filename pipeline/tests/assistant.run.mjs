@@ -334,6 +334,48 @@ const tests = {
     const sim = A.buildPlan({ actions: [{ name: "add_lead", input: { name: "Nováková" } }] }, { leads, now: NOW });
     assert.equal(sim.steps.length, 1); assert.ok(!A.autoOk(sim));
   },
+  "buildPlan: telefon a e-mail k existujícímu klientovi (to, co dřív nešlo)"() {
+    const p = A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Jan Novák", phone: "777 123 456", email: "novak@firma.cz" } }] }, { leads, now: NOW });
+    assert.equal(p.steps.length, 1); assert.equal(p.steps[0].type, "update");
+    assert.deepEqual(p.steps[0].patch, { phone: "+420777123456", email: "novak@firma.cz" });
+    assert.ok(A.runnable(p) && A.autoOk(p), "doplnění prázdných údajů se provede samo po odpočtu");
+    assert.match(A.describeStep(p.steps[0]), /telefon → \+420777123456/);
+    const over = A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Eva Černá", phone: "602 111 222" } }] }, { leads, now: NOW });
+    assert.match(over.warnings.join(" "), /už je telefon 777111222/); assert.ok(!A.autoOk(over), "přepsání telefonu chce klepnutí");
+    const same = A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Eva Černá", phone: "777 111 222" } }] }, { leads, now: NOW });
+    assert.equal(same.steps.length, 0); assert.match(same.notes.join(" "), /už tenhle telefon má/);
+    const bad = A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Jan Novák", phone: "12345", email: "bez-zavinace" } }] }, { leads, now: NOW });
+    assert.equal(bad.steps.length, 0); assert.ok(bad.problems.length >= 1 && !A.runnable(bad));
+    const src = A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Jan Novák", source: "doporučení", referred_by: "Eva Černá" } }] }, { leads, now: NOW });
+    assert.equal(src.steps[0].patch.source, "Doporučení"); assert.equal(src.steps[0].patch.referredBy, "Eva Černá");
+    assert.equal(A.buildPlan({ actions: [{ name: "update_client", input: { client_name: "Zeman Karel", phone: "777123456" } }] }, { leads, now: NOW }).steps.length, 0, "neexistující klient se tichou úpravou nezaloží");
+  },
+  "buildPlan: další krok, hovor, úkol a odškrtnutí úkolu"() {
+    const tasks = [{ id: "t1", text: "Zavolat bance", client: "", due: "2026-10-10" }, { id: "t2", text: "Poslat podklady Černé", client: "Eva Černá", due: "" }];
+    const p = A.buildPlan({ actions: [
+      { name: "log_call", input: { client_name: "Eva Černá", result: "no_answer" } },
+      { name: "set_next_step", input: { client_name: "Eva Černá", step: "Zavolat", date: "2026-10-15" } },
+      { name: "add_task", input: { text: "Připravit nabídku", client_name: "Jan Novák", due: "2026-10-16" } },
+      { name: "complete_task", input: { task_text: "zavolat bance" } },
+    ] }, { leads, now: NOW, tasks });
+    assert.deepEqual(p.steps.map(s => s.type), ["call", "next", "task", "task_done"], "pořadí: hovor (naplánuje další pokus) a až potom výslovně řečený další krok, úkoly na konci");
+    assert.deepEqual(p.steps[1].patch, { nextStep: "Zavolat", nextDate: "2026-10-15" });
+    assert.equal(p.steps[0].result, "no_answer"); assert.equal(p.steps[2].client, "Jan Novák"); assert.equal(p.steps[3].task.id, "t1");
+    assert.ok(A.runnable(p));
+    const past = A.buildPlan({ actions: [{ name: "set_next_step", input: { client_name: "Eva Černá", date: "2026-10-01" } }] }, { leads, now: NOW });
+    assert.match(past.problems.join(" "), /v minulosti/);
+    const dup = A.buildPlan({ actions: [{ name: "add_task", input: { text: "zavolat bance" } }] }, { leads, now: NOW, tasks });
+    assert.equal(dup.steps.length, 0); assert.match(dup.notes.join(" "), /už v seznamu je/);
+    const none = A.buildPlan({ actions: [{ name: "complete_task", input: { task_text: "koupit slona" } }] }, { leads, now: NOW, tasks });
+    assert.match(none.problems.join(" "), /nemám/);
+    for (const st of p.steps) assert.ok(A.describeStep(st).length > 5);
+  },
+  "checkMeeting: schůzka trvá 45 minut, kolize jen v tomhle okně"() {
+    const ev = [{ start: new Date(2026, 9, 14, 17, 0).toISOString(), title: "VK: Test" }];
+    assert.equal(A.checkMeeting(new Date(2026, 9, 14, 17, 40), NOW, ev, 45).warnings.length, 1, "17:40 se s 17:00 (do 17:45) potkává");
+    assert.equal(A.checkMeeting(new Date(2026, 9, 14, 17, 45), NOW, ev, 45).warnings.length, 0, "17:45 už je volné");
+    assert.equal(A.checkMeeting(new Date(2026, 9, 14, 17, 50), NOW, ev, 60).warnings.length, 1, "u starých 60 minut by kolidovalo");
+  },
   "buildPlan: prázdná nebo rozbitá odpověď"() {
     assert.equal(A.buildPlan(null, { leads, now: NOW }).steps.length, 0);
     assert.equal(A.buildPlan({ reply: "Kdy to bylo?", actions: [] }, { leads, now: NOW }).reply, "Kdy to bylo?");

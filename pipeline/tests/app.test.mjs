@@ -77,6 +77,10 @@ const fcPart = (name, args, id) => ({ functionCall: { id, name, args } });
 const lastPart = body => { const c = body.contents[body.contents.length - 1]; return c.parts[0]; };
 const until = async (f, what, ms = 10000) => { const t0 = Date.now(); for (;;) { const v = await f(); if (v) return v; if (Date.now() - t0 > ms) throw new Error("nedočkáno: " + what); await new Promise(r => setTimeout(r, 40)); } };
 const PRIVATE = ["777 111 222", "777111222", "novak@example.com"];
+/* v soukromém režimu nesmí Googlu odejít ani jméno klienta */
+const PRIVATE_NAMES = ["Novák", "Nováka", "Novákem", "Novákovi", "Šikulov", "Černá"];
+/* čekání s výpisem okna asistenta, když se nic nestane (ať je z chyby poznat proč) */
+const seen = async (page, sel, ms = 15000) => { try { return await page.waitForSelector(sel, { timeout: ms }); } catch (e) { throw new Error("nenalezeno " + sel + "\n--- okno ---\n" + String(await page.evaluate(() => { const d = document.querySelector("dialog[open]"); return d ? d.innerText + "\n--- html ---\n" + (document.getElementById("edBody") || d).innerHTML.slice(0, 1500) + "\n--- uzivatel/hlas ---\n" + (document.querySelector(".aiVoice") ? document.querySelector(".aiVoice").innerText : "-") : "(žádné otevřené okno) " + document.body.innerText.slice(0, 300); }).catch(() => "?")).slice(0, 2600)); } };
 /* rest({model, body, n, all}) → {status?, body}; ws(sock, msg) se zavolá na každou zprávu od appky (setup se potvrdí sám, pokud ws nevrátí false) */
 async function smartApp(env, { rest = null, ws = null, key = GKEY, ...o } = {}) {
   const gem = { rest: [], socks: [] };
@@ -116,6 +120,7 @@ const fakeMic = page => page.evaluate(() => {
 });
 /* nastavení asistenta je v okně Data a synchronizace */
 const openData = async page => { await page.evaluate(() => { document.getElementById("dataDlg").showModal(); Assistant.renderSettings(document.getElementById("aiCfg")); }); await page.waitForTimeout(300); };
+const noNames = (gem, msg) => { const s = gem.everything(); for (const p of PRIVATE_NAMES) assert(!s.includes(p), msg + ": modelu se poslalo „" + p + "“"); };
 const noPrivate = (gem, msg) => { const s = gem.everything(); for (const p of PRIVATE) assert(!s.includes(p), msg + ": modelu se poslalo „" + p + "“"); };
 
 export default {
@@ -706,33 +711,62 @@ export default {
     await ctx.close();
   },
 
-  async "chytrý režim (psaní): Gemini hledá klienta a navrhne schůzku nástrojem; provede ji až karta s odpočtem; modelu jde jen to nutné"(env) {
+  async "chytrý režim (psaní, soukromý): Googlu jde jen text se značkami; Gemini hledá klienta a navrhne schůzku; provede ji až karta s odpočtem"(env) {
     const w = inDays(3, 17);
     const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 2, rest: ({ body }) => {
       const p = lastPart(body);
-      if (p.text) return { body: gen([fcPart("find_client", { name: "Novák" }, "fc1")]) };
-      if (p.functionResponse.name === "find_client") return { body: gen([fcPart("schedule_meeting", { client_name: "Jan Novák", start: w.iso, online: true }, "fc2")]) };
-      return { body: gen([{ text: "Mám připravenou online schůzku s Janem Novákem, provedu ji za dvě sekundy." }]) };
+      if (p.text) { const tk = (p.text.match(/\[K\d+\]/) || [])[0]; return { body: gen([fcPart("find_client", { name: tk }, "fc1")]) }; }
+      if (p.functionResponse.name === "find_client") { const tk = p.functionResponse.response.output.clients[0].name; return { body: gen([fcPart("schedule_meeting", { client_name: tk, start: w.iso, online: true }, "fc2")]) }; }
+      return { body: gen([{ text: "Mám připravenou online schůzku s [K1], provedu ji za dvě sekundy." }]) };
     } });
     await aiSay(page, "Domluv mi online schůzku s Novákem " + w.say + " v 17");
-    await page.waitForSelector("dialog[open] .aiMsg.bot:has-text('Mám připravenou online schůzku')", { timeout: 15000 });
-    await page.waitForSelector("dialog[open] .aiPlan:has-text('✓ Schůzka Jan Novák')", { timeout: 15000 });
+    await seen(page, "dialog[open] .aiMsg.bot:has-text('Mám připravenou online schůzku s Jan Novák')");
+    await seen(page, "dialog[open] .aiPlan:has-text('✓ Schůzka Jan Novák')");
     eq(gem.rest.length, 3, "tři kola: hledání, návrh, odpověď");
     eq(gem.rest.map(x => x.model), ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.8-flash"], "model");
     const b1 = gem.rest[0].body;
-    assert(/\[Systém\] Provedeno/.test(b1.systemInstruction.parts[0].text), "pravidla pro asistentku jsou v instrukci");
+    assert(/\[Systém\] Provedeno/.test(b1.systemInstruction.parts[0].text) && /SOUKROMÍ/.test(b1.systemInstruction.parts[0].text), "pravidla a soukromí jsou v instrukci");
+    eq(b1.contents[0].parts[0].text, "Domluv mi online schůzku s [K1] " + w.say + " v 17", "uživatelova věta odešla se značkou místo jména");
     const names = b1.tools[0].functionDeclarations.map(d => d.name);
-    eq(names.includes("schedule_meeting") && names.includes("find_client") && names.includes("cancel_pending_plan"), true, "nástroje: " + names);
+    eq(names.includes("schedule_meeting") && names.includes("find_client") && names.includes("update_client") && names.includes("cancel_pending_plan"), true, "nástroje: " + names);
     const fr = lastPart(gem.rest[1].body).functionResponse;
     eq([fr.id, fr.name], ["fc1", "find_client"], "odpověď nástroje má id volání");
     const found = JSON.stringify(fr.response);
-    assert(/Jan Novák/.test(found) && /"has_phone":true/.test(found), "klient nalezen, telefon jen jako ano/ne: " + found);
+    assert(/"name":"\[K1\]"/.test(found) && /"has_phone":true/.test(found), "klient nalezen jako značka, telefon jen jako ano/ne: " + found);
     const fr2 = lastPart(gem.rest[2].body).functionResponse;
     eq([fr2.name, fr2.response.output ? fr2.response.output.ok : fr2.response.ok], ["schedule_meeting", true], "plán je v pořádku");
-    noPrivate(gem, "soukromí");
-    eq(calls.cal.length, 1, "po odpočtu jedna událost"); eq(calls.cal[0].summary, "VK: Jan Novák (online)", "název události");
+    noPrivate(gem, "soukromí"); noNames(gem, "soukromí – jména");
+    eq(calls.cal.length, 1, "po odpočtu jedna událost"); eq(calls.cal[0].summary, "VK: Jan Novák (online)", "název události má skutečné jméno");
     eq(new Date(calls.cal[0].start.dateTime).getHours(), 17, "17:00");
+    eq((new Date(calls.cal[0].end.dateTime) - new Date(calls.cal[0].start.dateTime)) / 60000, 45, "schůzka trvá 45 minut");
     eq((await aiLead(page, "Jan Novák")).meetings.length, 1, "schůzka v leadu");
+    assert(/🛡 Do Googlu šlo: Domluv mi online schůzku s \[K1\]/.test(await page.locator("dialog[open] .aiLog").innerText()), "pod otázkou je vidět, co odešlo");
+    eq(await page.evaluate(() => Jarvis.Usage.read().n), 3, "počítadlo požadavků");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (psaní, soukromý): telefon a e-mail k existujícímu klientovi (to, co dřív nešlo); přepsání telefonu chce klepnutí; Googlu nic z toho neodejde"(env) {
+    const bez = { "leads/s2": { name: "Eva Šikulová", phone: "", email: "", stage: "kontaktovan", items: [], meetings: [], log: [], _u: 1 } };
+    const { ctx, page, errors, gem } = await smartApp(env, { delay: 1, leads: bez, rest: ({ body }) => {
+      const p = lastPart(body);
+      if (p.text) { const k = p.text.match(/\[K\d+\]/)[0], t = p.text.match(/\[T\d+\]/)[0], e = (p.text.match(/\[E\d+\]/) || [])[0]; return { body: gen([fcPart("update_client", { client_name: k, phone: t, ...(e ? { email: e } : {}) }, "fc" + gem.rest.length)]) }; }
+      return { body: gen([{ text: "Mám připraveno, u [K1] to upravím." }]) };
+    } });
+    await aiSay(page, "Eva Šikulová má nový telefon 602 555 444 a e-mail eva.sikulova@seznam.cz");
+    await seen(page, "dialog[open] .aiPlan:has-text('✓ Upraveno u Eva Šikulová')");
+    let l = await aiLead(page, "Eva Šikulová");
+    eq([l.phone, l.email], ["+420602555444", "eva.sikulova@seznam.cz"], "údaje jsou v kartě klienta");
+    /* přepsání existujícího telefonu: varování + klepnutí */
+    const ta = page.locator("dialog[open] .aiIn textarea"); await ta.fill("Jan Novák má nový telefon 603 000 111"); await ta.press("Enter");
+    await seen(page, "dialog[open] .aiPlan button.go:has-text('Provést')");
+    assert(/už je telefon 777 111 222/.test(await page.locator("dialog[open] .aiPlan").last().innerText()), "uživatel vidí varování se starým telefonem (lokálně)");
+    eq((await aiLead(page, "Jan Novák")).phone, "777 111 222", "bez klepnutí se nic nepřepsalo");
+    await page.click("dialog[open] .aiPlan button.go:has-text('Provést')");
+    await seen(page, "dialog[open] .aiPlan:has-text('✓ Upraveno u Jan Novák')");
+    eq((await aiLead(page, "Jan Novák")).phone, "+420603000111", "po klepnutí je nový telefon");
+    const s = gem.everything();
+    for (const bad of ["602", "555 444", "sikulova", "@seznam", "Šikulov", "603", "000 111", "777 111 222", "Novák"]) assert(!s.includes(bad), "Googlu odešlo „" + bad + "“");
     eq(errors, [], "chyby v konzoli");
     await ctx.close();
   },
@@ -768,8 +802,118 @@ export default {
     await ctx.close();
   },
 
+  async "chytrý režim (hlas, soukromý): diktát prohlížeče → zamaskovaný text → odpověď čte systémový hlas; žádný živý hovor ani hlas Gemini"(env) {
+    const { ctx, page, errors, gem } = await smartApp(env, { rest: ({ body }) => {
+      const t = lastPart(body).text;
+      return { body: gen([{ text: "Pro [K1] máš dnes jeden telefonát." }]) };
+    } });
+    await fakeMic(page); await fakeSpeech(page, "Kdy mám zavolat Novákovi"); await fakeVoice(page); await noFocus(page);
+    await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
+    eq(await page.evaluate(() => window.__recStarts), 1, "poslouchá rozpoznávání prohlížeče, ne živý hovor");
+    eq(gem.socks.length, 0, "žádné spojení s Gemini Live (zvuk by šel Googlu nezamaskovaný)");
+    await page.keyboard.press("Space");
+    await seen(page, ".aiVoice .vans:has-text('Pro Jan Novák máš dnes jeden telefonát.')");
+    assert(/🛡 Do Googlu šlo: Kdy mám zavolat \[K1\]/.test(await page.locator(".aiVoice .vcap").innerText()), "v okně je vidět, co odešlo: " + await page.locator(".aiVoice .vcap").innerText());
+    await page.waitForFunction(() => window.__spoken.length === 1, null, { timeout: 10000 });
+    eq((await page.evaluate(() => window.__spoken))[0].text, "Pro Jan Novák máš dnes jeden telefonát.", "čte systémový hlas (skutečné jméno se doplnilo až v zařízení)");
+    eq(gem.rest.filter(x => /tts/.test(x.model)).length, 0, "hlas Gemini se v soukromém režimu nepoužil");
+    noPrivate(gem, "soukromí"); noNames(gem, "soukromí – jména");
+    await page.keyboard.press("Escape");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (soukromý): hovor, další krok a úkol jedním příkazem; odškrtnutí úkolu; Googlu jen značky"(env) {
+    const d5 = ymdIn(5);
+    let round = 0;
+    const { ctx, page, errors, gem } = await smartApp(env, { delay: 1, rest: ({ body }) => {
+      const p = lastPart(body);
+      if (p.text && /nezvedl/.test(p.text)) return { body: gen([fcPart("log_call", { client_name: "[K1]", result: "no_answer" }, "a1"), fcPart("set_next_step", { client_name: "[K1]", step: "Zavolat znovu", date: d5 }, "a2"), fcPart("add_task", { text: "Poslat podklady", client_name: "[K1]", due: d5 }, "a3")]) };
+      if (p.text && /hotové/.test(p.text)) return { body: gen([fcPart("complete_task", { task_text: "poslat podklady" }, "b1")]) };
+      return { body: gen([{ text: "Mám připraveno." }]) };
+    } });
+    await aiSay(page, "Novák nezvedl telefon, zavolat znovu za pět dní a přidej úkol poslat podklady");
+    await page.waitForFunction(() => leads.find(l => l.name === "Jan Novák").log.some(x => x.call === "no"), null, { timeout: 20000 });
+    await page.waitForFunction(() => myTasks.some(t => t.text === "Poslat podklady"), null, { timeout: 10000 });
+    const l = await aiLead(page, "Jan Novák");
+    eq([l.log.filter(x => x.call === "no").length, l.nextStep, l.nextDate], [1, "Zavolat znovu", d5], "hovor zapsán, další krok a termín nastavené výslovně řečenými hodnotami (ne 'zítra' z nezvednutého hovoru)");
+    const t = await page.evaluate(() => myTasks.find(x => x.text === "Poslat podklady"));
+    eq([t.client, t.due, t.done], ["Jan Novák", d5, ""], "úkol uložený s klientem a termínem");
+    /* odškrtnutí */
+    await aiSay(page, "Podklady jsou hotové");
+    await page.waitForFunction(() => myTasks.find(x => x.text === "Poslat podklady").done, null, { timeout: 20000 });
+    noPrivate(gem, "soukromí"); noNames(gem, "soukromí – jména");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (soukromý): otevření karty klienta a hotové zprávy hlasem – až po odpovědi, okno se zavře a otevře se cíl"(env) {
+    const { ctx, page, errors, gem } = await smartApp(env, { rest: ({ body }) => {
+      const p = lastPart(body);
+      if (p.text && /kartu/.test(p.text)) return { body: gen([fcPart("open_screen", { screen: "client", client_name: "[K1]" }, "o1")]) };
+      if (p.text && /Pipeline/.test(p.text)) return { body: gen([fcPart("open_screen", { screen: "money" }, "o2")]) };
+      return { body: gen([{ text: "Otevírám." }]) };
+    } });
+    await aiSay(page, "Otevři mi kartu Nováka");
+    await page.waitForFunction(() => document.getElementById("dlg").open && document.getElementById("f_name").value === "Jan Novák", null, { timeout: 15000 });
+    await page.waitForFunction(() => !document.getElementById("edDlg").open, null, { timeout: 3000 }).catch(() => {});
+    eq(await page.evaluate(() => document.getElementById("edDlg").open), false, "okno asistenta se zavřelo");
+    await page.evaluate(() => document.getElementById("dlg").close());
+    await aiSay(page, "Ukaž mi Pipeline obrat");
+    await page.waitForFunction(() => view === "money", null, { timeout: 15000 });
+    noPrivate(gem, "soukromí"); noNames(gem, "soukromí – jména");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (soukromý): hotová zpráva klientovi se otevře až po zavření okna asistenta; bez schůzky upozorní na doplňky; špatná šablona se odmítne"(env) {
+    const w = inDays(3, 17);
+    const nov = { "leads/n1": { name: "Jan Novák", phone: "777 111 222", email: "novak@example.com", stage: "schuzka", items: [], meetings: [{ id: "local:m1", start: new Date(w.iso).toISOString(), title: "Jan Novák", online: false }], log: [], _u: 1 } };
+    const seenTools = [];
+    const { ctx, page, errors, gem } = await smartApp(env, { leads: nov, rest: ({ body }) => {
+      const p = lastPart(body);
+      if (p.text && /špatnou/.test(p.text)) return { body: gen([fcPart("prepare_message", { client_name: "[K1]", template: "neexistuje" }, "p0")]) };
+      if (p.text) return { body: gen([fcPart("prepare_message", { client_name: "[K1]", template: "potvrzeni" }, "p1")]) };
+      seenTools.push(JSON.stringify(p.functionResponse.response));
+      return { body: gen([{ text: "Otevírám zprávu." }]) };
+    } });
+    await aiSay(page, "Připrav špatnou zprávu pro Nováka");
+    await seen(page, "dialog[open] .aiMsg.bot:has-text('Otevírám zprávu.')");
+    assert(/taková šablona není/.test(seenTools[0]), "špatná šablona vrací chybu modelu: " + seenTools[0]);
+    eq(await page.evaluate(() => document.querySelector("#edBody textarea[aria-label='Text zprávy']") ? 1 : 0), 0, "nic se neotevřelo");
+    await aiSay(page, "Připrav potvrzení schůzky pro Nováka");
+    await page.waitForFunction(() => { const t = document.querySelector("#edBody textarea[aria-label='Text zprávy']"); return t && /potvrzuji naši schůzku/.test(t.value) && document.getElementById("edDlg").open; }, null, { timeout: 15000 });
+    assert(/Jan|Novák|Dobrý den/.test(await page.evaluate(() => document.querySelector("#edBody textarea[aria-label='Text zprávy']").value)), "zpráva je s textem šablony");
+    assert(!/špatnou/.test(await page.locator("#edBody").innerText()), "je to zpráva, ne zbytek okna asistenta");
+    noPrivate(gem, "soukromí"); noNames(gem, "soukromí – jména");
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
+  async "chytrý režim (nastavení): tři režimy, výchozí je soukromý; počítadlo požadavků; text o soukromí"(env) {
+    const { ctx, page, errors } = await smartApp(env, { rest: () => ({ body: gen([{ text: "Dobře." }]) }) });
+    await openData(page);
+    const opts = await page.locator("#aiMode option").allInnerTexts();
+    eq(opts.length, 3, "tři režimy"); assert(/^Soukromý/.test(opts[0]) && /Živý hovor/.test(opts[1]) && /Rychlý/.test(opts[2]), opts.join(" | "));
+    eq(await page.inputValue("#aiMode"), "private", "výchozí je soukromý");
+    assert(/jména klientů, telefony, e-maily/.test(await page.locator("#aiModeHint").innerText()), "vysvětlení soukromého režimu");
+    assert(/Dnes využito 0 požadavků/.test(await page.locator("#aiUsage").innerText()), "počítadlo: " + await page.locator("#aiUsage").innerText());
+    await page.selectOption("#aiMode", "live"); await page.waitForTimeout(400);
+    assert(/zvuk tvého hlasu jde celý Googlu/.test(await page.locator("#aiModeHint").innerText()), "varování u živého hovoru");
+    eq(await page.evaluate(() => settings.ai.smode), "live", "uloženo");
+    await page.selectOption("#aiMode", "private"); await page.waitForTimeout(300);
+    const t = await page.locator("#aiCfg").innerText();
+    assert(/ne záruka/.test(t) && /🛡/.test(t) && /ceník Googlu/.test(t) && /GDPR/.test(t), "text o soukromí");
+    await closeDialogs(page); await page.waitForTimeout(300);
+    await aiSay(page, "Co mám dneska v úkolech?"); await seen(page, "dialog[open] .aiMsg.bot:has-text('Dobře.')");
+    await openData(page);
+    assert(/Dnes využito 1 požadavků/.test(await page.locator("#aiUsage").innerText()), "počítadlo po dotazu: " + await page.locator("#aiUsage").innerText());
+    eq(errors, [], "chyby v konzoli");
+    await ctx.close();
+  },
+
   async "chytrý režim (rychlý): diktát → Gemini odpoví → mluví hlasem Gemini; když hlas Gemini selže, použije se systémový"(env) {
-    const mk = ttsFail => smartApp(env, { ai: { mode: "rest" }, rest: ({ model, body }) => /tts/.test(model)
+    const mk = ttsFail => smartApp(env, { ai: { smode: "rest" }, rest: ({ model, body }) => /tts/.test(model)
       ? (ttsFail ? { status: 500, body: { error: { code: 500, message: "boom", status: "INTERNAL" } } } : { body: gen([pcmPart(36000)]) })
       : { body: gen([{ text: "Dnes nemáš žádný úkol, můžeš zavolat Novákovi." }]) } });
     { /* hlas Gemini */
@@ -806,7 +950,7 @@ export default {
 
   async "chytrý režim (živý hovor): mikrofon teče do Gemini, nástroj navrhne plán, mezerník ho zruší a model se to dozví; Esc hovor ukončí"(env) {
     const w = inDays(3, 17);
-    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 30 });
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 30, ai: { smode: "live" } });
     await fakeMic(page); await fakeSpeech(page, ""); await noFocus(page);
     await page.keyboard.press("Space");
     await page.waitForSelector(".aiVoice.on");
@@ -819,7 +963,7 @@ export default {
     eq(cfg.responseModalities, ["AUDIO"], "odpovídá hlasem");
     eq(cfg.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Aoede", "hlas");
     assert(/hlasová asistentka/.test(set.systemInstruction.parts[0].text), "instrukce");
-    eq(set.tools[0].functionDeclarations.map(d => d.name).sort(), ["add_lead", "add_note", "cancel_pending_plan", "find_client", "get_overview", "schedule_meeting", "set_stage"], "nástroje");
+    eq(set.tools[0].functionDeclarations.map(d => d.name).sort(), ["add_lead", "add_note", "add_task", "calc_loan", "calc_saving", "cancel_pending_plan", "complete_task", "find_client", "get_overview", "list_clients", "log_call", "open_screen", "prepare_message", "schedule_meeting", "set_next_step", "set_stage", "update_client"], "nástroje (17)");
     /* mikrofon → 16 kHz PCM po 32 ms */
     await until(() => sock.sent.filter(m => m.realtimeInput && m.realtimeInput.audio).length >= 3, "zvuk z mikrofonu");
     const au = sock.sent.find(m => m.realtimeInput && m.realtimeInput.audio).realtimeInput.audio, raw = Buffer.from(au.data, "base64");
@@ -856,7 +1000,7 @@ export default {
 
   async "chytrý režim (živý hovor): plán se po odpočtu provede sám, modelu se pošle výsledek a klient dostane potvrzení"(env) {
     const w = inDays(3, 17);
-    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 1 });
+    const { ctx, page, errors, calls, gem } = await smartApp(env, { delay: 1, ai: { smode: "live" } });
     await fakeMic(page); await fakeSpeech(page, ""); await noFocus(page);
     await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");
     const sock = await until(() => gem.socks[0], "spojení s Gemini Live");
@@ -875,7 +1019,7 @@ export default {
   },
 
   async "chytrý režim (živý hovor): odmítnutý klíč → srozumitelná hláška, přechod na rychlý režim a nakonec základní režim"(env) {
-    const { ctx, page, errors, gem } = await smartApp(env, { ai: {}, ws: sock => { sock.close(1007, "API key not valid. Please pass a valid API key."); return false; },
+    const { ctx, page, errors, gem } = await smartApp(env, { ai: { smode: "live" }, ws: sock => { sock.close(1007, "API key not valid. Please pass a valid API key."); return false; },
       rest: () => ({ status: 400, body: { error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } } }) });
     await fakeMic(page); await fakeSpeech(page, "Co mám zítra v kalendáři"); await fakeVoice(page); await noFocus(page);
     await page.keyboard.press("Space"); await page.waitForSelector(".aiVoice.on");

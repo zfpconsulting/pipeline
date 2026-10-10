@@ -18,7 +18,7 @@ for (const [name, fn] of Object.entries(tests)) {
   if (filter && !name.includes(filter)) continue;
   const t0 = Date.now();
   try { await fn(env); ok++; console.log(`✓ ${name} (${Date.now() - t0} ms)`); }
-  catch (e) { bad++; console.log(`✗ ${name}\n    ${String(e && e.stack || e).split("\n").slice(0, 4).join("\n    ")}`); }
+  catch (e) { bad++; console.log(`✗ ${name}\n    ${String(e && e.stack || e).split("\n").slice(0, +process.env.BT_LINES || 4).join("\n    ")}`); }
 }
 await browser.close(); srv.close();
 console.log(`\n${ok} prošlo, ${bad} selhalo`);

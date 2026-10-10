@@ -16,6 +16,7 @@
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const MIN = 60000;
+const MEET_MIN = 45;   /* délka schůzky ve všech kontrolách a v kalendáři */
 
 /* ================= čistá logika ================= */
 const norm = s => String(s == null ? "" : s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -48,6 +49,7 @@ function matchLeads(name, leads) {
       if (qf === lf) score += 15;
       else if (qf.length === 1 && lf[0] === qf) score += 5;
       else if (sim(qf, lf) === 1 && qf.length >= 4) score += 0;
+      else if (qf.length >= 3 && lf.length >= 3 && qf.slice(0, 3) === lf.slice(0, 3)) score += 5;   /* Karlu / Karel, Janu / Jan: skloňované křestní jméno */
       else score -= 50;
     }
     if (score >= 60) out.push({ lead: l, score });
@@ -133,7 +135,12 @@ const dupMeeting = (lead, d) => lead && (lead.meetings || []).find(m => m && m.s
 const dupText = (lead, m) => "U „" + lead.name + "“ už schůzka v tu dobu je (" + fmtWhen(new Date(m.start)) + ") – nezdvojuju ji? Klient by dostal další potvrzení.";
 
 /* ---- plán akcí z odpovědi AI ---- */
-const ORDER = { add_lead: 0, meeting: 1, note: 2, stage: 3 };
+const ORDER = { add_lead: 0, update: 1, meeting: 2, call: 3, note: 4, next: 5, stage: 6, task: 7, task_done: 8 };
+const SOURCES = ["Cold call", "Placený lead", "Doporučení", "Vlastní kontakt"];
+const matchSource = v => { const n = norm(v); if (!n) return ""; return SOURCES.find(x => norm(x) === n) || (/cold|studen/.test(n) ? "Cold call" : /placen|reklam|facebook|ads/.test(n) ? "Placený lead" : /doporuc/.test(n) ? "Doporučení" : /vlastni|znam|kamarad/.test(n) ? "Vlastní kontakt" : ""); };
+const normDay = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || "").trim()); if (!m) return ""; const d = new Date(+m[1], +m[2] - 1, +m[3]); return d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? m[0] : ""; };
+const fmtDay = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? +m[3] + ". " + +m[2] + ". " + m[1] : ""; };
+const lastWorkday = now => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); if (d.getDay() === 6) d.setDate(d.getDate() + 2); if (d.getDay() === 0) d.setDate(d.getDate() + 1); return d.getFullYear() + "-" + z2(d.getMonth() + 1) + "-" + z2(d.getDate()); };
 const STAGE_TITLES = { novy: "Nový lead", kontaktovan: "Kontaktován", schuzka: "Schůzka domluvena", probehla: "Schůzka proběhla", nabidka: "Nabídka odeslána", podpis: "Podpis", vyplaceno: "Provize vyplacena", zamrzly: "Zamrzlý", lost: "Lost" };
 const SIGNED = s => s === "podpis" || s === "vyplaceno";
 
@@ -194,6 +201,59 @@ function buildPlan(res, env) {
       const b = bind(i.client_name, false);
       if (!b || !String(i.text || "").trim()) continue;
       plan.steps.push({ type: "note", client_name: i.client_name, ...b, text: String(i.text).trim() });
+    } else if (a.name === "update_client") {
+      const b = bind(i.client_name, false);
+      if (!b) continue;
+      const patch = {}, cur = b.lead || (b.newRef && b.newRef) || {};
+      if (String(i.phone || "").trim()) { const p = normPhone(i.phone); if (!p) { plan.problems.push("Telefon „" + String(i.phone).trim() + "“ nevypadá jako české ani slovenské číslo."); continue; } patch.phone = p; }
+      if (String(i.email || "").trim()) { if (!validEmail(i.email)) { plan.problems.push("E-mail „" + String(i.email).trim() + "“ nevypadá správně."); continue; } patch.email = String(i.email).trim(); }
+      if (String(i.source || "").trim()) { const so = matchSource(i.source); if (!so) { plan.problems.push("Zdroj „" + String(i.source).trim() + "“ neznám (Cold call, Placený lead, Doporučení, Vlastní kontakt)."); continue; } patch.source = so; }
+      if (String(i.referred_by || "").trim()) patch.referredBy = String(i.referred_by).trim();
+      if (String(i.new_name || "").trim()) patch.name = String(i.new_name).trim();
+      /* co už tak je, se nemění; co by se přepsalo jinou hodnotou, chce potvrzení */
+      if (b.lead) {
+        if (patch.phone && normPhone(b.lead.phone) === patch.phone) { plan.notes.push(b.lead.name + " už tenhle telefon má."); delete patch.phone; }
+        else if (patch.phone && String(b.lead.phone || "").trim()) plan.warnings.push("U „" + b.lead.name + "“ už je telefon " + String(b.lead.phone).trim() + " – přepíšu ho.");
+        if (patch.email && String(b.lead.email || "").trim().toLowerCase() === patch.email.toLowerCase()) { plan.notes.push(b.lead.name + " už tenhle e-mail má."); delete patch.email; }
+        else if (patch.email && String(b.lead.email || "").trim()) plan.warnings.push("U „" + b.lead.name + "“ už je e-mail " + String(b.lead.email).trim() + " – přepíšu ho.");
+        if (patch.source && b.lead.source === patch.source) delete patch.source;
+        else if (patch.source && b.lead.source) plan.warnings.push("U „" + b.lead.name + "“ je zdroj „" + b.lead.source + "“ – změním ho na „" + patch.source + "“.");
+        if (patch.referredBy && String(b.lead.referredBy || "").trim() === patch.referredBy) delete patch.referredBy;
+        if (patch.name && patch.name === b.lead.name) delete patch.name;
+        else if (patch.name) plan.warnings.push("Přejmenuju „" + b.lead.name + "“ na „" + patch.name + "“.");
+      }
+      if (!Object.keys(patch).length) continue;
+      plan.steps.push({ type: "update", client_name: i.client_name, ...b, patch });
+    } else if (a.name === "set_next_step") {
+      const b = bind(i.client_name, false);
+      if (!b) continue;
+      const patch = {}, date = i.date ? normDay(i.date) : "";
+      if (i.date && !date) { plan.problems.push("Nerozumím termínu („" + i.date + "“)."); continue; }
+      if (date) { const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()); if (parseLocal(date + "T00:00") < t0) { plan.problems.push("Termín dalšího kroku (" + fmtDay(date) + ") je v minulosti."); continue; } patch.nextDate = date; }
+      if (String(i.step || "").trim()) patch.nextStep = String(i.step).trim();
+      if (!Object.keys(patch).length) continue;
+      plan.steps.push({ type: "next", client_name: i.client_name, ...b, patch });
+    } else if (a.name === "log_call") {
+      const b = bind(i.client_name, false);
+      if (!b || (i.result !== "reached" && i.result !== "no_answer")) continue;
+      plan.steps.push({ type: "call", client_name: i.client_name, ...b, result: i.result, text: String(i.text || "").trim() });
+    } else if (a.name === "add_task") {
+      const text = String(i.text || "").trim(); if (!text) continue;
+      const due = i.due ? normDay(i.due) : "";
+      if (i.due && !due) { plan.problems.push("Nerozumím termínu úkolu („" + i.due + "“)."); continue; }
+      let client = String(i.client_name || "").trim();
+      if (client) { const r = resolveClient(client, env.leads); if (r.kind === "exact" || r.kind === "fuzzy") client = r.lead.name; else if (r.kind === "ambiguous") { plan.warnings.push("Víc klientů pasuje na „" + client + "“ – úkol uložím jen s tímhle jménem."); } }
+      if ((env.tasks || []).some(t => norm(t.text) === norm(text) && (t.client || "") === client)) { plan.notes.push("Úkol „" + text + "“ už v seznamu je."); continue; }
+      plan.steps.push({ type: "task", text, client, due });
+    } else if (a.name === "complete_task") {
+      const q = String(i.task_text || "").trim(); if (!q) continue;
+      const open = (env.tasks || []).filter(t => t && t.text), nq = norm(q), qw = words(q).filter(w => w.length > 2);
+      const score = t => { const nt = norm(t.text); if (nt === nq) return 100; if (nt.includes(nq) || nq.includes(nt)) return 80; const tw = words(t.text); const hit = qw.filter(w => tw.some(x => sim(w, x) > 0)).length; return qw.length && hit === qw.length ? 60 : hit ? 20 * hit : 0; };
+      const sc = open.map(t => ({ t, s: score(t) })).filter(x => x.s >= 40).sort((x, y) => y.s - x.s);
+      if (!sc.length) { plan.problems.push("Úkol „" + q + "“ v otevřených úkolech nemám."); continue; }
+      if (sc.length > 1 && sc[0].s - sc[1].s < 20) { plan.problems.push("Víc úkolů pasuje na „" + q + "“: " + sc.slice(0, 3).map(x => "„" + x.t.text + "“").join(", ") + "."); continue; }
+      if (plan.steps.some(x => x.type === "task_done" && x.task.id === sc[0].t.id)) continue;
+      plan.steps.push({ type: "task_done", task: sc[0].t });
     }
   }
   plan.steps = plan.steps.map((s, idx) => [s, idx]).sort((x, y) => ORDER[x[0].type] - ORDER[y[0].type] || x[1] - y[1]).map(x => x[0]);
@@ -217,6 +277,11 @@ function describeStep(s) {
   if (s.type === "meeting") return "Schůzka: " + leadLabel(s) + " · " + fmtWhen(s.start) + (s.online ? " · online" : "") + (s.place ? " · " + s.place : "");
   if (s.type === "stage") return leadLabel(s) + " → fáze „" + STAGE_TITLES[s.stage] + "“";
   if (s.type === "note") return "Zápis u " + leadLabel(s) + ": „" + s.text + "“";
+  if (s.type === "update") { const p = s.patch || {}, bits = []; if (p.name) bits.push("jméno → " + p.name); if (p.phone) bits.push("telefon → " + p.phone); if (p.email) bits.push("e-mail → " + p.email); if (p.source) bits.push("zdroj → " + p.source); if (p.referredBy) bits.push("doporučil → " + p.referredBy); return "Úprava " + leadLabel(s) + ": " + bits.join(" · "); }
+  if (s.type === "next") { const p = s.patch || {}; return "Další krok u " + leadLabel(s) + ": " + [p.nextStep, p.nextDate ? fmtDay(p.nextDate) : ""].filter(Boolean).join(" · "); }
+  if (s.type === "call") return "Telefonát " + leadLabel(s) + ": " + (s.result === "reached" ? "hovor proběhl" : "nezvedl (další pokus příští pracovní den)") + (s.text ? " · „" + s.text + "“" : "");
+  if (s.type === "task") return "Nový úkol: " + s.text + (s.client ? " · " + s.client : "") + (s.due ? " · do " + fmtDay(s.due) : "");
+  if (s.type === "task_done") return "Úkol hotov: " + s.task.text;
   return "";
 }
 
@@ -611,6 +676,11 @@ function spokenPlan(plan, now, countdown, auto) {
     else if (st.type === "meeting") s.push("Schůzka: " + who + ", " + spokenDay(st.start, now) + " " + spokenClock(st.start) + ", " + (st.online ? "online" : st.place ? st.place : "osobně") + ".");
     else if (st.type === "stage") s.push(who + ": nová fáze " + STAGE_TITLES[st.stage] + ".");
     else if (st.type === "note") s.push("Zapíšu poznámku: " + who + ".");
+    else if (st.type === "update") s.push("Upravím údaje: " + who + ".");
+    else if (st.type === "next") s.push("Další krok u klienta " + who + (st.patch && st.patch.nextDate ? " do " + shortDate(st.patch.nextDate) : "") + ".");
+    else if (st.type === "call") s.push("Zapíšu telefonát: " + who + (st.result === "reached" ? ", hovor proběhl." : ", nezvedl."));
+    else if (st.type === "task") s.push("Přidám úkol: " + st.text + ".");
+    else if (st.type === "task_done") s.push("Úkol odškrtnu: " + st.task.text + ".");
   }
   if (plan.problems.length) s.push(plan.problems[0]);
   if (plan.warnings.length) s.push("Pozor: " + first(plan.warnings[0]));
@@ -656,13 +726,13 @@ function listen({ onText, onEnd, onError, lang }) {
 }
 const VOICE_ERR = { "not-allowed": "Mikrofon není povolený – povol ho v nastavení prohlížeče.", "service-not-allowed": "Rozpoznávání řeči je v tomhle prohlížeči zakázané. Použij mikrofon na klávesnici.", "no-speech": "Nic jsem neslyšel.", "network": "Rozpoznávání řeči potřebuje internet.", "unsupported": "Tenhle prohlížeč neumí rozpoznávat řeč. Použij mikrofon na klávesnici." };
 
-const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm, words, sim, matchLeads, resolveClient, parseLocal, fmtWhen, checkMeeting, normPhone, validEmail, hasPlaceholders, pickTemplate, mimeEmail, encodeWord, buildPlan, runnable, autoOk, unresolved, pickLead, describeStep, leadLabel, STAGE_TITLES, voiceSupported, listen, VOICE_ERR, detectQuery, answerQuery, spokenPlan, spokenDone, spokenClock, spokenDay, pickVoice, speechClean };
+const api = { understand, parseWhen, nominative, sameSurname, GMAIL_SCOPE, norm, words, sim, matchLeads, resolveClient, parseLocal, fmtWhen, checkMeeting, normPhone, validEmail, hasPlaceholders, pickTemplate, mimeEmail, encodeWord, buildPlan, runnable, autoOk, unresolved, pickLead, describeStep, leadLabel, STAGE_TITLES, SOURCES, matchSource, nextWorkday: lastWorkday, voiceSupported, listen, VOICE_ERR, detectQuery, answerQuery, spokenPlan, spokenDone, spokenClock, spokenDay, pickVoice, speechClean };
 
 /* ================= část s prohlížečem (jen když existuje document) ================= */
 if (typeof document === "undefined") return api;
 
 let H = null, fab = null, busy = false, cur = null, hotkeyBound = false;
-const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true, speak: true, voice: "", smart: true, mode: "live", barge: false, gvoice: "", gspeak: true, callMe: "" };
+const DEFAULTS = { on: false, delay: 10, sms: true, mail: true, from: "", hotkey: true, speak: true, voice: "", smart: true, smode: "private", barge: false, gvoice: "", gspeak: true, callMe: "" };
 const cfg = () => ({ ...DEFAULTS, ...((H && H.settings() && H.settings().ai) || {}) });
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -785,6 +855,26 @@ async function execute(plan) {
       } else if (s.type === "stage") {
         const lead = fresh(s.lead || (s.newRef && s.newRef.created));
         await H.moveTo(lead, s.stage); lines.push("✓ " + lead.name + " → " + STAGE_TITLES[s.stage]);
+      } else if (s.type === "update") {
+        const lead = fresh(s.lead || (s.newRef && s.newRef.created));
+        if (!lead) throw new Error("klient nenalezen");
+        if (!H.updateLead) throw new Error("úprava klienta tu není dostupná");
+        await H.updateLead(lead, s.patch); lines.push("✓ Upraveno u " + lead.name + ": " + describeStep(s).replace(/^Úprava [^:]*: /, ""));
+      } else if (s.type === "next") {
+        const lead = fresh(s.lead || (s.newRef && s.newRef.created));
+        if (!lead) throw new Error("klient nenalezen");
+        await H.updateLead(lead, s.patch); lines.push("✓ " + describeStep(s));
+      } else if (s.type === "call") {
+        const lead = fresh(s.lead || (s.newRef && s.newRef.created));
+        if (!lead) throw new Error("klient nenalezen");
+        if (!H.logCall) throw new Error("zápis hovoru tu není dostupný");
+        await H.logCall(lead, s.result === "reached" ? "yes" : "no", s.text); lines.push("✓ " + describeStep(s));
+      } else if (s.type === "task") {
+        if (!H.addTask) throw new Error("úkoly tu nejsou dostupné");
+        await H.addTask({ text: s.text, client: s.client, due: s.due }); lines.push("✓ " + describeStep(s));
+      } else if (s.type === "task_done") {
+        if (!H.doneTask) throw new Error("úkoly tu nejsou dostupné");
+        await H.doneTask(s.task); lines.push("✓ Odškrtnuto: " + s.task.text);
       }
     } catch (e) { lines.push("✗ " + describeStep(s) + " – " + (e.message || "chyba")); }
   }
@@ -803,6 +893,7 @@ async function execute(plan) {
   return { lines, manuals, smsJobs };
 }
 
+const STEP_ICON = { meeting: "📅", stage: "➡️", note: "📝", add_lead: "➕", update: "✏️", next: "⏭️", call: "📞", task: "☑️", task_done: "✅" };
 /* ---- karta s plánem (společná pro psací okno i hlasový překryv) ---- */
 function planCard(plan, hooks) {
   hooks = hooks || {};
@@ -815,7 +906,7 @@ function planCard(plan, hooks) {
   const draw = (countdown) => {
     card.replaceChildren();
     plan.steps.forEach(s => {
-      card.append(h("div", { class: "st" }, h("span", {}, s.type === "meeting" ? "📅" : s.type === "stage" ? "➡️" : s.type === "note" ? "📝" : "➕"), h("span", {}, describeStep(s))));
+      card.append(h("div", { class: "st" }, h("span", {}, STEP_ICON[s.type] || "➕"), h("span", {}, describeStep(s))));
       if (s.type === "add_lead" && countdown == null) {
         const nm = h("input", { value: s.name, "aria-label": "Jméno nového kontaktu", autocomplete: "off", style: "margin-left:26px;width:calc(100% - 26px)" }); nm.value = s.name;
         nm.onchange = () => { const v = nm.value.trim(); if (v) s.name = v; draw(); };
@@ -877,8 +968,11 @@ function planCard(plan, hooks) {
    sink = kam se karta s plánem zobrazí a co se má dít po provedení / zrušení: {owner, show(node, ui), beforeManual, onRun(out), onCancel()} */
 const JV = () => root.Jarvis || null;
 const smartOn = () => !!(JV() && H && !H.demo && cfg().smart !== false && JV().getKey());
+/* soukromý (výchozí): text jde do Gemini až po zamaskování, diktování a hlas dělá zařízení; živý hovor: zvuk jde Googlu nezamaskovaný; rychlý: text bez masky + hlas Gemini */
+const smode = () => { const m = cfg().smode; return m === "live" || m === "rest" ? m : "private"; };
+const geminiVoice = () => smartOn() && smode() !== "private";
 function liveOk() {
-  if (!smartOn() || cfg().mode === "rest") return false;
+  if (!smartOn() || smode() !== "live") return false;
   const nav = root.navigator || {};
   return !!(nav.mediaDevices && nav.mediaDevices.getUserMedia && (root.AudioContext || root.webkitAudioContext) && root.AudioWorkletNode && root.WebSocket);
 }
@@ -892,7 +986,7 @@ function cancelPending() {
 }
 function proposePlan(actions, sink) {
   const now = new Date();
-  const plan = buildPlan({ reply: "", actions }, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: 60 });
+  const plan = buildPlan({ reply: "", actions }, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: MEET_MIN, tasks: H.tasks ? H.tasks() : [] });
   const prev = pendingPlan();
   if (prev) prev.ui.cancel();   /* nový návrh nahrazuje starý, který ještě nebyl proveden */
   if (!plan.steps.length && !plan.problems.length) return { ok: false, error: "Není co provést – klienta jsem v pipeline nenašla.", notes: plan.notes };
@@ -914,12 +1008,55 @@ function proposePlan(actions, sink) {
 
 /* textový mozek: jedna konverzace na zařízení, nový klíč = nová konverzace */
 let brain = null, brainKey = "", brainSink = null;
+const peopleNames = () => { try { return (H.people && H.people()) || (H.leads() || []).map(l => l.name); } catch (e) { return []; } };
+/* otevírání obrazovek a zpráv: provede se až po odpovědi asistentky (hlasové okno se kvůli tomu zavře, ať odpověď nepřeruší) */
+let navPending = null, navTimer = 0;
+const speakWait = t => (cfg().speak === false ? 900 : Math.min(7000, 700 + String(t || "").length * 70));
+function deferNav(run, fallbackMs) {
+  navPending = run; clearTimeout(navTimer); if (V) V.spoke = false;
+  navTimer = setTimeout(() => flushNav(0), fallbackMs || 6000);
+}
+function flushNav(delay) {
+  const run = navPending; if (!run) return;
+  navPending = null; clearTimeout(navTimer);
+  setTimeout(() => {
+    try { if (V) closeVoice(); } catch (e) {}
+    const d = document.getElementById("edDlg"); let wasOpen = false;
+    try { if (cur && d && d.open) { wasOpen = true; H.closeSheet(); } } catch (e) {}
+    const go = () => { try { run(); } catch (e) { H.toast("Nepodařilo se otevřít: " + (e.message || e)); } };
+    if (!wasOpen) { go(); return; }
+    /* okna se zavírají animovaně: cíl (třeba zpráva ve stejném okně) se otevře až po zavření okna asistenta */
+    let n = 0; const t = setInterval(() => { if (!d.open || ++n > 25) { clearInterval(t); go(); } }, 40);
+  }, delay || 0);
+}
+function toolHost(propose, shield) {
+  const guard = r => {
+    if (!r || !r.ok) return r || { ok: false, error: "nedostupné" };
+    deferNav(r.run);
+    const o = { ok: true, note: "Otevře se na obrazovce hned po tvé odpovědi. Řekni jednou krátkou větou, že to otevíráš." };
+    if (r.template) o.template = r.template;
+    if (r.note) o.warning = r.note;
+    return o;
+  };
+  return {
+    now: () => new Date(), leads: () => H.leads(), facts: () => (H.facts ? H.facts() : null), propose, cancelPending, shield: shield || null,
+    navigate: H.navigate ? async a => guard(await H.navigate(a)) : null,
+    openMessage: H.openLeadMessage ? async (lead, tpl) => guard(await H.openLeadMessage(lead, tpl)) : null,
+  };
+}
+const usageText = () => { const u = JV().Usage.read(); return "Dnes využito " + u.n + " požadavků na Gemini" + (u.err ? " (z toho " + u.err + " neúspěšných)" : "") + ". Google počítá den podle pacifického času, nulování kolem 9:00."; };
 function getBrain() {
-  const J = JV(), key = J.getKey();
-  if (brain && brainKey === key) return brain;
-  const tools = J.makeTools(api, { now: () => new Date(), leads: () => H.leads(), facts: () => (H.facts ? H.facts() : null), propose: actions => proposePlan(actions, brainSink || { show() {}, owner: null }), cancelPending });
-  brainKey = key;
-  return (brain = new J.Brain({ key, sdk: J.loadSdk, system: () => J.systemPrompt(new Date(), { callMe: cfg().callMe }), declarations: tools.declarations, onTools: tools.runBatch }));
+  const J = JV(), key = J.getKey(), priv = smode() === "private", id = key + "|" + (priv ? "p" : "o");
+  if (brain && brainKey === id) return brain;
+  const shield = priv ? new J.Shield(api, { known: peopleNames }) : null;
+  const tools = J.makeTools(api, toolHost(actions => proposePlan(actions, brainSink || { show() {}, owner: null }), shield));
+  brainKey = id;
+  return (brain = new J.Brain({
+    key, sdk: J.loadSdk, shield,
+    system: () => J.systemPrompt(new Date(), { callMe: cfg().callMe, masked: priv }),
+    declarations: tools.declarations, onTools: tools.runBatch,
+    onRequest: () => { const e = document.getElementById("aiUsage"); if (e) e.textContent = usageText(); },
+  }));
 }
 function smartAsk(text, sink) { const b = getBrain(); brainSink = sink; return b.ask(text); }
 
@@ -935,7 +1072,7 @@ async function speakSmart(text, done) {
   const v = V, J = JV(), tok = ++ttsToken;
   text = speechClean(text);
   if (!text) { done && done(); return false; }
-  if (v && smartOn() && cfg().speak !== false && ensurePlayer(v)) {
+  if (v && geminiVoice() && cfg().speak !== false && ensurePlayer(v)) {
     try {
       const d = await J.synth({ key: J.getKey(), sdk: J.loadSdk, voice: cfg().gvoice || J.DEFAULT_VOICE }, text);
       if (V !== v || tok !== ttsToken) return true;
@@ -983,7 +1120,7 @@ function open(opts) {
       if (note) say("bot", note);
       const res = understand(text, { leads: H.leads(), now: new Date() });
       if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, new Date()); say("bot", a.lines.join("\n")); return; }
-      const plan = buildPlan(res, { leads: H.leads(), now: new Date(), calEvents: H.calEvents(), meetMinutes: 60 });
+      const plan = buildPlan(res, { leads: H.leads(), now: new Date(), calEvents: H.calEvents(), meetMinutes: MEET_MIN, tasks: H.tasks ? H.tasks() : [] });
       if (plan.reply) say("bot", plan.reply);
       if (plan.steps.length || plan.problems.length) {
         const ui = planCard(plan, {});
@@ -997,7 +1134,7 @@ function open(opts) {
   function submit(text) {
     text = String(text || "").trim();
     if (!text || busy || asking) return;
-    ta.value = ""; say("me", text);
+    ta.value = ""; const meMsg = say("me", text);
     if (!smartOn()) { offline(text); return; }
     /* chytrý režim: odpověď Gemini; karty s plánem se řadí pod její bublinu */
     asking = true;
@@ -1007,14 +1144,16 @@ function open(opts) {
     smartAsk(text, sink).then(r => {
       asking = false;
       if (r.text) wait.textContent = r.text; else wait.remove();
+      if (smode() === "private" && r.sent) meMsg.after(h("div", { class: "aiHint", style: "justify-self:end;max-width:92%;margin:-4px 2px 0;text-align:right", title: "Tohle (bez jmen a čísel) odešlo Googlu" }, "🛡 Do Googlu šlo: " + r.sent));
       log.scrollTop = log.scrollHeight;
+      flushNav(900);
     }, e => { asking = false; wait.remove(); offline(text, "⚠ " + JV().friendlyError(e) + " Zkouším základní režim."); });
   }
 
   H.openSheet("Asistent", [
     log,
     h("div", { class: "aiIn" }, ta, mic, send),
-    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Nebo se zeptej: „Co mám dneska v úkolech?“ " + (smartOn() ? "Odpovídá chytrý režim (Gemini)." : "Vyhodnocuje se přímo v zařízení.") + (mic ? " Na počítači: mezerník (když nepíšeš) spustí hlasového asistenta." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
+    h("p", { class: "aiHint" }, "Např.: „Podepsal jsem smlouvu s Novákem a domluvil jsem si s ním online schůzku ve středu v 17h.“ Nebo se zeptej: „Co mám dneska v úkolech?“ " + (smartOn() ? (smode() === "private" ? "Odpovídá chytrý režim (Gemini); jména a čísla klientů se před odesláním nahradí značkami." : "Odpovídá chytrý režim (Gemini).") : "Vyhodnocuje se přímo v zařízení.") + (mic ? " Na počítači: mezerník (když nepíšeš) spustí hlasového asistenta." : " Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.")),
   ]);
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(ta.value); } });
   ctl.toggleMic = mic ? toggleMic : () => H.toast("Mikrofon v tomhle prohlížeči nejde – diktuj mikrofonem na klávesnici.");
@@ -1174,7 +1313,7 @@ function vListen() {
 function vSay(text) {
   const v = V; if (!v) return;
   if (!text || cfg().speak === false) { setMode("idle", IDLE_HINT); return; }
-  const smart = smartOn();
+  const smart = geminiVoice();
   if (!smart && !speakOn()) { setMode("idle", IDLE_HINT); return; }
   setMode("speaking", "Odpovídám…");
   const fin = () => { if (V === v && v.mode === "speaking") setMode("idle", IDLE_HINT); };
@@ -1184,6 +1323,8 @@ function vSay(text) {
 /* ---- živý hovor (Gemini Live): mluvíš volně, mikrofon běží, odpovídá přirozeným hlasem ---- */
 function liveMode(v, st) {
   const c = v.call;
+  if (st === "speaking") v.spoke = true;
+  if (st === "listening" && v.spoke && navPending) { v.spoke = false; flushNav(600); }   /* po zavolání otevření obrazovky: až když asistentka domluví */
   if (st === "listening") setMode("listening", c && c.muted ? "Mikrofon je ztlumený." : "Poslouchám… (mluv volně)");
   else if (st === "thinking" || st === "connecting") setMode("thinking", st === "connecting" ? "Připojuju se…" : "Zpracovávám…");
   else if (st === "speaking") setMode("speaking", "Odpovídám… (mezerník = přeruš)");
@@ -1205,7 +1346,7 @@ function vLive() {
   const v = V, J = JV(); if (!v || !J || v.call) return;
   v.live = true; v.textEl.textContent = ""; v.capEl.textContent = "";
   setMode("thinking", "Připojuju se…");
-  const tools = J.makeTools(api, { now: () => new Date(), leads: () => H.leads(), facts: () => (H.facts ? H.facts() : null), propose: actions => proposePlan(actions, liveSink(v, call)), cancelPending });
+  const tools = J.makeTools(api, toolHost(actions => proposePlan(actions, liveSink(v, call)), null));
   const call = new J.LiveCall({
     key: J.getKey(), sdk: J.loadSdk, voice: cfg().gvoice || J.DEFAULT_VOICE, system: J.systemPrompt(new Date(), { callMe: cfg().callMe }), declarations: tools.declarations,
     bargeIn: cfg().barge === true, idleMs: 2 * 60000,
@@ -1251,7 +1392,9 @@ function vSmart(text) {
   const sink = { owner: v, show: (node, ui) => { v.ui = ui; v.logEl.append(node); }, beforeManual: () => closeVoice(), onRun: out => { if (V === v) vSay(spokenDone(out)); } };
   smartAsk(text, sink).then(r => {
     if (V !== v) return;
+    if (smode() === "private" && r.sent) v.capEl.textContent = "🛡 Do Googlu šlo: " + r.sent;
     if (r.text) { ans.hidden = false; ans.append(h("p", {}, r.text)); vSay(r.text); } else setMode("idle", IDLE_HINT);
+    if (navPending) flushNav(speakWait(r.text));
   }, e => { if (V === v) vHandleOffline(text, JV().friendlyError(e) + " Používám základní režim."); });
 }
 
@@ -1265,7 +1408,7 @@ function vHandleOffline(text, note) {
   try {
     const res = understand(text, { leads: H.leads(), now });
     if (res.query) { const a = answerQuery(res.query, H.facts ? H.facts() : null, now); say(...a.lines); vSay(a.speak); return; }
-    const plan = buildPlan(res, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: 60 });
+    const plan = buildPlan(res, { leads: H.leads(), now, calEvents: H.calEvents(), meetMinutes: MEET_MIN, tasks: H.tasks ? H.tasks() : [] });
     if (plan.reply) say(plan.reply);
     if (!plan.steps.length && !plan.problems.length) { vSay(spokenPlan(plan, now, 0)); return; }
     let pre = "";
@@ -1318,8 +1461,19 @@ function smartSettings(c, save, sw) {
   const saveKey = h("button", { type: "button", class: "dbtn", onclick: () => { if (J.setKey(key.value)) { key.value = ""; upd(); H.toast("Klíč uložen jen v tomhle zařízení"); refresh(); } else H.toast("Tohle nevypadá jako klíč (bez mezer, aspoň 20 znaků)."); } }, "Uložit klíč");
   const delKey = h("button", { type: "button", class: "dbtn", onclick: () => { J.clearKey(); upd(); refresh(); H.toast("Klíč smazán"); } }, "Smazat klíč");
   upd();
-  const modeSel = h("select", { "aria-label": "Režim chytrého asistenta" }, h("option", { value: "live" }, "Živý hovor – mluvíš volně, mikrofon poslouchá"), h("option", { value: "rest" }, "Rychlý – diktování prohlížeče + hlas Gemini"));
-  modeSel.value = c.mode === "rest" ? "rest" : "live"; modeSel.onchange = () => save({ mode: modeSel.value });
+  const MODE_HINT = {
+    private: "Googlu odchází jen text, ve kterém jsou jména klientů, telefony, e-maily a dlouhá čísla nahrazené značkami (např. [K1]). Odpověď se před zobrazením zase doplní. Hlas se přepisuje a čte v zařízení, takže ve Chromu a Edgi diktování vidí Google/Microsoft a v Safari Apple – to štít neovlivní.",
+    live: "Pozor: zvuk tvého hlasu jde celý Googlu, a to i s jmény klientů (nedá se zamaskovat). Hodí se na rychlé úkoly bez citlivých údajů.",
+    rest: "Pozor: text jde Googlu bez masky (jména klientů, termíny) a odpověď čte hlas Gemini. Hodí se, když ti zamaskovaný režim něco kazí.",
+  };
+  const modeHint = h("p", { class: "hint", id: "aiModeHint" });
+  const modeSel = h("select", { "aria-label": "Režim chytrého asistenta", id: "aiMode" },
+    h("option", { value: "private" }, "Soukromý – jména a čísla se maskují (doporučeno)"),
+    h("option", { value: "live" }, "Živý hovor – mluvíš volně, zvuk jde Googlu (bez masky)"),
+    h("option", { value: "rest" }, "Rychlý – text bez masky + hlas Gemini"));
+  modeSel.value = c.smode === "live" || c.smode === "rest" ? c.smode : "private"; modeHint.textContent = MODE_HINT[modeSel.value];
+  modeSel.onchange = () => { modeHint.textContent = MODE_HINT[modeSel.value]; save({ smode: modeSel.value }); };
+  const usage = h("p", { class: "hint", id: "aiUsage" }, usageText());
   const voiceSel = h("select", { "aria-label": "Hlas Gemini" }, J.VOICES.map(([id, label]) => h("option", { value: id }, label)));
   voiceSel.value = J.VOICES.some(v => v[0] === c.gvoice) ? c.gvoice : J.DEFAULT_VOICE; voiceSel.onchange = () => save({ gvoice: voiceSel.value });
   const play = h("button", { type: "button", class: "dbtn", onclick: async () => {
@@ -1345,13 +1499,13 @@ function smartSettings(c, save, sw) {
     h("p", { class: "hint" }, "Volná konverzace jako s Jarvisem: asistentka rozumí běžné češtině, doptává se, čte ti data z pipeline a navrhuje zápisy (provádí je stejná karta s odpočtem jako dřív). Zdarma: klíč si vytvoříš na aistudio.google.com/apikey (účet Google, bez karty) a vložíš sem."),
     key, h("div", { class: "btns", style: "display:flex;gap:8px;flex-wrap:wrap;margin:6px 0" }, saveKey, delKey), status,
     h("label", { class: "frow" }, h("span", {}, "Použít chytrý režim"), sw(c.smart !== false, v => save({ smart: v }))),
-    h("label", {}, "Režim"), modeSel,
-    h("label", {}, "Hlas asistentky (Gemini)"), voiceSel, play,
+    h("label", {}, "Režim"), modeSel, modeHint, usage,
+    h("label", {}, "Hlas Gemini (jen v režimech Živý hovor a Rychlý)"), voiceSel, play,
     h("label", { class: "frow" }, h("span", {}, "Skákání do řeči (doporučena sluchátka)"), sw(c.barge === true, v => save({ barge: v }))),
     h("p", { class: "hint" }, "Vypnuto: když asistentka mluví, mikrofon mlčí (nezachytí vlastní hlas z reproduktorů); přerušíš ji mezerníkem nebo tlačítkem. Zapnuto: můžeš jí skočit do řeči hlasem, ale na reproduktorech se může slyšet sama."),
     h("label", {}, "Oslovení", callMe),
     test, out,
-    h("p", { class: "hint" }, "Soukromí: Googlu jde to, co řekneš nebo napíšeš, a data z pipeline, na která se asistentka zeptá (jména klientů, termíny, úkoly, tvoje body a provize). Telefony, e-maily ani poznámky o klientech se modelu neposílají (kromě toho, co sám nadiktuješ). Podle podmínek Gemini API (ai.google.dev/gemini-api/terms) platí pro vývojáře z EU, Švýcarska a Británie i u bezplatné kvóty pravidla placených služeb: obsah se nepoužívá ke zlepšování produktů, jen se krátce loguje kvůli zneužití. Jestli smíš jména klientů takhle zpracovávat, si ověř u ZFP (GDPR). Klíč smaž, kdybys zařízení ztratil/a (a zruš ho v AI Studiu). Bez klíče nebo při výpadku funguje základní režim v zařízení."),
+    h("p", { class: "hint" }, "Soukromí v režimu Soukromý: jména klientů, telefony, e-maily a dlouhá čísla (rodná čísla, účty, smlouvy) odcházejí Googlu jen jako značky; poznámky o klientech se neposílají vůbec. Štít je sada pravidel, ne záruka: jméno napsané malými písmeny, které appka nezná, nebo neznámé jméno na začátku věty může proniknout (proti tomu je poslední pojistka, která zprávu s rozpoznaným jménem nebo číslem vůbec neodešle). Termíny, názvy fází a částky v otázkách se neskrývají. Pod svou otázkou vidíš, co přesně odešlo (🛡). Podmínky Gemini API (ai.google.dev/gemini-api/terms) pro vývojáře z EU, Švýcarska a Británie i u bezplatné kvóty říkají, že obsah se nepoužívá ke zlepšování produktů, ale ceník Googlu u bezplatné úrovně uvádí opak – proto se na to nespoléhej a nech maskování zapnuté. Jestli smíš jména klientů zpracovávat takhle, ověř u ZFP (GDPR). Klíč smaž, kdybys zařízení ztratil/a (a zruš ho v AI Studiu). Bez klíče nebo při výpadku funguje základní režim v zařízení."),
   ];
 }
 
@@ -1414,6 +1568,10 @@ return Object.assign(api, { init, refresh, open, openVoice, closeVoice, renderSe
    hasScope(s), requestScope(scope), gfetch(url,opt)
    addLead(data) → lead;  saveMeeting(lead,Date,online,{moveStage}) → {evId,...};  addNote(lead,text);  moveTo(lead,stage)
    tpls(), fillTpl(text,ctx), ensureMeet(eventId) → odkaz;  logLeadMsg(lead,{ch,tpl,start,meetId});  openMsg(ctx,tplId,onSent),  openSms(tel,text) → otevře Zprávy s předvyplněným textem
+   updateLead(lead,patch)     → upraví existujícího klienta (phone, email, source, referredBy, name, nextStep, nextDate); telefon a e-mail propíše i do karty klienta
+   logCall(lead,"yes"|"no",text) → zápis telefonátu do historie (nezvedl → další pokus příští pracovní den);  tasks() → otevřené vlastní úkoly [{id,text,client,due}];  addTask({text,client,due});  doneTask(task)
+   people() → jména všech osob v appce (štít soukromí podle nich pozná, co nesmí k modelu)
+   navigate({screen,view,lead}) → {ok,run} | {ok:false,error};  openLeadMessage(lead,tplId) → {ok,template,note,run} | {ok:false,error}  (run provede asistent až po odpovědi)
    facts() → data pro odpovědi na dotazy: {today, tasks:[{text,client,due,who}], calls:[{name,date,step}], meets:[{name,start,online}],
                 quarter:{label,pts,kc,rate,nextRate,nextTier,need,perWeek,days}, month:{pts}, pipe:{active,meetings,pts,ptsKc,late}}
    openSheet(title,nodes), closeSheet(), toast(msg), demo (prezentační režim – nikdy neodesílá) */

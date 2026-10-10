@@ -95,7 +95,7 @@ const tests = {
   },
   async "nástroje: seznam, find_client neprozradí kontakty"() {
     const t = J.makeTools(A, toolHost());
-    assert.deepEqual(t.declarations.map(d => d.name), ["get_overview", "find_client", "schedule_meeting", "set_stage", "add_note", "add_lead", "cancel_pending_plan"]);
+    assert.deepEqual(t.declarations.map(d => d.name), ["get_overview", "find_client", "list_clients", "schedule_meeting", "set_stage", "add_note", "add_lead", "update_client", "set_next_step", "log_call", "add_task", "complete_task", "open_screen", "prepare_message", "calc_loan", "calc_saving", "cancel_pending_plan"]);
     const st = t.declarations.find(d => d.name === "set_stage").parameters.properties.stage;
     assert.ok(st.enum.includes("podpis") && st.enum.includes("lost"));
     const [r] = await t.runBatch([{ id: "a", name: "find_client", args: { name: "Šikulová" } }]);
@@ -207,7 +207,7 @@ const tests = {
       assert.equal(log[0].headers["x-goog-api-key"], "AIzaTESTKEYTESTKEYTESTKEY");
       const b0 = log[0].body;
       assert.equal((b0.systemInstruction || b0.system_instruction).parts[0].text, "SYS PROMPT");
-      assert.equal(b0.tools[0].functionDeclarations.length, 7);
+      assert.equal(b0.tools[0].functionDeclarations.length, 17);
       assert.equal(b0.generationConfig.thinkingConfig.thinkingLevel, "LOW");
       assert.equal(b0.contents.at(-1).parts[0].text, "Co víš o Šikulové?");
       const c1 = log[1].body.contents;
@@ -278,7 +278,7 @@ const tests = {
       assert.deepEqual(cfg.responseModalities, ["AUDIO"]);
       assert.equal(cfg.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Aoede");
       assert.match(s.systemInstruction.parts[0].text, /hlasová asistentka/);
-      assert.equal(s.tools[0].functionDeclarations.length, 7);
+      assert.equal(s.tools[0].functionDeclarations.length, 17);
       assert.ok("inputAudioTranscription" in s && "outputAudioTranscription" in s && "sessionResumption" in s);
       /* mikrofon → realtimeInput.audio */
       call.onChunk(new Int16Array(512).buffer);
@@ -434,6 +434,168 @@ const tests = {
       assert.deepEqual([r.text, r.tts, r.live], [false, false, false]);
       assert.ok(lines.length >= 3 && lines.every(l => l.startsWith("✗") && /Klíč Gemini není platný/.test(l)), lines.join("\n"));
     } finally { globalThis.WebSocket = realWS; globalThis.fetch = realFetch; FakeWS.autoSetup = true; FakeWS.onSend = null; }
+  },
+
+  /* ---------- štít soukromí: Googlu nikdy nejde jméno klienta, telefon ani e-mail ---------- */
+  "štít: jména se mění na značky, vracejí se v 1. pádu a skloňování nevadí"() {
+    const sh = new J.Shield(A, { known: () => ["Jan Novák", "Petr Novák", "Eva Šikulová", "Ing. Karel Svoboda, Ph.D."] });
+    const m1 = sh.mask("Eva Šikulová chce schůzku ve čtvrtek");
+    assert.match(m1, /^\[K\d\] chce schůzku ve čtvrtek$/); assert.equal(sh.unmask(m1), "Eva Šikulová chce schůzku ve čtvrtek");
+    const m2 = sh.mask("Volal jsem Šikulové a poslal jsem to Šikulovou");
+    assert.equal((m2.match(/\[K\d\]/g) || []).length, 2); assert.ok(!/ikulov/.test(m2), m2);
+    assert.equal(m2.match(/\[K\d\]/g)[0], m1.match(/\[K\d\]/)[0], "stejný klient = stejná značka");
+    assert.equal(sh.unmask(m2), "Volal jsem Eva Šikulová a poslal jsem to Eva Šikulová", "vrací kanonické jméno klienta");
+    const m3 = sh.mask("Karlu Svobodovi pošlu nabídku");
+    assert.ok(!/Svobod|Karl/.test(m3), m3);
+    /* dva Novákové = nejednoznačné, nepřiřadí se, ale také se nepošle */
+    const m4 = sh.mask("Podepsal jsem smlouvu s Novákem");
+    assert.ok(!/Novák/.test(m4), m4); assert.match(m4, /\[J\d\]/);
+    const m5 = sh.mask("Petr Novák chce volat");
+    assert.match(m5, /^\[K\d\] chce volat$/);
+    /* neznámé jméno velkým písmenem (nový kontakt) */
+    const m6 = sh.mask("Nový kontakt Jan Dvořák");
+    assert.ok(!/Dvořák/.test(m6), m6); assert.match(sh.unmask(m6), /Jan Dvořák/);
+    /* běžná slova, dny a měsíce se nemaskují */
+    assert.equal(sh.mask("Co mám ve čtvrtek a v listopadu v úkolech?"), "Co mám ve čtvrtek a v listopadu v úkolech?");
+    assert.equal(sh.mask("Co mám dneska v úkolech?"), "Co mám dneska v úkolech?");
+  },
+  "štít: telefony, e-maily a dlouhá čísla; částky úvěrů ne"() {
+    const sh = new J.Shield(A, { known: () => ["Eva Šikulová"] });
+    const m = sh.mask("Telefon 777 123 456 a +420 602 111 222, e-mail eva@seznam.cz, rodné číslo 850101/1234, účet 123456-7890123456/0800, smlouva 12345678");
+    for (const bad of ["777", "602", "seznam", "850101", "7890123456", "12345678"]) assert.ok(!m.includes(bad), bad + " ve: " + m);
+    assert.match(m, /\[T1\]/); assert.match(m, /\[T2\]/); assert.match(m, /\[E1\]/); assert.match(m, /\[C\d\]/);
+    assert.equal(sh.unmask(m), "Telefon 777 123 456 a +420 602 111 222, e-mail eva@seznam.cz, rodné číslo 850101/1234, účet 123456-7890123456/0800, smlouva 12345678");
+    assert.ok(!/novak|seznam/.test(sh.mask("e-mail je novak zavináč seznam tečka cz")), "diktovaný e-mail");
+    assert.equal(sh.mask("Spočítej úvěr 3000000 na 30 let a 2500000 Kč"), "Spočítej úvěr 3000000 na 30 let a 2500000 Kč");
+    assert.equal(sh.mask(sh.mask("Eva Šikulová 777123456")), sh.mask("Eva Šikulová 777123456"), "maskování je idempotentní");
+  },
+  "štít: pojistka zastaví zprávu, ve které by zbylo jméno nebo číslo"() {
+    const sh = new J.Shield(A, { known: () => ["Eva Šikulová"] });
+    assert.throws(() => sh.assertClean("Zavolej Šikulové"), e => e.name === "ShieldError");
+    assert.throws(() => sh.assertClean("telefon 777 123 456"), e => e.name === "ShieldError");
+    sh.assertClean("Zavolej [K1] ve čtvrtek"); sh.assertClean("Co mám dneska v úkolech?");
+    sh.assertClean([{ functionResponse: { id: "1", name: "x", response: { output: { lines: ["[K1] volat dnes"] } } } }]);
+    assert.throws(() => sh.assertClean([{ functionResponse: { id: "1", name: "x", response: { output: { lines: ["Šikulová volat dnes"] } } } }]), e => e.name === "ShieldError");
+  },
+  "štít: výsledky nástrojů se maskují, argumenty se vracejí a neznámá značka se pozná"() {
+    const sh = new J.Shield(A, { known: () => ["Eva Šikulová", "Jan Novák"] });
+    const r = sh.maskResult({ clients: [{ name: "Eva Šikulová", stage: "novy", note: "volat 777 123 456" }], lines: ["Schůzka s Novákem v 17:00"] });
+    const txt = JSON.stringify(r); assert.ok(!/ikulov|Novák|777/.test(txt), txt);
+    assert.match(r.clients[0].name, /^\[K\d\]$/);
+    const tk = r.clients[0].name.slice(1, -1);
+    const u = sh.unmaskArgs({ client_name: "[" + tk + "]", phone: "[T1]" });
+    assert.equal(u.value.client_name, "Eva Šikulová"); assert.deepEqual(u.unknown, []);
+    assert.deepEqual(sh.unmaskArgs({ client_name: "[K77]" }).unknown, ["K77"]);
+    const j = sh.mask("Nový kontakt Pavel Horák"), jt = j.match(/\[J\d\]/)[0];
+    assert.equal(sh.unmaskArgs({ name: jt }, ["name"]).value.name, "Pavel Horák");
+    assert.equal(sh.unmask("Hotovo, [K99] je tam"), "Hotovo, je tam", "neznámá značka se vypustí");
+  },
+
+  /* ---------- nové nástroje ---------- */
+  async "nástroje: úprava klienta, další krok, hovor, úkoly – validace a plán"() {
+    const h = toolHost(), t = J.makeTools(A, h);
+    const out = await t.runBatch([
+      { id: "1", name: "update_client", args: { client_name: "Eva Šikulová", phone: "777 999 888", email: "eva@example.com", referred_by: "Jan Novák" } },
+      { id: "2", name: "set_next_step", args: { client_name: "Eva Šikulová", step: "Zavolat", date: "2026-10-15" } },
+      { id: "3", name: "log_call", args: { client_name: "Eva Šikulová", result: "no_answer" } },
+      { id: "4", name: "add_task", args: { text: "Poslat podklady", client_name: "Eva Šikulová", due: "2026-10-16" } },
+      { id: "5", name: "complete_task", args: { task_text: "Zavolat bance" } },
+    ]);
+    assert.equal(h.proposed.length, 1);
+    assert.deepEqual(h.proposed[0].map(a => a.name), ["update_client", "set_next_step", "log_call", "add_task", "complete_task"]);
+    assert.deepEqual(h.proposed[0][0].input, { client_name: "Eva Šikulová", phone: "777 999 888", email: "eva@example.com", referred_by: "Jan Novák" });
+    assert.deepEqual(h.proposed[0][1].input, { client_name: "Eva Šikulová", step: "Zavolat", date: "2026-10-15" });
+    assert.ok(out.every(o => o.response.output.ok === true));
+    const bad = await t.runBatch([
+      { id: "1", name: "update_client", args: { client_name: "Eva Šikulová" } }, { id: "2", name: "set_next_step", args: { client_name: "X", date: "zítra" } },
+      { id: "3", name: "log_call", args: { client_name: "X", result: "možná" } }, { id: "4", name: "add_task", args: { text: "" } }, { id: "5", name: "complete_task", args: {} },
+    ]);
+    assert.equal(h.proposed.length, 1, "nic dalšího se nenavrhlo");
+    assert.ok(bad.every(o => o.response.output.ok === false && o.response.output.error), JSON.stringify(bad));
+  },
+  async "nástroje: kalkulačky počítají v kódu, ne z hlavy"() {
+    const t = J.makeTools(A, toolHost());
+    const [a, b, c] = await t.runBatch([{ id: "1", name: "calc_loan", args: { amount: 3000000, rate_percent: 5.5, years: 30 } }, { id: "2", name: "calc_saving", args: { monthly: 5000, rate_percent: 6, years: 20, initial: 100000 } }, { id: "3", name: "calc_loan", args: { amount: -5, rate_percent: 5, years: 10 } }]);
+    assert.equal(a.response.output.monthly_payment_czk, 17034);
+    assert.equal(b.response.output.deposited_czk, 1300000);
+    assert.ok(Math.abs(b.response.output.final_value_czk - 2641225) <= 1, b.response.output.final_value_czk);   /* 100 000·1,005^240 + 5 000·(1,005^240−1)/0,005 */
+    assert.ok(c.response.output.error);
+    const [z] = await t.runBatch([{ id: "4", name: "calc_loan", args: { amount: 1200000, rate_percent: 0, years: 10 } }]);
+    assert.equal(z.response.output.monthly_payment_czk, 10000);
+  },
+  async "nástroje: open_screen a prepare_message jdou přes aplikaci a hledají klienta"() {
+    const calls = [], h = toolHost({ navigate: async a => { calls.push(["nav", a.screen, a.view, a.lead && a.lead.name]); return { ok: true }; }, openMessage: async (l, tpl) => { calls.push(["msg", l.name, tpl]); return { ok: true, template: "Potvrzení" }; } }), t = J.makeTools(A, h);
+    const out = await t.runBatch([
+      { id: "1", name: "open_screen", args: { screen: "client", client_name: "Šikulová" } }, { id: "2", name: "open_screen", args: { screen: "money" } },
+      { id: "3", name: "open_screen", args: { screen: "client", client_name: "Novák" } }, { id: "4", name: "open_screen", args: { screen: "kosmos" } },
+      { id: "5", name: "prepare_message", args: { client_name: "Jan Novák", template: "potvrzeni" } }, { id: "6", name: "prepare_message", args: { client_name: "Zeman" } },
+    ]);
+    assert.deepEqual(calls, [["nav", "client", "", "Eva Šikulová"], ["nav", "money", "money", null], ["msg", "Jan Novák", "potvrzeni"]]);
+    assert.equal(out[0].response.output.ok, true); assert.equal(out[2].response.output.ok, false); assert.equal(out[2].response.output.candidates.length, 2);
+    assert.equal(out[3].response.output.ok, false); assert.equal(out[5].response.output.ok, false);
+  },
+  async "nástroje: list_clients a find_client vrací jen to, co je potřeba"() {
+    const t = J.makeTools(A, toolHost());
+    const [a] = await t.runBatch([{ id: "1", name: "list_clients", args: { filter: "due" } }]);
+    const o = a.response.output; assert.ok(o.matching >= 1 && Array.isArray(o.clients)); assert.ok(!JSON.stringify(o).includes("777"));
+    const [b] = await t.runBatch([{ id: "2", name: "list_clients", args: { stage: "schuzka" } }]);
+    assert.equal(b.response.output.clients.length, 1); assert.equal(b.response.output.clients[0].name, "Jan Novák");
+  },
+  async "nástroje (maskované): značky v argumentech se rozbalí, výstupy se maskují, cizí značka se odmítne"() {
+    const sh = new J.Shield(A, { known: () => leads.map(l => l.name) }), h = toolHost({ shield: sh }), t = J.makeTools(A, h);
+    const m = sh.mask("Eva Šikulová má nový telefon 777 123 456"), kt = m.match(/\[K\d\]/)[0], tt = m.match(/\[T\d\]/)[0];
+    const out = await t.runBatch([{ id: "1", name: "update_client", args: { client_name: kt, phone: tt } }, { id: "2", name: "find_client", args: { name: kt } }, { id: "3", name: "set_stage", args: { client_name: "[K55]", stage: "podpis" } }]);
+    assert.deepEqual(h.proposed[0][0].input, { client_name: "Eva Šikulová", phone: "777 123 456" });
+    const o2 = JSON.stringify(out[1]); assert.ok(!/ikulov|777/.test(o2), o2); assert.match(o2, /\[K\d\]/);
+    assert.equal(out[2].response.output.ok, false); assert.match(out[2].response.output.error, /neznámá značka/);
+    assert.equal(h.proposed.length, 1, "zápis s cizí značkou se nenavrhl");
+    assert.ok(!/ikulov|777/.test(JSON.stringify(out[0])), "i výsledek plánu je maskovaný");
+  },
+  "prompt: popis aplikace, 45 minut, maskování jen v soukromém režimu"() {
+    const p = J.systemPrompt(NOW, {}), q = J.systemPrompt(NOW, { masked: true });
+    assert.match(p, /45 minut/); assert.match(p, /update_client/); assert.match(p, /Neumíš/);
+    assert.doesNotMatch(p, /\[K1\]/); assert.match(q, /\[K1\]/); assert.match(q, /SOUKROMÍ/);
+    const sh = new J.Shield(A, { known: () => leads.map(l => l.name) });
+    sh.assertClean(q, { unknown: false }); sh.assertClean(p, { unknown: false });
+  },
+  "počítadlo: dnešní požadavky podle pacifického dne, nový den = od nuly"() {
+    const store = {}; globalThis.localStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } };
+    try {
+      assert.deepEqual(J.Usage.read(), { day: J.pacificDay(), n: 0, err: 0 });
+      J.Usage.bump(false); J.Usage.bump(true); assert.deepEqual(J.Usage.read(), { day: J.pacificDay(), n: 2, err: 1 });
+      store.gem_use = JSON.stringify({ day: "2020-01-01", n: 50, err: 3 }); assert.equal(J.Usage.read().n, 0);
+      assert.equal(J.pacificDay(new Date("2026-10-10T03:00:00Z")), "2026-10-09", "po půlnoci u nás je v Kalifornii ještě včerejšek");
+      assert.equal(J.pacificDay(new Date("2026-10-10T08:00:00Z")), "2026-10-10");
+    } finally { delete globalThis.localStorage; }
+  },
+  async "Brain (soukromý): Googlu nejde jméno, telefon ani e-mail; odpověď i zápis se doplní"() {
+    const store = {}; globalThis.localStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } };
+    const sh = new J.Shield(A, { known: () => leads.map(l => l.name) }), h = toolHost({ shield: sh }), t = J.makeTools(A, h);
+    const log = fakeFetch((rec, all) => all.length === 1
+      ? { body: gen([{ functionCall: { name: "find_client", args: { name: "[K1]" }, id: "f1" } }, { functionCall: { name: "update_client", args: { client_name: "[K1]", phone: "[T1]", email: "[E1]" }, id: "f2" } }]) }
+      : { body: gen([{ text: "U [K1] mám připraveno doplnit telefon [T1]." }]) });
+    try {
+      const b = new J.Brain({ key: "AIzaTESTKEYTESTKEYTESTKEY", sdk: async () => sdk, shield: sh, system: () => J.systemPrompt(NOW, { masked: true }), declarations: t.declarations, onTools: t.runBatch });
+      const r = await b.ask("Eva Šikulová má nový telefon 777 123 456 a e-mail eva@seznam.cz");
+      assert.equal(log.length, 2);
+      for (const rec of log) { const body = JSON.stringify(rec.body); assert.ok(!/ikulov|777|123 456|@seznam|Novák/.test(body), "Googlu odešlo: " + body.slice(0, 400)); }
+      assert.match(log[0].body.contents.at(-1).parts[0].text, /^\[K\d\] má nový telefon \[T\d\] a e-mail \[E\d\]$/);
+      assert.deepEqual(h.proposed[0][0].input, { client_name: "Eva Šikulová", phone: "777 123 456", email: "eva@seznam.cz" });
+      assert.equal(r.text, "U Eva Šikulová mám připraveno doplnit telefon 777 123 456.");
+      assert.match(r.sent, /^\[K\d\] má nový/);
+      assert.equal(J.Usage.read().n, 2, "dva požadavky na Gemini");
+    } finally { globalThis.fetch = realFetch; delete globalThis.localStorage; }
+  },
+  async "Brain (soukromý): zpráva s nezachytitelným jménem se vůbec neodešle"() {
+    const sh = new J.Shield(A, { known: () => leads.map(l => l.name) });
+    const log = fakeFetch(() => ({ body: gen([{ text: "ok" }]) }));
+    try {
+      const b = new J.Brain({ key: "AIzaTESTKEYTESTKEYTESTKEY", sdk: async () => sdk, shield: sh, system: () => "SYS", declarations: [{ name: "x" }], onTools: async () => [] });
+      await b.init();
+      await assert.rejects(() => b.send("zavolej Šikulové"), e => e.name === "ShieldError");
+      assert.equal(log.length, 0, "žádný požadavek nešel ven");
+      assert.match(J.friendlyError(Object.assign(new Error("x"), { name: "ShieldError" })), /soukrom|zastav|štít/i);
+    } finally { globalThis.fetch = realFetch; }
   },
 };
 
