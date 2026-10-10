@@ -1846,7 +1846,7 @@ function renderDuch(then){
   const go=()=>{duchLoading=false;if(!window.DuchodCalc){$("duchBox").textContent="Kalkulačku se nepodařilo načíst – zkontroluj připojení.";return}
     duchUI=DuchodCalc.mount($("duchBox"),{store:db,toast,ls:{get:k=>lsGet(k),set:(k,v)=>lsSet(k,v)},clients:()=>clientEntries(),ensure:ensureClient});fire()};
   if(window.DuchodCalc)return go();
-  duchLoading=true;const sc=document.createElement("script");sc.src="duchod.js?v=1";sc.onload=go;sc.onerror=go;document.head.append(sc);
+  duchLoading=true;const sc=document.createElement("script");sc.src="duchod.js?v=2";sc.onload=go;sc.onerror=go;document.head.append(sc);
 }
 function renderCareer(cur){
   if($("careerBar").contains(document.activeElement))return;

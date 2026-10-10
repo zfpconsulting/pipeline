@@ -6,6 +6,7 @@
    2026 = NV č. 365/2025 Sb., 2027 = NV č. 177/2026 Sb. (od 1. 1. 2027). */
 (()=>{
 "use strict";
+const BASE=(()=>{try{return (document.currentScript&&document.currentScript.src||location.href).replace(/[^/]*$/,"")}catch(e){return ""}})();
 
 /* ================= parametry podle roku vzniku nároku ================= */
 const PAR={
@@ -54,6 +55,42 @@ function calc(inp){
   const wid={pv:wpv,min:p.min.wid,minUsed:ceil(base*0.5)<p.min.wid,zv:p.zv,total:p.zv+wpv};
   const orp={pv:opv,min:p.min.orp,minUsed:ceil(base*0.4)<p.min.orp,zv:p.zv,total:p.zv+opv,kids,family:(p.zv+opv)*kids};
   return{ok,pr,p,ovz,vz,d,dop,days,years,i1,i2,i3,wid,orp,base,ownBase:own!=null};
+}
+
+/* ================= import IOLDP (text z PDF nebo .txt) ================= */
+/* Hledá v textu IOLDP osobní vyměřovací základ, dobu pojištění (celkem a náhradní), datum důchodového věku a datum vystavení.
+   Co se nenajde, vrátí v `missing` – ručně se doplní ve formuláři. */
+function parseIoldp(raw){
+  const a=String(raw||"").replace(/[\u00a0\u202f]/g," ").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").toLowerCase();
+  const NUM="(\\d{1,3}(?: \\d{3})+|\\d+)(?:[.,]\\d+)?";
+  const YR="(?:roku|roky|rok|let|r\\.?)",DY="(?:dnu|dny|dni|den|d\\.?)";
+  const dur=(re)=>{const m=re.exec(a);return m?{y:+m[1],d:+m[2]}:null};
+  const date=(re)=>{const m=re.exec(a);if(!m)return null;const d=+m[1],mo=+m[2],y=+m[3];return y>1900&&mo>=1&&mo<=12&&d>=1&&d<=31?y+"-"+String(mo).padStart(2,"0")+"-"+String(d).padStart(2,"0"):null};
+  const f={},found=[],missing=[];
+  const ovz=new RegExp("osobni vymerovaci zaklad[^]{0,120}?"+NUM+"\\s*kc").exec(a)||new RegExp("osobni vymerovaci zaklad[^0-9]{0,80}?"+NUM).exec(a);
+  if(ovz){f.ovz=+ovz[1].replace(/ /g,"");found.push("osobní vyměřovací základ")}else missing.push("osobní vyměřovací základ");
+  const dd=(label)=>new RegExp(label+"[^0-9]{0,60}?(\\d+)\\s*"+YR+"\\s*(?:a\\s*)?(\\d+)\\s*"+DY);
+  const tot=dur(dd("doba pojisteni celkem"))||dur(dd("celkem doba pojisteni"))||dur(dd("doba pojisteni"));
+  if(tot){f.tY=tot.y;f.tD=tot.d;found.push("doba pojištění")}else missing.push("doba pojištění");
+  const sub=dur(dd("nahradni doby?(?: pojisteni)?"));
+  if(sub){f.nY=sub.y;f.nD=sub.d;found.push("náhradní doby")}
+  const ret=date(/duchodov\w* vek[^.]{0,120}?(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/);
+  if(ret){f.ret=ret;found.push("důchodový věk")}else missing.push("datum důchodového věku");
+  const dt=date(/(?:ke dni|ze dne|vystaven\w*(?: dne)?|datum vystaveni|stav k)[^0-9]{0,20}(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})/);
+  if(dt){f.ioldp=dt;found.push("datum IOLDP")}
+  return{fields:f,found,missing};
+}
+async function pdfText(file){
+  const lib=await import(BASE+"vendor/pdf.min.mjs");
+  lib.GlobalWorkerOptions.workerSrc=BASE+"vendor/pdf.worker.min.mjs";
+  const doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false,enableXfa:false}).promise;
+  let out="";
+  for(let i=1;i<=doc.numPages;i++){
+    const c=await(await doc.getPage(i)).getTextContent();let y=null;
+    for(const it of c.items){const yy=it.transform?Math.round(it.transform[5]):0;if(y!==null&&Math.abs(yy-y)>3)out+="\n";else if(out&&!/\s$/.test(out))out+=" ";out+=it.str;y=yy}
+    out+="\n";
+  }
+  return out;
 }
 
 /* ================= formát ================= */
@@ -111,7 +148,7 @@ function mount(root,opts={}){
   const ls=opts.ls||{get:k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
   const fresh=()=>({cid:"",ioldp:"",ovz:"",tY:"",tD:"",nY:"",nD:"",ret:"",evt:todayStr(),dopPct:100,kids:1,pvDead:""});
   let st={...fresh(),...(ls.get(LS)||{})};
-  let saved=[];
+  let saved=[],impMsg="";
   const persist=()=>ls.set(LS,st);
   if(store)store.collection("duchod").onSnapshot(s=>{saved=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));drawSaved()});
 
@@ -133,9 +170,10 @@ function mount(root,opts={}){
     root.innerHTML=`<div class="dk">
       <div class="dk-top">
         <div class="dk-f"><label for="dk_cid">Klient</label><select id="dk_cid" data-a="cid">${clientOpts()}</select></div>
-        <div class="dk-acts"><button type="button" class="dk-btn pri" data-a="save">Uložit ke klientovi</button><button type="button" class="dk-btn" data-a="pdf">Tisk / PDF</button><button type="button" class="dk-btn" data-a="new">Nová kalkulace</button></div>
+        <div class="dk-acts"><button type="button" class="dk-btn pri" data-a="save">Uložit ke klientovi</button><button type="button" class="dk-btn" data-a="import">Import IOLDP</button><input type="file" id="dkFile" accept=".pdf,application/pdf,.txt,text/plain" hidden><button type="button" class="dk-btn" data-a="pdf">Tisk / PDF</button><button type="button" class="dk-btn" data-a="new">Nová kalkulace</button></div>
       </div>
       <div class="dk-sec">Údaje z IOLDP</div>
+      <div id="dkImp">${impMsg}</div>
       <div class="dk-grid">
         ${fld("ovz","Osobní vyměřovací základ (Kč měsíčně)",{ph:"např. 52 300"})}
         ${pair("tY","tD","Doba pojištění celkem","roky","dny")}
@@ -245,6 +283,17 @@ function mount(root,opts={}){
     w.document.open();w.document.write(html);w.document.close();
   }
 
+  async function importFile(file){
+    if(!file)return;
+    try{
+      const isPdf=/pdf$/i.test(file.type)||/\.pdf$/i.test(file.name);
+      const r=parseIoldp(isPdf?await pdfText(file):await file.text());
+      if(!r.found.length){impMsg=`<div class="dk-warn">V souboru „${esc(file.name)}“ jsem nenašel žádné údaje z IOLDP. Pokud je to sken, nejde z něj text přečíst – zadej hodnoty ručně.</div>`;draw();return}
+      Object.assign(st,r.fields);persist();
+      impMsg=`<div class="dk-warn">Načteno z „${esc(file.name)}“: ${esc(r.found.join(", "))}.${r.missing.length?" <b>Nenalezeno:</b> "+esc(r.missing.join(", "))+" – doplň ručně.":""} Hodnoty si před použitím zkontroluj proti IOLDP.</div>`;
+      draw();toast("IOLDP načteno");
+    }catch(err){impMsg=`<div class="dk-warn">Soubor se nepodařilo přečíst. Zadej údaje ručně.</div>`;draw()}
+  }
   root.addEventListener("input",e=>{
     const t=e.target;if(!t.dataset||!t.dataset.k)return;
     const k=t.dataset.k;
@@ -253,11 +302,13 @@ function mount(root,opts={}){
   });
   root.addEventListener("change",e=>{
     const t=e.target;
+    if(t.id==="dkFile"){const f=t.files&&t.files[0];t.value="";importFile(f);return}
     if(t.matches&&t.matches("select[data-a=cid]")){const id=t.value;if(!id){st.cid="";persist();return}load(id)}
   });
   root.addEventListener("click",async e=>{
     const b=e.target.closest&&e.target.closest("button[data-a]");if(!b)return;
     const a=b.dataset.a;
+    if(a==="import"){root.querySelector("#dkFile").click();return}
     if(a==="save")save();
     else if(a==="pdf")pdf();
     else if(a==="new"){st=fresh();persist();draw()}
@@ -271,5 +322,5 @@ function mount(root,opts={}){
   return{redraw:draw,refreshClients(){const sel=root.querySelector("#dk_cid");if(sel&&document.activeElement!==sel)sel.innerHTML=clientOpts()},select(id){load(id)},state:()=>st};
 }
 
-window.DuchodCalc={mount,math:{PAR,reduce,doba,dopocet,calc,paramsFor}};
+window.DuchodCalc={mount,math:{PAR,reduce,doba,dopocet,calc,paramsFor,parseIoldp}};
 })();

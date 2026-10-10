@@ -1,4 +1,5 @@
 // Testy důchodové kalkulačky (duchod.js) v Chromiu – nepotřebují PP_KEY. Použití: node tests/duchod.run.mjs [--shots]
+import { readFileSync } from "node:fs";
 import { loadPlaywright, startServer, assert, eq } from "./helpers.mjs";
 
 const SHOTS = process.argv.includes("--shots");
@@ -110,6 +111,29 @@ const tests = {
     await page.click('[data-a="del"][data-sure="1"]'); await page.waitForFunction(() => Object.keys(docs).length === 1);
     assert(!errors.length, "chyby: " + errors.join(" | "));
     await ctx.close();
+  },
+  async "import IOLDP: text se rozparsuje (OVZ nebere rok, náhradní doby zvlášť)"() {
+    const { ctx, page } = await open();
+    const txt = readFileSync(new URL("./fixtures/ioldp-ukazka.txt", import.meta.url), "utf8");
+    const r = await page.evaluate(t => DuchodCalc.math.parseIoldp(t), txt);
+    eq(r.fields, { ovz: 52300, tY: 22, tD: 120, nY: 2, nD: 30, ret: "2049-05-01", ioldp: "2026-10-09" }, "pole");
+    eq(r.missing, [], "nenalezeno");
+    const e = await page.evaluate(() => DuchodCalc.math.parseIoldp("nic užitečného"));
+    eq(e.found, [], "prázdný soubor");
+    await ctx.close();
+  },
+  async "import IOLDP: PDF i .txt vyplní formulář a rovnou se spočítá"() {
+    for (const f of ["ioldp-ukazka.pdf", "ioldp-ukazka.txt"]) {
+      const { ctx, page, errors } = await open();
+      await page.setInputFiles("#dkFile", new URL("./fixtures/" + f, import.meta.url).pathname);
+      await page.waitForFunction(() => document.querySelector("#dkImp .dk-warn"));
+      eq(await page.inputValue('[data-k="ovz"]'), "52300", f + " OVZ");
+      eq([await page.inputValue('[data-k="tY"]'), await page.inputValue('[data-k="tD"]'), await page.inputValue('[data-k="nY"]'), await page.inputValue('[data-k="ret"]')], ["22", "120", "2", "2049-05-01"], f + " doba a věk");
+      assert((await page.textContent("#dkImp")).includes("Načteno"), f + " hláška");
+      assert((await tiles(page)).length === 5, f + " dlaždice");
+      assert(!errors.length, "chyby: " + errors.join(" | "));
+      await ctx.close();
+    }
   },
   async "UI: chybějící údaje a chybějící datum důchodového věku mají upozornění"() {
     const { ctx, page } = await open();
